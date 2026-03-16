@@ -17,12 +17,12 @@
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
-            apiKey: "AIzaSyBxskr4MkTK4M0PyfcGJ-obqnjUVxoL1N0",
+            apiKey: "AIzaSyBo7VF6741bof4RvlOwQc-WB7TRTfmZXQA",
             authDomain: "trabajos-sin-eu.firebaseapp.com",
             projectId: "trabajos-sin-eu",
             storageBucket: "trabajos-sin-eu.firebasestorage.app",
@@ -35,6 +35,26 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
         const functions = getFunctions(app);
+
+        // Conectar a emulador de Autenticación si estamos en localhost
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            console.log("🛠️ Entorno local detectado. Conectando al emulador de Autenticación (Puerto 9099)...");
+            connectAuthEmulator(auth, "http://127.0.0.1:9099");
+
+            // Auto-creación de credenciales de prueba para el usuario (SOLO LOCAL)
+            const testEmail = "demo@tesicnor.com";
+            const testPass = "Tesicnor2026!";
+
+            signInWithEmailAndPassword(auth, testEmail, testPass)
+                .catch(err => {
+                    if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+                        createUserWithEmailAndPassword(auth, testEmail, testPass)
+                            .then(() => console.log("✅ Usuario de prueba creado: " + testEmail))
+                            .catch(e => console.warn("Aviso: El usuario de prueba ya existe o no se pudo crear: ", e));
+                    }
+                });
+            console.log("🔑 Credenciales de prueba locales activa: " + testEmail + " / " + testPass);
+        }
 
         // Variables Globales base
         let costeHoraActual = 60; // Valor por defecto
@@ -179,6 +199,29 @@
             str = str.replace(/\./g, '').replace(',', '.');
             const parsed = parseFloat(str);
             return isNaN(parsed) ? 0 : parsed;
+        }
+
+        // Utilidad para sanear IDs de Firestore (Mantiene compatibilidad con versiones anteriores)
+        function limpiarIdDocumento(id) {
+            if (!id) return 'id_invalido';
+            return id.toString()
+                .replace(/\//g, '_') // Reemplazar todas las barras diagonales (/) por guiones bajos (_)
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Eliminar acentos
+                .replace(/[^a-z0-9_]/gi, '_') // Reemplazar cualquier otro carácter no alfanumérico por guion bajo
+                .replace(/__+/g, '_') // Evitar guiones bajos dobles
+                .replace(/^_+|_+$/g, ''); // Quitar guiones bajos al principio o final
+        }
+
+        // Nueva función de utilidad robusta solicitada para IDs de Firebase
+        function limpiarParaID(id) {
+            if (!id) return 'id_invalido';
+            return id.toString()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "") // Quitar acentos/tildes
+                .replace(/\//g, '_')             // Sustituir '/' por '_'
+                .replace(/[^a-zA-Z0-9_-]/g, '_') // Solo permitir alfanuméricos, guiones y guiones bajos (reemplazar espacios y otros por _)
+                .replace(/__+/g, '_')             // Colapsar guiones bajos múltiples
+                .replace(/^_+|_+$/g, '');        // Limpiar extremos
         }
 
         // Referencia al tbody de la tabla y elementos de navegación
@@ -503,8 +546,11 @@
 
                 tbody.appendChild(fragment);
 
-                const tableProd = document.querySelector('#view-produccion .data-table');
-                if (tableProd) { applyTableFilters(tableProd); applyColumnOrder(tableProd); }
+                if (tableProd) { 
+                    applyTableFilters(tableProd); 
+                    applyColumnOrder(tableProd); 
+                    actualizarIconosFiltroDeTabla(tableProd);
+                }
             } catch (error) {
                 console.error("Error al obtener documentos: ", error);
             }
@@ -631,7 +677,10 @@
 
             const tables = document.querySelectorAll('.data-table');
             tables.forEach(table => {
-                table.dataset.tableId = 'tbl_' + Math.random().toString(36).substr(2, 9);
+                // Usar ID estable de la tabla (asignado en HTML o fallback)
+                if (!table.dataset.tableId) {
+                    table.dataset.tableId = table.id || ('tbl_' + Math.random().toString(36).substr(2, 9));
+                }
                 const ths = table.querySelectorAll('th');
 
                 ths.forEach(th => {
@@ -711,6 +760,14 @@
                             const cb = document.createElement('input');
                             cb.type = 'checkbox';
                             cb.value = opt;
+
+                            // Establecer estado inicial si ya existe filtro cargado
+                            const tblIdVal = table.dataset.tableId;
+                            const colIdxVal = Array.from(th.parentNode.children).indexOf(th);
+                            if (tableFilters[tblIdVal] && Array.isArray(tableFilters[tblIdVal][colIdxVal]) && tableFilters[tblIdVal][colIdxVal].includes(opt)) {
+                                cb.checked = true;
+                            }
+
                             cb.addEventListener('click', e => e.stopPropagation());
 
                             cb.addEventListener('change', () => {
@@ -731,6 +788,7 @@
                                     iconContainer.style.color = '';
                                 }
                                 applyTableFilters(table);
+                                guardarPreferenciasUsuario();
                             });
 
                             lbl.appendChild(cb);
@@ -751,6 +809,14 @@
                         const input = document.createElement('input');
                         input.type = 'text';
                         input.placeholder = 'Buscar...';
+
+                        // Establecer estado inicial si ya existe filtro cargado
+                        const tblIdVal = table.dataset.tableId;
+                        const colIdxVal = Array.from(th.parentNode.children).indexOf(th);
+                        if (tableFilters[tblIdVal] && typeof tableFilters[tblIdVal][colIdxVal] === 'string' && tableFilters[tblIdVal][colIdxVal]) {
+                            input.value = tableFilters[tblIdVal][colIdxVal];
+                        }
+
                         input.addEventListener('click', e => e.stopPropagation());
                         input.addEventListener('input', (e) => {
                             const filterValue = e.target.value.toLowerCase();
@@ -769,6 +835,7 @@
                                 iconContainer.style.color = '';
                             }
                             applyTableFilters(table);
+                            guardarPreferenciasUsuario();
                         });
                         popup.appendChild(input);
                     }
@@ -800,6 +867,7 @@
                             if (tableFilters[tblId]) {
                                 tableFilters[tblId][colIndex] = isMulti ? [] : '';
                                 applyTableFilters(table);
+                                guardarPreferenciasUsuario(); // Added here
                             }
                             popup.style.display = 'none';
                             return;
@@ -1019,11 +1087,94 @@
             }
 
 
-            const tableOfe = document.querySelector('#view-ofertas .data-table');
             if (tableOfe) {
                 if (typeof applyTableFilters === 'function') applyTableFilters(tableOfe);
                 if (typeof applyColumnOrder === 'function') applyColumnOrder(tableOfe);
+                // Marcar iconos de filtro si hay filtros activos cargados
+                actualizarIconosFiltroDeTabla(tableOfe);
             }
+        }
+
+        // --- Persistencia de Preferencias de Usuario ---
+        let timeoutGuardarPref = null;
+        async function guardarPreferenciasUsuario() {
+            const user = auth.currentUser;
+            if (!user) return;
+
+            // Usamos un pequeño debounce para evitar múltiples escrituras seguidas
+            if (timeoutGuardarPref) clearTimeout(timeoutGuardarPref);
+            timeoutGuardarPref = setTimeout(async () => {
+                const prefs = {
+                    filtros: tableFilters,
+                    orden_columnas: {}
+                };
+
+                // Capturar orden de columnas de localStorage (el sistema actual ya lo guarda ahí)
+                document.querySelectorAll('.data-table').forEach(table => {
+                    const tblId = table.id || table.dataset.tableId;
+                    const savedOrder = localStorage.getItem('gestor_col_order_' + tblId);
+                    if (savedOrder) {
+                        prefs.orden_columnas[tblId] = JSON.parse(savedOrder);
+                    }
+                });
+
+                try {
+                    await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), prefs, { merge: true });
+                } catch (e) {
+                    console.error("Error guardando preferencias:", e);
+                }
+            }, 1000);
+        }
+
+        async function cargarPreferenciasUsuario() {
+            const user = auth.currentUser;
+            if (!user) return;
+
+            try {
+                const docSnap = await getDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"));
+                if (docSnap.exists()) {
+                    const prefs = docSnap.data();
+
+                    // Aplicar filtros a la variable global
+                    if (prefs.filtros) {
+                        Object.assign(tableFilters, prefs.filtros);
+                    }
+
+                    // Aplicar orden de columnas a localStorage para que el sistema existente lo use
+                    if (prefs.orden_columnas) {
+                        Object.keys(prefs.orden_columnas).forEach(tblId => {
+                            localStorage.setItem('gestor_col_order_' + tblId, JSON.stringify(prefs.orden_columnas[tblId]));
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error("Error cargando preferencias:", e);
+            }
+        }
+
+        function actualizarIconosFiltroDeTabla(table) {
+            const tblId = table.dataset.tableId;
+            if (!tblId || !tableFilters[tblId]) return;
+
+            const normalSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>`;
+            const activeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon><line x1="3" y1="3" x2="21" y2="21"></line></svg>`;
+
+            const ths = table.querySelectorAll('thead th');
+            Object.keys(tableFilters[tblId]).forEach(cIdx => {
+                const th = ths[cIdx];
+                if (!th) return;
+                const iconContainer = th.querySelector('.header-filter-icon');
+                if (!iconContainer) return;
+
+                const filterVal = tableFilters[tblId][cIdx];
+                const hasFilter = Array.isArray(filterVal) ? filterVal.length > 0 : !!filterVal;
+
+                if (hasFilter) {
+                    iconContainer.dataset.active = 'true';
+                    iconContainer.innerHTML = activeSvg;
+                    iconContainer.style.color = '#ef4444';
+                }
+            });
         }
 
         // --- Drag & Drop Column Reordering Logic ---
@@ -1258,6 +1409,7 @@
 
                     saveColumnOrder(table);
                     updateDynamicStickyColumns(table); // Actualiza las clases sticky al soltar
+                    guardarPreferenciasUsuario();
 
                     if (tbody) tbody.style.display = '';
                 });
@@ -1393,6 +1545,9 @@
             }
 
             async function initAppContent() {
+                isAppInitialized = false;
+                await cargarPreferenciasUsuario();
+                await cargarDatosListasConfig();
                 await cargarSettings();
 
                 inyectarColumnasDinamicas(); // Inyectar antes de setupTableHeaders
@@ -2512,17 +2667,17 @@
             const aceptadas = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('aceptada')).length;
             const enCurso = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('en curso')).length;
             const importeTotalOfertas = datosOfertasMemoria.reduce((acc, o) => acc + (parseSpanishNum(o.presupuesto_total) || 0), 0);
-            
+
             // --- RESUMEN DE PRODUCCIÓN ---
             const totalProduccion = datosProduccionMemoria.length;
             const presupuestoProduccion = datosProduccionMemoria.reduce((acc, p) => acc + (parseSpanishNum(p.presupuesto_m) || 0), 0);
-            
+
             // --- REGISTROS RECIENTES (Muestra de contexto) ---
-            const ultimasOfertas = datosOfertasMemoria.slice(-5).map(o => 
+            const ultimasOfertas = datosOfertasMemoria.slice(-5).map(o =>
                 `- Oferta ${o.num_gestiona || 'N/A'}: ${o.cliente || 'Sin cliente'} - ${o.objeto || 'Sin objeto'} (${o.estado || 'En curso'})`
             ).join('\n');
-            
-            const ultimosTrabajos = datosProduccionMemoria.slice(-5).map(p => 
+
+            const ultimosTrabajos = datosProduccionMemoria.slice(-5).map(p =>
                 `- Trabajo ${p.num_trabajo || 'N/A'}: ${p.cliente || 'Sin cliente'} - ${p.servicio || 'Sin servicio'} (Presp: ${p.presupuesto_m || 0}€)`
             ).join('\n');
 
@@ -2559,17 +2714,17 @@ ${ultimosTrabajos}
 
         document.getElementById('tab-dash-ofertas')?.addEventListener('click', (e) => {
             clearActiveTabs();
-            e.target.classList.add('active'); 
+            e.target.classList.add('active');
             cargarDashboard();
         });
         document.getElementById('tab-dash-produccion')?.addEventListener('click', (e) => {
             clearActiveTabs();
-            e.target.classList.add('active'); 
+            e.target.classList.add('active');
             cargarDashboard();
         });
         document.getElementById('tab-dash-ia')?.addEventListener('click', (e) => {
             clearActiveTabs();
-            e.target.classList.add('active'); 
+            e.target.classList.add('active');
             cargarDashboard();
         });
 
@@ -2588,7 +2743,7 @@ ${ultimosTrabajos}
             const promptUsuario = promptInput.value.trim();
             btnConsultar.disabled = true;
             btnConsultar.textContent = 'Consultando...';
-            
+
             // UI Feedback: Mostrar carga
             responseArea.style.display = 'block';
             responseText.innerHTML = '<span style="color: #64748b; font-style: italic;">La IA está pensando... (Analizando datos del departamento con Gemini Pro)</span>';
@@ -2597,24 +2752,27 @@ ${ultimosTrabajos}
             const promptFinal = `DATOS DEL DEPARTAMENTO: ${contexto} \n\n PREGUNTA DEL USUARIO: ${promptUsuario}`;
 
             try {
-                const response = await fetch('http://127.0.0.1:3000/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: promptFinal })
-                });
+                // PASO 2: FRONTEND - Invocación segura via Firebase Cloud Functions
+                const callGoogleApi = httpsCallable(functions, 'callGoogleApi');
+                const result = await callGoogleApi({ prompt: promptFinal });
 
-                if (!response.ok) throw new Error("Servidor no responde");
-
-                const data = await response.json();
-
-                if (data.success) {
-                    responseText.innerHTML = data.response.replace(/\n/g, '<br>');
+                if (result.data && result.data.success) {
+                    responseText.innerHTML = result.data.response.replace(/\n/g, '<br>');
                 } else {
-                    throw new Error(data.error || 'Error desconocido');
+                    throw new Error('La respuesta de la IA no es válida.');
                 }
             } catch (error) {
-                console.error("Error consultando IA:", error);
-                responseText.innerHTML = '<span style="color: #ef4444; font-weight: 600;">Error: No se pudo conectar con el servidor local. Ejecuta "node ai-server.js" en tu terminal.</span>';
+                console.error("Error consultando IA a través de Cloud Functions:", error);
+
+                // Manejo de errores específicos de Firebase Functions
+                let mensajeError = 'Error: No se pudo conectar con el servicio de IA.';
+                if (error.code === 'unauthenticated') {
+                    mensajeError = 'Error: Debes iniciar sesión para usar la IA.';
+                } else if (error.message) {
+                    mensajeError = `Error: ${error.message}`;
+                }
+
+                responseText.innerHTML = `<span style="color: #ef4444; font-weight: 600;">${mensajeError}</span>`;
             } finally {
                 btnConsultar.disabled = false;
                 btnConsultar.textContent = 'Consultar';
@@ -3547,13 +3705,17 @@ ${ultimosTrabajos}
 
                                     // Attempt to extract the first sequence of numbers from the start
                                     const matchId = observaciones.match(/^(\d+)/);
-                                    const idTrabajoVinculado = matchId ? matchId[1] : observaciones;
+                                    let idTrabajoVinculado = matchId ? matchId[1] : observaciones;
 
                                     // Limpiador básico para el trabajador para que sea apto para ID
-                                    const trabajadorLimpio = row[7] ? row[7].trim().replace(/\s+/g, '').substring(0, 6) : 'user';
+                                    let trabajadorLimpio = row[7] ? row[7].trim().replace(/\s+/g, '').substring(0, 6) : 'user';
+
+                                    const idTrabajoSaneado = limpiarParaID(idTrabajoVinculado);
+                                    const trabajadorSaneado = limpiarParaID(trabajadorLimpio);
 
                                     // Generar ID único usando el pattern: `hora_{num_trabajo}_timestamp_{worker}_index`
-                                    const docId = `hora_${idTrabajoVinculado}_${new Date().getTime()}_${trabajadorLimpio}_${i}`;
+                                    const docBase = `hora_${idTrabajoSaneado}_${new Date().getTime()}_${trabajadorSaneado}_${i}`;
+                                    const docId = limpiarParaID(docBase);
 
                                     const firestoreDoc = {
                                         centro: row[0] ? row[0].trim() : '',
@@ -3710,6 +3872,12 @@ ${ultimosTrabajos}
     <!-- Estilos de la aplicación -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --tesicnor-blue: #2e6ca4;
+            --tesicnor-orange: #e5841b;
+            --primary-hover: #23527c;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -3776,7 +3944,7 @@ ${ultimosTrabajos}
         .login-btn {
             width: 100%;
             padding: 12px;
-            background-color: #3b82f6;
+            background-color: var(--tesicnor-blue);
             color: #ffffff;
             border: none;
             border-radius: 6px;
@@ -3787,7 +3955,7 @@ ${ultimosTrabajos}
         }
 
         .login-btn:hover {
-            background-color: #2563eb;
+            background-color: var(--primary-hover);
         }
 
         /* --- Sidebar Styles --- */
@@ -3819,7 +3987,7 @@ ${ultimosTrabajos}
             font-size: 20px;
             font-weight: 600;
             letter-spacing: -0.5px;
-            color: #38bdf8;
+            color: var(--tesicnor-blue);
             white-space: nowrap;
             overflow: hidden;
             transition: opacity 0.2s ease, width 0.2s ease;
@@ -4095,7 +4263,7 @@ ${ultimosTrabajos}
 
         .btn-primary {
             padding: 10px 24px;
-            background-color: #3b82f6;
+            background-color: var(--tesicnor-blue);
             color: #ffffff;
             border: none;
             border-radius: 6px;
@@ -4109,7 +4277,7 @@ ${ultimosTrabajos}
         }
 
         .btn-primary:hover {
-            background-color: #2563eb;
+            background-color: var(--primary-hover);
         }
 
         /* --- Table Styles --- */
@@ -4256,7 +4424,7 @@ ${ultimosTrabajos}
         .progress-bar {
             height: 12px;
             width: 0%;
-            background-color: #3b82f6;
+            background-color: var(--tesicnor-blue);
             transition: width 0.3s ease, background-color 0.3s ease;
         }
 
@@ -4399,7 +4567,18 @@ ${ultimosTrabajos}
     <!-- Contenedor de Login -->
     <div id="login-container">
         <div class="login-box">
-            <h2 style="color: #38bdf8; font-weight: 600; font-size: 24px; margin-bottom: 8px;">GestorApp</h2>
+            <div style="display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">
+                <svg width="40" height="40" viewBox="0 0 100 100">
+                    <path d="M5 5 L35 5 L35 15 L15 15 L15 35 L5 35 Z" fill="var(--tesicnor-blue)" />
+                    <path d="M65 5 L95 5 L95 35 L85 35 L85 15 L65 15 Z" fill="var(--tesicnor-blue)" />
+                    <path d="M5 95 L5 65 L15 65 L15 85 L35 85 L35 95 Z" fill="var(--tesicnor-blue)" />
+                    <path d="M95 95 L65 95 L65 85 L85 85 L85 65 L95 65 Z" fill="var(--tesicnor-blue)" />
+                    <rect x="25" y="25" width="50" height="50" fill="var(--tesicnor-orange)" />
+                </svg>
+                <h2
+                    style="color: var(--tesicnor-blue); font-weight: 700; font-size: 28px; margin-left: 12px; margin-bottom: 0;">
+                    Proyectos SIN</h2>
+            </div>
             <h2>Iniciar Sesión</h2>
             <form id="login-form">
                 <input type="email" id="login-email" class="login-input" placeholder="Correo electrónico" required>
@@ -4413,8 +4592,15 @@ ${ultimosTrabajos}
     <!-- Sidebar / Menú Lateral -->
     <aside class="sidebar" id="sidebar-main" style="display: none;">
         <div class="sidebar-header">
-            <div class="sidebar-logo">
-                GestorApp
+            <div class="sidebar-logo" style="display: flex; align-items: center;">
+                <svg width="24" height="24" viewBox="0 0 100 100" style="margin-right: 8px;">
+                    <path d="M5 5 L35 5 L35 15 L15 15 L15 35 L5 35 Z" fill="var(--tesicnor-blue)" />
+                    <path d="M65 5 L95 5 L95 35 L85 35 L85 15 L65 15 Z" fill="var(--tesicnor-blue)" />
+                    <path d="M5 95 L5 65 L15 65 L15 85 L35 85 L35 95 Z" fill="var(--tesicnor-blue)" />
+                    <path d="M95 95 L65 95 L65 85 L85 85 L85 65 L95 65 Z" fill="var(--tesicnor-blue)" />
+                    <rect x="25" y="25" width="50" height="50" fill="var(--tesicnor-orange)" />
+                </svg>
+                Proyectos SIN
             </div>
             <button id="btn-toggle-sidebar" title="Plegar/Desplegar Menú">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20"
@@ -4630,12 +4816,11 @@ ${ultimosTrabajos}
                     </div>
 
                     <div class="dash-tabs">
-                        <button class="dash-tab active" id="tab-dash-ofertas">Ofertas</button>
-                        <button class="dash-tab" id="tab-dash-produccion">Producción</button>
-                        <button class="dash-tab" id="tab-dash-ia">Análisis Inteligente</button>
+                        <button class="dash-tab active" id="tab-dash-produccion">Producción</button>
+                        <button class="dash-tab" id="tab-dash-ofertas">Ofertas</button>
                     </div>
 
-                    <div id="panel-dash-ofertas" style="display: block;">
+                    <div id="panel-dash-produccion" style="display: block;">
                         <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año (Ctrl+Click)</label><select id="filt-ofe-year"
@@ -4716,7 +4901,7 @@ ${ultimosTrabajos}
                         </div>
                     </div>
 
-                    <div id="panel-dash-produccion" style="display: none;">
+                    <div id="panel-dash-ofertas" style="display: none;">
                         <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label><select id="filt-pro-year" class="multi-select"
@@ -4798,24 +4983,31 @@ ${ultimosTrabajos}
 
                     <div id="panel-dash-ia" style="display: none;">
                         <div class="chart-box" style="margin-bottom: 24px;">
-                            <h2 class="config-section-title" style="border: none; margin-bottom: 8px;">Análisis Inteligente con IA</h2>
+                            <h2 class="config-section-title" style="border: none; margin-bottom: 8px;">Análisis
+                                Inteligente con IA</h2>
                             <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
-                                Realiza consultas sobre la gestión del departamento, pide resúmenes o solicita análisis predictivos basados en los datos (próximamente).
+                                Realiza consultas sobre la gestión del departamento, pide resúmenes o solicita análisis
+                                predictivos basados en los datos (próximamente).
                             </p>
-                            
+
                             <div style="display: flex; flex-direction: column; gap: 16px;">
-                                <textarea id="ai-prompt-input" placeholder="Escribe aquí tu consulta para la IA... (ej: Analiza la carga de trabajo de los técnicos)" 
+                                <textarea id="ai-prompt-input"
+                                    placeholder="Escribe aquí tu consulta para la IA... (ej: Analiza la carga de trabajo de los técnicos)"
                                     style="width: 100%; min-height: 120px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none; resize: vertical;"></textarea>
-                                
+
                                 <div style="display: flex; justify-content: flex-end;">
-                                    <button id="btn-consultar-ia" class="btn-primary" style="padding: 10px 32px;">Consultar</button>
+                                    <button id="btn-consultar-ia" class="btn-primary"
+                                        style="padding: 10px 32px;">Consultar</button>
                                 </div>
                             </div>
                         </div>
 
-                        <div id="ai-response-area" class="chart-box" style="display: none; background-color: #f0f9ff; border-color: #bae6fd;">
-                            <h3 class="chart-title" style="color: #0369a1; border-bottom-color: #bae6fd;">Respuesta de Inteligencia Artificial</h3>
-                            <div id="ai-response-text" style="font-size: 15px; color: #1e293b; line-height: 1.6; padding: 8px 0;">
+                        <div id="ai-response-area" class="chart-box"
+                            style="display: none; background-color: #f0f9ff; border-color: #bae6fd;">
+                            <h3 class="chart-title" style="color: #0369a1; border-bottom-color: #bae6fd;">Respuesta de
+                                Inteligencia Artificial</h3>
+                            <div id="ai-response-text"
+                                style="font-size: 15px; color: #1e293b; line-height: 1.6; padding: 8px 0;">
                                 <!-- Aquí se inyectará la respuesta -->
                             </div>
                         </div>
