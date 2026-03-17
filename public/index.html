@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestor de Proyectos y Ofertas</title>
 
     <!-- PapaParse para procesamiento de CSV -->
@@ -17,7 +18,7 @@
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
 
         // Your web app's Firebase configuration
@@ -58,7 +59,59 @@
 
         // Variables Globales base
         let costeHoraActual = 60; // Valor por defecto
-        let currentUserRole = null; // 'admin', 'lectura', 'edicion'
+        let currentUserRole = null; // 'admin', 'edicion', 'lectura', 'financiero'
+        
+        // Configuración de Proveedor de Microsoft
+        const microsoftProvider = new OAuthProvider('microsoft.com');
+        microsoftProvider.setCustomParameters({
+            prompt: 'select_account',
+            tenant: 'cf47db47-8b5e-49ad-8aa5-398312169908'
+        });
+
+        async function hacerLoginMicrosoft() {
+            const loginError = document.getElementById('login-error');
+            if (loginError) loginError.style.display = 'none';
+
+            try {
+                // 1. Asegurar persistencia de sesión
+                await setPersistence(auth, browserSessionPersistence);
+
+                // 2. Ejecutar login con Microsoft
+                const result = await signInWithPopup(auth, microsoftProvider);
+                const user = result.user;
+
+                // 3. Validar dominio @tesicnor.com
+                if (!user.email || !user.email.endsWith("@tesicnor.com")) {
+                    throw new Error("DOMINIO_NO_VALIDO");
+                }
+
+                // 4. Consultar colección usuarios_activos en Firestore
+                const userActiveSnap = await getDoc(doc(db, "usuarios_activos", user.email));
+                if (!userActiveSnap.exists()) {
+                    throw new Error("USUARIO_NO_ACTIVO");
+                }
+
+                console.log("✅ Acceso autorizado para:", user.email);
+
+            } catch (error) {
+                console.error("Error en autenticación Microsoft:", error);
+                
+                // Cerrar sesión si falló la validación para limpiar el estado de Firebase
+                await signOut(auth);
+
+                const mensajeAlerta = 'Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com';
+                
+                if (error.message === "DOMINIO_NO_VALIDO" || error.message === "USUARIO_NO_ACTIVO") {
+                    alert(mensajeAlerta);
+                    if (loginError) {
+                        loginError.textContent = mensajeAlerta;
+                        loginError.style.display = 'block';
+                    }
+                } else if (error.code !== 'auth/popup-closed-by-user') {
+                    alert("Error al iniciar sesión con Microsoft. Inténtalo de nuevo.");
+                }
+            }
+        }
 
         // Datos en memoria para Dashboard (Fase 8)
         const datosProduccionMemoria = [];
@@ -320,10 +373,26 @@
                 const horasAgregadas = {};
                 partesSnap.forEach(d => {
                     const dataP = d.data();
-                    const idTrabajo = dataP.num_trabajo_vinculado;
-                    const trabajadorStr = dataP.trabajador;
                     const horas = parseFloat(dataP.horas) || 0;
+                    if (horas === 0) return;
 
+                    // 1. Campo principal
+                    let idTrabajo = dataP.num_trabajo_vinculado;
+
+                    // 2. Fallback: extraer 4 dígitos consecutivos de observaciones
+                    if (!idTrabajo && dataP.observaciones_crudas) {
+                        const match = dataP.observaciones_crudas.match(/\b(\d{4})\b/);
+                        if (match) idTrabajo = match[1];
+                    }
+                    // 3. Fallback secundario: campo observaciones genérico
+                    if (!idTrabajo && dataP.observaciones) {
+                        const match = dataP.observaciones.match(/\b(\d{4})\b/);
+                        if (match) idTrabajo = match[1];
+                    }
+
+                    const trabajadorStr = dataP.trabajador;
+
+                    // Si tras todos los fallbacks no hay ID, ignorar el registro
                     if (!idTrabajo) return;
 
                     if (!horasAgregadas[idTrabajo]) horasAgregadas[idTrabajo] = { total: 0, tecnicos: {} };
@@ -533,12 +602,12 @@
                         <td data-field="total_horas_calc" style="font-weight: 600; text-align: center;">${totalHoras > 0 ? formatHours(totalHoras) : ''}</td>
                         <td data-field="pct_uso" style="background-color: ${pctColor}; color: ${pctTextColor}; text-align: center; font-weight: 600; text-shadow: 0 1px 1px rgba(0,0,0,0.1);">${pctText}</td>
                         ${techHtml}
-                        <td data-field="fecha_ap" style="background-color: #fce7f3; color: #334155;">${currentUserRole === 'lectura' ? '***' : (data['fecha_ap'] || '')}</td>
+                        <td data-field="fecha_ap" style="background-color: #fce7f3; color: #334155;">${(currentUserRole === 'admin' || currentUserRole === 'financiero') ? (data['fecha_ap'] || '') : '***'}</td>
                         <td data-field="visto_vb_cliente" style="background-color: #fce7f3; color: #334155;">${data['visto_vb_cliente'] || ''}</td>
-                        <td data-field="fecha_ar" style="background-color: #fce7f3; color: #334155;">${currentUserRole === 'lectura' ? '***' : (data['fecha_ar'] || '')}</td>
+                        <td data-field="fecha_ar" style="background-color: #fce7f3; color: #334155;">${(currentUserRole === 'admin' || currentUserRole === 'financiero') ? (data['fecha_ar'] || '') : '***'}</td>
                         <td data-field="observaciones" style="background-color: #fce7f3; color: #334155;">${data['observaciones'] || ''}</td>
-                        <td data-field="num_at" style="background-color: #fce7f3; color: #334155;">${currentUserRole === 'lectura' ? '***' : (data['num_at'] || '')}</td>
-                        <td data-field="mes_facturacion" style="background-color: #fce7f3; color: #334155;">${currentUserRole === 'lectura' ? '***' : (data['mes_facturacion'] || '')}</td>
+                        <td data-field="num_at" style="background-color: #fce7f3; color: #334155;">${(currentUserRole === 'admin' || currentUserRole === 'financiero') ? (data['num_at'] || '') : '***'}</td>
+                        <td data-field="mes_facturacion" style="background-color: #fce7f3; color: #334155;">${(currentUserRole === 'admin' || currentUserRole === 'financiero') ? (data['mes_facturacion'] || '') : '***'}</td>
                         <td style="text-align: center;">${btnArchiveHtml}</td>
                     `;
                     fragment.appendChild(tr);
@@ -689,11 +758,13 @@
 
                     // Identificador unívoco del texto original o field. Usaremos el texto original del HTML.
                     const originalText = text;
-                    const displayText = headersConfig[originalText] || originalText;
+                    const rawDisplay = headersConfig[originalText];
+                    // Protección: solo usar el valor si es una cadena de texto (no array ni objeto)
+                    const displayText = (typeof rawDisplay === 'string' && rawDisplay.length > 0) ? rawDisplay : originalText;
 
                     const contentSpan = document.createElement('span');
                     contentSpan.dataset.originalText = originalText;
-                    contentSpan.innerHTML = displayText;
+                    contentSpan.textContent = displayText;
                     th.innerHTML = '';
 
                     const wrapper = document.createElement('div');
@@ -1430,8 +1501,15 @@
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
-                        const userDoc = await getDoc(doc(db, "usuarios", user.uid));
-                        if (userDoc.exists()) {
+                        // 1. Intentar obtener rol por Email (Sincronizado desde tabla de técnicos)
+                        let userDoc = user.email ? await getDoc(doc(db, "usuarios", user.email)) : null;
+                        
+                        // 2. Respaldo: Intentar por UID (Legacy o si no hay email)
+                        if (!userDoc || !userDoc.exists()) {
+                            userDoc = await getDoc(doc(db, "usuarios", user.uid));
+                        }
+
+                        if (userDoc && userDoc.exists()) {
                             currentUserRole = userDoc.data().rol || 'lectura';
                         } else {
                             currentUserRole = 'lectura';
@@ -1445,6 +1523,14 @@
                     loginContainer.style.display = 'none';
                     sidebarMain.style.display = 'flex';
                     appMain.style.display = 'flex';
+
+                    // Mostrar info de usuario en sidebar
+                    const userInfoContainer = document.getElementById('user-info-container');
+                    const userDisplayEmail = document.getElementById('user-display-email');
+                    if (userInfoContainer && userDisplayEmail) {
+                        userDisplayEmail.textContent = user.displayName || user.email;
+                        userInfoContainer.style.display = 'block';
+                    }
 
                     // Aplicar restricciones
                     const tabConfig = document.getElementById('tab-configuracion');
@@ -1470,6 +1556,18 @@
                         }
                     }
 
+                    // Restringir panel de técnicos solo a admin
+                    const panelTecnicos = document.getElementById('panel-tecnicos');
+                    if (panelTecnicos) {
+                        panelTecnicos.style.display = currentUserRole === 'admin' ? '' : 'none';
+                    }
+
+                    // Restringir auditoría solo a admin
+                    const panelAuditoria = document.getElementById('panel-auditoria');
+                    if (panelAuditoria) {
+                        panelAuditoria.style.display = currentUserRole === 'admin' ? '' : 'none';
+                    }
+
                     if (!isAppInitialized) {
                         isAppInitialized = true;
                         await initAppContent();
@@ -1482,6 +1580,10 @@
                     loginContainer.style.display = 'flex';
                     sidebarMain.style.display = 'none';
                     appMain.style.display = 'none';
+
+                    // Limpiar info de usuario en sidebar
+                    const userInfoContainer = document.getElementById('user-info-container');
+                    if (userInfoContainer) userInfoContainer.style.display = 'none';
                 }
             });
 
@@ -1498,6 +1600,14 @@
                         loginError.textContent = "Error al iniciar sesión. Comprueba tus datos.";
                         loginError.style.display = 'block';
                     }
+                });
+            }
+
+            const btnLoginMicrosoft = document.getElementById('btn-login-microsoft');
+            if (btnLoginMicrosoft) {
+                btnLoginMicrosoft.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    hacerLoginMicrosoft();
                 });
             }
 
@@ -1547,7 +1657,6 @@
             async function initAppContent() {
                 isAppInitialized = false;
                 await cargarPreferenciasUsuario();
-                await cargarDatosListasConfig();
                 await cargarSettings();
 
                 inyectarColumnasDinamicas(); // Inyectar antes de setupTableHeaders
@@ -3095,6 +3204,7 @@ ${ultimosTrabajos}
                     <td class="tec-acronimo" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.acronimo)}</span></td>
                     <td class="tec-pila" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.nombre_pila || '')}</span></td>
                     <td class="tec-id" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.id_tec || '')}</span></td>
+                    <td class="tec-rol" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center; cursor: pointer;" title="Doble clic para cambiar rol"><span>${escapeHTML(t.rol || 'lectura')}</span></td>
                     <td class="tec-color" style="padding: 6px 12px; border-bottom: 1px solid #f1f5f9; text-align: center;">
                         <div style="width: 20px; height: 20px; background-color: ${c}; border: 1px solid #cbd5e1; border-radius: 4px; display: inline-block;"></div>
                     </td>
@@ -3114,6 +3224,7 @@ ${ultimosTrabajos}
                     const tdAcr = tr.querySelector('.tec-acronimo');
                     const tdPila = tr.querySelector('.tec-pila');
                     const tdId = tr.querySelector('.tec-id');
+                    const tdRol = tr.querySelector('.tec-rol');
                     const tdColor = tr.querySelector('.tec-color');
 
                     if (tdNom.querySelector('input')) return;
@@ -3122,9 +3233,17 @@ ${ultimosTrabajos}
                     tdAcr.innerHTML = `<input type="text" class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;" value="${escapeHTML(t.acronimo || '')}" />`;
                     tdPila.innerHTML = `<input type="text" class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;" value="${escapeHTML(t.nombre_pila || '')}" />`;
                     tdId.innerHTML = `<input type="text" class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;" value="${escapeHTML(t.id_tec || '')}" />`;
+                    tdRol.innerHTML = `
+                        <select class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;">
+                            <option value="lectura" ${t.rol === 'lectura' ? 'selected' : ''}>lectura</option>
+                            <option value="edicion" ${t.rol === 'edicion' ? 'selected' : ''}>edicion</option>
+                            <option value="admin" ${t.rol === 'admin' ? 'selected' : ''}>admin</option>
+                            <option value="financiero" ${t.rol === 'financiero' ? 'selected' : ''}>financiero</option>
+                        </select>
+                    `;
                     tdColor.innerHTML = `<input type="color" class="inline-edit-input" style="width: 32px; height: 24px; padding: 0; cursor: pointer; border: none;" value="${c}" />`;
 
-                    const inputs = tr.querySelectorAll('input');
+                    const inputs = tr.querySelectorAll('.inline-edit-input');
                     inputs[0].focus();
 
                     const saveBtnGrp = tr.querySelector('td:last-child');
@@ -3137,14 +3256,27 @@ ${ultimosTrabajos}
                     const saveTecEdit = async () => {
                         const newNom = inputs[0].value.trim();
                         const newAcr = inputs[1].value.trim();
+                        const newId = inputs[3].value.trim();
+                        const newRol = inputs[4].value;
 
                         if (newNom && newAcr) {
                             t.nombre = newNom;
                             t.acronimo = newAcr;
                             t.nombre_pila = inputs[2].value.trim();
-                            t.id_tec = inputs[3].value.trim();
-                            t.color = inputs[4].value;
+                            t.id_tec = newId;
+                            t.rol = newRol;
+                            t.color = inputs[5].value;
                             await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
+
+                            // Sincronizar con usuarios/{email} y usuarios_activos
+                            if (newId && newId.includes('@')) {
+                                try {
+                                    await setDoc(doc(db, "usuarios", newId), { rol: newRol }, { merge: true });
+                                    await setDoc(doc(db, "usuarios_activos", newId), { activo: true, nombre: newNom, acronimo: newAcr }, { merge: true });
+                                } catch (errSync) {
+                                    console.error("Error sincronizando rol en usuarios:", errSync);
+                                }
+                            }
                         } else {
                             alert("Nombre y Acrónimo son obligatorios.");
                         }
@@ -3164,6 +3296,52 @@ ${ultimosTrabajos}
                         await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
                         renderListaTecnicos();
                     }
+                });
+
+                // ── Doble clic en celda Rol: editor in-cell aislado ──────────
+                tr.querySelector('.tec-rol').addEventListener('dblclick', () => {
+                    if (currentUserRole !== 'admin') return;
+                    const tdRol = tr.querySelector('.tec-rol');
+                    if (tdRol.querySelector('select')) return;
+
+                    const rolActual = t.rol || 'lectura';
+                    tdRol.innerHTML = `
+                        <select class="inline-edit-input" style="width: 100%; border: 1px solid #3b82f6; border-radius: 4px; padding: 2px 4px; font-size: 13px; outline: none;">
+                            <option value="admin"      ${rolActual === 'admin'      ? 'selected' : ''}>admin</option>
+                            <option value="edicion"    ${rolActual === 'edicion'    ? 'selected' : ''}>edicion</option>
+                            <option value="lectura"    ${rolActual === 'lectura'    ? 'selected' : ''}>lectura</option>
+                            <option value="financiero" ${rolActual === 'financiero' ? 'selected' : ''}>financiero</option>
+                        </select>
+                    `;
+                    const sel = tdRol.querySelector('select');
+                    sel.focus();
+
+                    let isSavingRol = false;
+                    const guardarRol = async () => {
+                        if (isSavingRol) return;
+                        isSavingRol = true;
+                        const nuevoRol = sel.value;
+                        t.rol = nuevoRol;
+                        try {
+                            await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
+                            const emailId = t.id_tec || '';
+                            if (emailId.includes('@')) {
+                                await setDoc(doc(db, "usuarios", emailId), { rol: nuevoRol }, { merge: true });
+                                await setDoc(doc(db, "usuarios_activos", emailId), { activo: true }, { merge: true });
+                            }
+                        } catch (errRol) {
+                            console.error("Error guardando rol:", errRol);
+                            alert("No se pudo guardar el rol. Inténtalo de nuevo.");
+                        }
+                        tdRol.innerHTML = `<span>${escapeHTML(nuevoRol)}</span>`;
+                    };
+
+                    sel.addEventListener('change', guardarRol);
+                    sel.addEventListener('blur', guardarRol);
+                    sel.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); guardarRol(); }
+                        if (e.key === 'Escape') { tdRol.innerHTML = `<span>${escapeHTML(rolActual)}</span>`; }
+                    });
                 });
             });
         }
@@ -3195,11 +3373,17 @@ ${ultimosTrabajos}
                     const nombre = document.getElementById('input-tec-nom').value.trim();
                     const acronimo = document.getElementById('input-tec-acr').value.trim();
                     const id_tec = document.getElementById('input-tec-id').value.trim();
+                    const rol = document.getElementById('input-tec-rol').value;
                     const color = document.getElementById('input-tec-color').value;
 
                     if (nombre && acronimo) {
-                        listaTecnicos.push({ nombre, acronimo, id_tec, color });
+                        listaTecnicos.push({ nombre, acronimo, id_tec, color, rol });
                         await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
+                        // Sincronizar con usuarios/{email} y usuarios_activos si hay email
+                        if (id_tec && id_tec.includes('@')) {
+                            await setDoc(doc(db, "usuarios", id_tec), { rol: rol }, { merge: true });
+                            await setDoc(doc(db, "usuarios_activos", id_tec), { activo: true, nombre: nombre, acronimo: acronimo }, { merge: true });
+                        }
                         document.getElementById('input-tec-nom').value = '';
                         document.getElementById('input-tec-acr').value = '';
                         document.getElementById('input-tec-id').value = '';
@@ -3958,6 +4142,11 @@ ${ultimosTrabajos}
             background-color: var(--primary-hover);
         }
 
+        #btn-login-microsoft:hover {
+            background-color: #f8fafc !important;
+            border-color: #cbd5e1 !important;
+        }
+
         /* --- Sidebar Styles --- */
         .sidebar {
             width: 250px;
@@ -4585,6 +4774,15 @@ ${ultimosTrabajos}
                 <input type="password" id="login-password" class="login-input" placeholder="Contraseña" required>
                 <button type="submit" class="login-btn">Entrar</button>
             </form>
+            <div style="margin: 16px 0; display: flex; align-items: center; justify-content: center;">
+                <div style="flex: 1; height: 1px; background-color: #e2e8f0;"></div>
+                <span style="margin: 0 10px; font-size: 12px; color: #94a3b8; font-weight: 500;">O</span>
+                <div style="flex: 1; height: 1px; background-color: #e2e8f0;"></div>
+            </div>
+            <button id="btn-login-microsoft" class="login-btn" style="background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                <svg width="20" height="20" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fbb00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+                Iniciar sesión con Microsoft
+            </button>
             <p id="login-error" style="color: #ef4444; font-size: 14px; margin-top: 12px; display: none;"></p>
         </div>
     </div>
@@ -4640,7 +4838,10 @@ ${ultimosTrabajos}
                 </svg>
                 <span>Configuración</span>
             </a>
-            <a href="#" class="nav-item" id="btn-logout" style="margin-top: auto; color: #ef4444;">
+            <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
+                <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
+            </div>
+            <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -5234,8 +5435,8 @@ ${ultimosTrabajos}
                                 </ul>
                             </div>
 
-                            <!-- Lista: Técnicos -->
-                            <div
+                            <!-- Lista: Técnicos (Solo Admin) -->
+                            <div id="panel-tecnicos"
                                 style="flex: 1; min-width: 600px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
@@ -5262,6 +5463,11 @@ ${ultimosTrabajos}
                                     <input type="color" id="input-tec-color" value="#ffffff"
                                         style="width: 36px; height: 32px; padding: 0; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;"
                                         title="Color asignado">
+                                    <select id="input-tec-rol" style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                        <option value="lectura">lectura</option>
+                                        <option value="edicion">edicion</option>
+                                        <option value="admin">admin</option>
+                                    </select>
                                     <button id="btn-add-tecnico" class="btn-primary"
                                         style="padding: 6px 12px; font-size: 13px;">Añadir</button>
                                 </div>
@@ -5283,6 +5489,9 @@ ${ultimosTrabajos}
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
                                                     Nº Téc.</th>
                                                 <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
+                                                    Rol</th>
+                                                <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 50px;">
                                                     Color</th>
                                                 <th style="padding: 6px 12px; width: 60px;"></th>
@@ -5298,7 +5507,7 @@ ${ultimosTrabajos}
                     </div>
 
                     <!-- Auditoría masiva de nombres -->
-                    <div class="config-panel" style="margin-top: 30px;">
+                    <div id="panel-auditoria" class="config-panel" style="margin-top: 30px;">
                         <h2 class="config-section-title">Auditoría y Fusión Masiva</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 24px;">
                             Visualiza los nombres únicos detectados para "Cliente" y "Grupo" y cuántos registros
