@@ -381,14 +381,16 @@
                         ? String(dataP.num_trabajo_vinculado).trim()
                         : null;
 
-                    // 2. Fallback: extraer dígitos del campo observaciones_crudas
+                    // 2. Fallback: el campo observaciones_crudas DEBE EMPEZAR por el código numérico
+                    //    (seguido de fin de cadena, espacio, guion, dos puntos u otro no-dígito)
+                    //    Esto evita contar horas de otros trabajos mencionados dentro del texto.
                     if (!idTrabajo && dataP.observaciones_crudas) {
-                        const match = String(dataP.observaciones_crudas).match(/\b(\d{3,6})\b/);
+                        const match = String(dataP.observaciones_crudas).trim().match(/^(\d{3,6})(?:\D|$)/);
                         if (match) idTrabajo = match[1];
                     }
-                    // 3. Fallback secundario: campo observaciones genérico
+                    // 3. Fallback secundario: campo observaciones genérico (misma lógica)
                     if (!idTrabajo && dataP.observaciones) {
-                        const match = String(dataP.observaciones).match(/\b(\d{3,6})\b/);
+                        const match = String(dataP.observaciones).trim().match(/^(\d{3,6})(?:\D|$)/);
                         if (match) idTrabajo = match[1];
                     }
 
