@@ -3292,8 +3292,6 @@
 
             const yearFilter = parseInt(document.getElementById('filt-partes-year')?.value || '2026', 10);
             const minDate = new Date(2026, 0, 1);
-
-            // Populate year selector with available years
             const yearSel = document.getElementById('filt-partes-year');
 
             if (!window._partesHorasData) {
@@ -3310,185 +3308,169 @@
             }
 
             const rawData = window._partesHorasData;
-
-            // Fuzzy technician match (same logic as cargarProduccion)
             const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
 
             function resolverTec(trabajadorStr) {
-                const wordsCSV = getWords(trabajadorStr);
-                let tec = null, maxM = 0;
+                const w = getWords(trabajadorStr);
+                let tec = null, mx = 0;
                 listaTecnicos.forEach(t => {
-                    const wCfg = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
-                    let m = 0;
-                    wordsCSV.forEach(w => { if (wCfg.includes(w)) m++; });
-                    if (m > maxM) { maxM = m; tec = t; }
+                    const wc = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
+                    let m = 0; w.forEach(x => { if (wc.includes(x)) m++; });
+                    if (m > mx) { mx = m; tec = t; }
                 });
-                if (maxM === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
+                if (mx === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
                 return tec;
             }
 
-            // Parse fecha DD/MM/YYYY or ISO
             function parseFecha(raw) {
                 if (!raw) return null;
-                if (raw.includes('/')) {
-                    const p = raw.split('/');
-                    if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
-                }
-                const d = new Date(raw);
-                return isNaN(d.getTime()) ? null : d;
+                if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
+                const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
             }
 
-            // Get service label from produccion
             function getServicioLabel(obs) {
                 const match = (obs || '').trim().match(/^(\d{3,6})/);
                 const num = match ? match[1] : null;
                 if (num && typeof datosProduccionMemoria !== 'undefined') {
                     const prod = datosProduccionMemoria.find(pr => String(pr.num_trabajo) === num);
-                    if (prod) {
-                        const exp = prod.exp_gestiona || '';
-                        const srv = prod.servicio || '';
-                        return (exp ? exp + '. ' : '') + srv;
-                    }
+                    if (prod) return (prod.exp_gestiona ? prod.exp_gestiona + '. ' : '') + (prod.servicio || '');
                 }
-                return num ? num + '. (Sin vincular)' : '(Sin código)';
+                return num ? num + '. (Sin vincular)' : '(Sin codigo)';
             }
 
-            // Collect available years and build data
             const yearsAvail = new Set();
             const errores = [];
-
-            // Structure: tecAcr -> { months: {mKey: hrs}, servicios: {srvLabel: {mKey: hrs}}, byPeriod: {mKey: {wKey: {dKey: hrs, servicios: {srv: hrs}}}} }
+            const mNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
             const tecMap = {};
+            const allMonths = new Set();
+            const daysPerMonth = {};
 
             rawData.forEach(p => {
                 const fecha = parseFecha(p.fecha);
                 if (!fecha || fecha < minDate) return;
                 yearsAvail.add(fecha.getFullYear());
                 if (fecha.getFullYear() !== yearFilter) return;
-
                 const horas = parseFloat(p.horas) || 0;
                 if (horas === 0) return;
-
                 const trab = (p.trabajador || '').trim();
                 const tec = resolverTec(trab);
                 const tecKey = tec ? tec.acronimo : trab;
                 const tecLabel = tec ? (tec.nombre_pila || tec.acronimo) : trab;
-
                 const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
                 const hasCode = /^\d{3,6}/.test(obs);
-                if (!hasCode) {
-                    errores.push({ tecnico: tecLabel, fecha: p.fecha || '', observaciones: obs });
-                }
-
-                const y = fecha.getFullYear();
+                if (!hasCode) errores.push({ tecnico: tecLabel, tecAcr: tecKey, fecha: p.fecha || '', observaciones: obs });
                 const m = fecha.getMonth() + 1;
-                const mKey = `${y}-${String(m).padStart(2, '0')}`;
-                const dow = fecha.getDay();
-                const ws = new Date(fecha); ws.setDate(ws.getDate() - ((dow + 6) % 7));
-                const wKey = ws.toISOString().slice(0, 10);
-                const dKey = `${y}-${String(m).padStart(2,'0')}-${String(fecha.getDate()).padStart(2,'0')}`;
+                const mKey = String(m);
+                const dKey = String(fecha.getDate()).padStart(2, '0');
                 const srvLabel = getServicioLabel(obs);
-
-                if (!tecMap[tecKey]) tecMap[tecKey] = { label: tecLabel, months: {}, servicios: {}, byPeriod: {} };
+                allMonths.add(m);
+                if (!daysPerMonth[mKey]) daysPerMonth[mKey] = new Set();
+                daysPerMonth[mKey].add(dKey);
+                if (!tecMap[tecKey]) tecMap[tecKey] = { label: tecLabel, byMonth: {}, bySrv: {}, byDay: {} };
                 const td = tecMap[tecKey];
-                td.months[mKey] = (td.months[mKey] || 0) + horas;
-                if (!td.servicios[srvLabel]) td.servicios[srvLabel] = {};
-                td.servicios[srvLabel][mKey] = (td.servicios[srvLabel][mKey] || 0) + horas;
-
-                // Period tree for week/day drill-down
-                if (!td.byPeriod[mKey]) td.byPeriod[mKey] = {};
-                if (!td.byPeriod[mKey][wKey]) td.byPeriod[mKey][wKey] = {};
-                if (!td.byPeriod[mKey][wKey][dKey]) td.byPeriod[mKey][wKey][dKey] = {};
-                td.byPeriod[mKey][wKey][dKey][srvLabel] = (td.byPeriod[mKey][wKey][dKey][srvLabel] || 0) + horas;
+                td.byMonth[mKey] = (td.byMonth[mKey] || 0) + horas;
+                if (!td.bySrv[srvLabel]) td.bySrv[srvLabel] = {};
+                td.bySrv[srvLabel][mKey] = (td.bySrv[srvLabel][mKey] || 0) + horas;
+                if (!td.byDay[mKey]) td.byDay[mKey] = {};
+                if (!td.byDay[mKey][dKey]) td.byDay[mKey][dKey] = { total: 0, srvs: {} };
+                td.byDay[mKey][dKey].total += horas;
+                td.byDay[mKey][dKey].srvs[srvLabel] = (td.byDay[mKey][dKey].srvs[srvLabel] || 0) + horas;
             });
 
-            // Populate year filter
-            if (yearSel && yearSel.options.length <= 1) {
+            if (yearSel) {
                 [...yearsAvail].sort().forEach(y => {
-                    if (!yearSel.querySelector(`option[value="${y}"]`)) {
-                        const opt = document.createElement('option');
-                        opt.value = y; opt.textContent = y;
+                    if (!yearSel.querySelector('option[value="' + y + '"]')) {
+                        const opt = document.createElement('option'); opt.value = y; opt.textContent = y;
                         if (y === yearFilter) opt.selected = true;
                         yearSel.appendChild(opt);
                     }
                 });
             }
 
-            // Collect all months for the filtered year
-            const allMonths = new Set();
-            Object.values(tecMap).forEach(td => Object.keys(td.months).forEach(mk => allMonths.add(mk)));
-            const months = [...allMonths].sort();
-            const mNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-            const dayNames = ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'];
-            const curMonth = new Date().getFullYear() === yearFilter ? new Date().getMonth() + 1 : -1;
+            const months = [...allMonths].sort((a, b) => a - b);
+            Object.keys(daysPerMonth).forEach(mk => { daysPerMonth[mk] = [...daysPerMonth[mk]].sort(); });
 
-            // Include ALL technicians from config, even those without data
-            const allTecs = listaTecnicos.map(t => t.acronimo);
-            allTecs.forEach(acr => {
-                if (!tecMap[acr]) {
-                    const t = listaTecnicos.find(x => x.acronimo === acr);
-                    tecMap[acr] = { label: t ? (t.nombre_pila || acr) : acr, months: {}, servicios: {}, byPeriod: {} };
-                }
+            listaTecnicos.forEach(t => {
+                if (!tecMap[t.acronimo]) tecMap[t.acronimo] = { label: t.nombre_pila || t.acronimo, byMonth: {}, bySrv: {}, byDay: {} };
             });
-
-            // Sort technicians alphabetically by label
             const tecKeys = Object.keys(tecMap).sort((a, b) => tecMap[a].label.localeCompare(tecMap[b].label));
 
-            // ── Build table HTML ──
-            const mHeaders = months.map(mk => {
-                const mi = parseInt(mk.split('-')[1]);
-                return `<th style="padding:6px 8px;font-size:12px;font-weight:600;background:#f1f5f9;color:#334155;text-align:center;min-width:60px;">${mNames[mi]}</th>`;
-            }).join('');
-
-            let rows = '';
-            const uid = () => 'r' + Math.random().toString(36).substr(2, 8);
-
-            tecKeys.forEach(tecKey => {
-                const td = tecMap[tecKey];
-                const totalYear = months.reduce((s, mk) => s + (td.months[mk] || 0), 0);
-                const tecId = uid();
-
-                // ── Technician row ──
-                rows += `<tr class="pt-row pt-tec" data-id="${tecId}" style="cursor:pointer;background:#e8f0fe;border-bottom:1px solid #cbd5e1;">
-                    <td style="padding:8px 12px;font-weight:700;color:#1e293b;white-space:nowrap;position:sticky;left:0;background:#e8f0fe;z-index:2;">&#9654; ${td.label}</td>
-                    ${months.map(mk => {
-                        const v = td.months[mk] || 0;
-                        return `<td style="text-align:center;font-weight:600;color:#1e293b;padding:6px;">${v ? (v % 1 === 0 ? v : v.toFixed(1)) : ''}</td>`;
-                    }).join('')}
-                    <td style="text-align:center;font-weight:700;color:#0f172a;padding:6px;background:#e2e8f0;">${totalYear ? (totalYear % 1 === 0 ? totalYear : totalYear.toFixed(1)) : ''}</td>
-                </tr>`;
-
-                // ── Service detail rows (hidden, child of tec) ──
-                const srvNames = Object.keys(td.servicios).sort();
-                srvNames.forEach(srv => {
-                    const srvData = td.servicios[srv];
-                    const srvTotal = months.reduce((s, mk) => s + (srvData[mk] || 0), 0);
-                    if (srvTotal === 0) return;
-                    rows += `<tr class="pt-row pt-srv" data-parent="${tecId}" style="display:none;border-bottom:1px solid #f1f5f9;">
-                        <td style="padding:4px 12px 4px 32px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:350px;position:sticky;left:0;background:white;z-index:2;" title="${srv}">${srv}</td>
-                        ${months.map(mk => {
-                            const v = srvData[mk] || 0;
-                            return `<td style="text-align:center;font-size:13px;color:#475569;padding:4px;">${v ? (v % 1 === 0 ? v : v.toFixed(1)) : ''}</td>`;
-                        }).join('')}
-                        <td style="text-align:center;font-size:13px;font-weight:600;color:#334155;padding:4px;background:#f8fafc;">${srvTotal % 1 === 0 ? srvTotal : srvTotal.toFixed(1)}</td>
-                    </tr>`;
+            // Column structure: month (visible) + day cols (hidden) per month
+            const colDefs = [];
+            months.forEach(m => {
+                colDefs.push({ type: 'month', month: String(m), label: mNames[m] });
+                (daysPerMonth[String(m)] || []).forEach(d => {
+                    colDefs.push({ type: 'day', month: String(m), day: d, label: d });
                 });
             });
 
-            container.innerHTML = `<table style="width:100%;border-collapse:collapse;">
-                <thead style="position:sticky;top:0;z-index:5;"><tr>
-                    <th style="padding:8px 12px;font-size:13px;font-weight:700;background:#2176AC;color:white;text-align:left;min-width:220px;position:sticky;left:0;z-index:6;">Técnico / Servicio</th>
-                    ${mHeaders}
-                    <th style="padding:6px 8px;font-size:12px;font-weight:700;background:#cbd5e1;color:#0f172a;text-align:center;min-width:60px;">Total</th>
-                </tr></thead>
-                <tbody>${rows}</tbody>
-            </table>`;
+            // Header
+            let hdrCells = '<th style="padding:8px 12px;font-size:13px;font-weight:700;background:#2176AC;color:white;text-align:left;min-width:240px;position:sticky;left:0;z-index:6;">Tecnico / Servicio</th>';
+            colDefs.forEach(cd => {
+                if (cd.type === 'month') {
+                    hdrCells += '<th class="ph-col ph-m ph-m-' + cd.month + '" data-month="' + cd.month + '" style="padding:6px 8px;font-size:12px;font-weight:600;background:#f1f5f9;color:#334155;text-align:center;min-width:60px;cursor:pointer;user-select:none;" title="Clic para ver dias">&#9654; ' + cd.label + '</th>';
+                } else {
+                    hdrCells += '<th class="ph-col ph-d ph-d-' + cd.month + '" data-month="' + cd.month + '" style="padding:6px 6px;font-size:11px;font-weight:500;background:#f8fafc;color:#64748b;text-align:center;min-width:36px;display:none;">' + cd.label + '</th>';
+                }
+            });
+            hdrCells += '<th style="padding:6px 8px;font-size:12px;font-weight:700;background:#cbd5e1;color:#0f172a;text-align:center;min-width:60px;">Total</th>';
 
-            // ── Toggle expand/collapse ──
+            const fmtV = v => v ? (v % 1 === 0 ? String(v) : v.toFixed(1)) : '';
+            let bodyRows = '';
+
+            tecKeys.forEach(tecKey => {
+                const td = tecMap[tecKey];
+                const totalYear = months.reduce((s, m) => s + (td.byMonth[String(m)] || 0), 0);
+                const tecId = 'pt' + Math.random().toString(36).substr(2, 6);
+
+                let tecCells = '<td style="padding:8px 12px;font-weight:700;color:#1e293b;white-space:nowrap;position:sticky;left:0;background:#e8f0fe;z-index:2;">&#9654; ' + td.label + '</td>';
+                colDefs.forEach(cd => {
+                    if (cd.type === 'month') {
+                        tecCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-weight:600;color:#1e293b;padding:6px;">' + fmtV(td.byMonth[cd.month]) + '</td>';
+                    } else {
+                        const dayVal = td.byDay[cd.month] && td.byDay[cd.month][cd.day] ? td.byDay[cd.month][cd.day].total : 0;
+                        tecCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:13px;color:#334155;padding:4px;display:none;">' + fmtV(dayVal) + '</td>';
+                    }
+                });
+                tecCells += '<td style="text-align:center;font-weight:700;color:#0f172a;padding:6px;background:#e2e8f0;">' + fmtV(totalYear) + '</td>';
+                bodyRows += '<tr class="pt-row pt-tec" data-id="' + tecId + '" style="cursor:pointer;background:#e8f0fe;border-bottom:1px solid #cbd5e1;">' + tecCells + '</tr>';
+
+                const srvNames = Object.keys(td.bySrv).sort();
+                srvNames.forEach(srv => {
+                    const sData = td.bySrv[srv];
+                    const sTotal = months.reduce((s, m) => s + (sData[String(m)] || 0), 0);
+                    if (sTotal === 0) return;
+                    let sCells = '<td style="padding:4px 12px 4px 32px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:350px;position:sticky;left:0;background:white;z-index:2;" title="' + srv.replace(/"/g, '&quot;') + '">' + srv + '</td>';
+                    colDefs.forEach(cd => {
+                        if (cd.type === 'month') {
+                            sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:#475569;padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
+                        } else {
+                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:12px;color:#94a3b8;padding:4px;display:none;"></td>';
+                        }
+                    });
+                    sCells += '<td style="text-align:center;font-size:13px;font-weight:600;color:#334155;padding:4px;background:#f8fafc;">' + fmtV(sTotal) + '</td>';
+                    bodyRows += '<tr class="pt-row pt-srv" data-parent="' + tecId + '" style="display:none;border-bottom:1px solid #f1f5f9;">' + sCells + '</tr>';
+                });
+            });
+
+            container.innerHTML = '<table id="partes-pivot-table" style="width:max-content;border-collapse:collapse;"><thead style="position:sticky;top:0;z-index:5;"><tr>' + hdrCells + '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
+
+            // Month expand/collapse
+            container.querySelectorAll('th.ph-m').forEach(th => {
+                th.addEventListener('click', () => {
+                    const m = th.dataset.month;
+                    const dayCols = container.querySelectorAll('.ph-d-' + m);
+                    const isOpen = dayCols.length > 0 && dayCols[0].style.display !== 'none';
+                    dayCols.forEach(el => el.style.display = isOpen ? 'none' : '');
+                    th.innerHTML = th.innerHTML.replace(isOpen ? '\u25BC' : '\u25B6', isOpen ? '\u25B6' : '\u25BC');
+                });
+            });
+
+            // Technician expand/collapse
             container.querySelectorAll('.pt-tec').forEach(row => {
                 row.addEventListener('click', () => {
                     const id = row.dataset.id;
-                    const children = container.querySelectorAll(`.pt-srv[data-parent="${id}"]`);
+                    const children = container.querySelectorAll('.pt-srv[data-parent="' + id + '"]');
                     const isOpen = children.length > 0 && children[0].style.display !== 'none';
                     const arrow = row.querySelector('td');
                     children.forEach(r => r.style.display = isOpen ? 'none' : '');
@@ -3496,25 +3478,20 @@
                 });
             });
 
-            // ── Error table ──
+            // Error table: admin sees all, others see only own
             if (errContainer) {
-                const filteredErrors = errores.filter(e => e.observaciones !== '');
-                if (filteredErrors.length === 0) {
-                    errContainer.innerHTML = '<p style="color:#10b981;font-size:13px;padding:8px 0;">Todos los registros tienen un código de trabajo válido.</p>';
+                let fe = errores.filter(e => e.observaciones !== '');
+                if (currentUserRole !== 'admin' && currentUserAcronym) {
+                    fe = fe.filter(e => e.tecAcr === currentUserAcronym);
+                }
+                if (fe.length === 0) {
+                    errContainer.innerHTML = '<p style="color:#10b981;font-size:13px;padding:8px 0;">Todos los registros tienen un codigo de trabajo valido.</p>';
                 } else {
-                    errContainer.innerHTML = `<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:13px;">
-                        <thead><tr>
-                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Técnico</th>
-                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Fecha</th>
-                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Observaciones</th>
-                        </tr></thead>
-                        <tbody>${filteredErrors.slice(0, 200).map(e => `<tr style="border-bottom:1px solid #f1f5f9;">
-                            <td style="padding:4px 12px;color:#334155;">${e.tecnico}</td>
-                            <td style="padding:4px 12px;color:#64748b;white-space:nowrap;">${e.fecha}</td>
-                            <td style="padding:4px 12px;color:#64748b;">${e.observaciones}</td>
-                        </tr>`).join('')}</tbody>
-                    </table>
-                    ${filteredErrors.length > 200 ? `<p style="color:#64748b;font-size:12px;margin-top:8px;">Mostrando 200 de ${filteredErrors.length} registros.</p>` : ''}`;
+                    let trs = '';
+                    fe.slice(0, 200).forEach(e => {
+                        trs += '<tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:4px 12px;color:#334155;">' + e.tecnico + '</td><td style="padding:4px 12px;color:#64748b;white-space:nowrap;">' + e.fecha + '</td><td style="padding:4px 12px;color:#64748b;">' + e.observaciones + '</td></tr>';
+                    });
+                    errContainer.innerHTML = '<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:13px;"><thead><tr><th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Tecnico</th><th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Fecha</th><th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Observaciones</th></tr></thead><tbody>' + trs + '</tbody></table>' + (fe.length > 200 ? '<p style="color:#64748b;font-size:12px;margin-top:8px;">Mostrando 200 de ' + fe.length + ' registros.</p>' : '');
                 }
             }
         }
