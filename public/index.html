@@ -64,10 +64,10 @@
 
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
         let permisosRoles = {
-            admin:      { ver_tab_configuracion:true, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            lectura:    { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
-            financiero: { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
+            admin:      { ver_tab_configuracion:true, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            lectura:    { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
+            financiero: { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
         };
 
         function tienePermiso(permiso) {
@@ -670,7 +670,23 @@
             // Obtener índices de columnas a ocultar
             const indicesToHide = new Set();
 
-            // Para lectura: ocultar columnas de importes (presupuesto_m, gastos_n) si no tiene permiso
+            // Campos de horas/uso a ocultar si no tiene permiso ver_columnas_horas
+            const camposHoras = ['horas_disponibles', 'total_horas_historico', 'total_horas_calc', 'pct_uso'];
+            if (!tienePermiso('ver_columnas_horas')) {
+                headers.forEach((th, idx) => {
+                    if (rows.length > 0) {
+                        const td = rows[0].children[idx];
+                        if (td) {
+                            const f = td.dataset.field;
+                            if (camposHoras.includes(f)) indicesToHide.add(idx);
+                            // Ocultar TODAS las columnas de técnicos
+                            if (f && f.startsWith('tec_')) indicesToHide.add(idx);
+                        }
+                    }
+                });
+            }
+
+            // Ocultar importes si no tiene permiso
             if (!tienePermiso('ver_importes')) {
                 headers.forEach((th, idx) => {
                     if (rows.length > 0) {
@@ -685,8 +701,8 @@
                 });
             }
 
-            // Para lectura y financiero: ocultar columnas de técnicos que no son el propio usuario
-            if (!tienePermiso('ver_todas_columnas_tec')) {
+            // Para lectura: ocultar columnas de técnicos que no son el propio usuario (solo si tiene permiso de ver horas)
+            if (tienePermiso('ver_columnas_horas') && !tienePermiso('ver_todas_columnas_tec')) {
                 headers.forEach((th, idx) => {
                     if (rows.length > 0) {
                         const td = rows[0].children[idx];
@@ -4192,8 +4208,9 @@ ${ultimosTrabajos}
                 editar_campos_generales: 'Editar campos generales (Producción)',
                 editar_campos_financieros: 'Editar campos financieros (fecha fact., obs., nº fact., mes fact.)',
                 editar_fecha_fin: 'Editar fecha finalización (o técnico responsable de la fila)',
-                ver_importes: 'Ver importes (presupuesto, gastos, horas disp.)',
-                ver_todas_columnas_tec: 'Ver todas las columnas de técnicos',
+                ver_importes: 'Ver importes (presupuesto, gastos)',
+                ver_columnas_horas: 'Ver columnas de horas (horas disp., hist., total, % uso, técnicos)',
+                ver_todas_columnas_tec: 'Ver todas las columnas de técnicos (no solo la propia)',
                 historial_global: 'Historial global',
                 exportar_excel: 'Exportar a Excel',
                 ver_ofertas: 'Ver pestaña Ofertas',
@@ -6218,9 +6235,11 @@ ${ultimosTrabajos}
                                 </ul>
                             </div>
 
-                            <!-- Lista: Técnicos (Solo Admin) -->
-                            <div id="panel-tecnicos"
-                                style="flex: 1; min-width: 600px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
+                        </div>
+
+                        <!-- Lista: Técnicos (Solo Admin) — Ancho completo debajo de las listas -->
+                        <div id="panel-tecnicos"
+                            style="margin-top: 24px; width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                     <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin: 0;">Técnicos
@@ -6255,7 +6274,7 @@ ${ultimosTrabajos}
                                         style="padding: 6px 12px; font-size: 13px;">Añadir</button>
                                 </div>
                                 <div
-                                    style="max-height: 250px; overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
+                                    style="overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
                                     <table style="width: 100%; border-collapse: collapse; text-align: left;">
                                         <thead style="background: #f1f5f9; position: sticky; top: 0;">
                                             <tr>
@@ -6284,8 +6303,6 @@ ${ultimosTrabajos}
                                         </tbody>
                                     </table>
                                 </div>
-                            </div>
-
                         </div>
                     </div>
 
