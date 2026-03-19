@@ -37,12 +37,12 @@
         const auth = getAuth(app);
         const functions = getFunctions(app);
 
-        // Conectar a emulador de Autenticación si estamos en localhost
+        // Conectar a emulador de AutenticaciÃ³n si estamos en localhost
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-            console.log("🛠️ Entorno local detectado. Conectando al emulador de Autenticación (Puerto 9099)...");
+            console.log("ðŸ› ï¸� Entorno local detectado. Conectando al emulador de AutenticaciÃ³n (Puerto 9099)...");
             connectAuthEmulator(auth, "http://127.0.0.1:9099");
 
-            // Auto-creación de credenciales de prueba para el usuario (SOLO LOCAL)
+            // Auto-creaciÃ³n de credenciales de prueba para el usuario (SOLO LOCAL)
             const testEmail = "demo@tesicnor.com";
             const testPass = "Tesicnor2026!";
 
@@ -50,18 +50,18 @@
                 .catch(err => {
                     if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
                         createUserWithEmailAndPassword(auth, testEmail, testPass)
-                            .then(() => console.log("✅ Usuario de prueba creado: " + testEmail))
+                            .then(() => console.log("âœ… Usuario de prueba creado: " + testEmail))
                             .catch(e => console.warn("Aviso: El usuario de prueba ya existe o no se pudo crear: ", e));
                     }
                 });
-            console.log("🔑 Credenciales de prueba locales activa: " + testEmail + " / " + testPass);
+            console.log("ðŸ”‘ Credenciales de prueba locales activa: " + testEmail + " / " + testPass);
         }
 
         // Variables Globales base
         let costeHoraActual = 60; // Valor por defecto
         let currentUserRole = null; // 'admin', 'edicion', 'lectura', 'financiero'
         
-        // Configuración de Proveedor de Microsoft
+        // ConfiguraciÃ³n de Proveedor de Microsoft
         const microsoftProvider = new OAuthProvider('microsoft.com');
         microsoftProvider.setCustomParameters({
             prompt: 'select_account',
@@ -73,7 +73,7 @@
             if (loginError) loginError.style.display = 'none';
 
             try {
-                // 1. Asegurar persistencia de sesión
+                // 1. Asegurar persistencia de sesiÃ³n
                 await setPersistence(auth, browserSessionPersistence);
 
                 // 2. Ejecutar login con Microsoft
@@ -85,18 +85,18 @@
                     throw new Error("DOMINIO_NO_VALIDO");
                 }
 
-                // 4. Consultar colección usuarios_activos en Firestore
+                // 4. Consultar colecciÃ³n usuarios_activos en Firestore
                 const userActiveSnap = await getDoc(doc(db, "usuarios_activos", user.email));
                 if (!userActiveSnap.exists()) {
                     throw new Error("USUARIO_NO_ACTIVO");
                 }
 
-                console.log("✅ Acceso autorizado para:", user.email);
+                console.log("âœ… Acceso autorizado para:", user.email);
 
             } catch (error) {
-                console.error("Error en autenticación Microsoft:", error);
+                console.error("Error en autenticaciÃ³n Microsoft:", error);
                 
-                // Cerrar sesión si falló la validación para limpiar el estado de Firebase
+                // Cerrar sesiÃ³n si fallÃ³ la validaciÃ³n para limpiar el estado de Firebase
                 await signOut(auth);
 
                 const mensajeAlerta = 'Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com';
@@ -108,7 +108,7 @@
                         loginError.style.display = 'block';
                     }
                 } else if (error.code !== 'auth/popup-closed-by-user') {
-                    alert("Error al iniciar sesión con Microsoft. Inténtalo de nuevo.");
+                    alert("Error al iniciar sesiÃ³n con Microsoft. IntÃ©ntalo de nuevo.");
                 }
             }
         }
@@ -123,23 +123,23 @@
         let listaServicios = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
         let listaTiposServicio = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
         let listaTecnicos = [
-            { nombre: "Torralba García, Tomás", acronimo: "TTG", nombre_pila: "Tomás" },
+            { nombre: "Torralba GarcÃ­a, TomÃ¡s", acronimo: "TTG", nombre_pila: "TomÃ¡s" },
             { nombre: "Mendia Rezola, Jokin", acronimo: "JMR", nombre_pila: "Jokin" },
-            { nombre: "Pérez Valle, Cristian", acronimo: "CPV", nombre_pila: "Cristian" },
-            { nombre: "Ruiz Lozano, Mª Belén", acronimo: "BRL", nombre_pila: "Belén" },
-            { nombre: "Alonso Pérez, Raúl", acronimo: "RAP", nombre_pila: "Raúl" },
-            { nombre: "Echeverría Luquin, Ander", acronimo: "AEL", nombre_pila: "Ander" },
+            { nombre: "PÃ©rez Valle, Cristian", acronimo: "CPV", nombre_pila: "Cristian" },
+            { nombre: "Ruiz Lozano, MÂª BelÃ©n", acronimo: "BRL", nombre_pila: "BelÃ©n" },
+            { nombre: "Alonso PÃ©rez, RaÃºl", acronimo: "RAP", nombre_pila: "RaÃºl" },
+            { nombre: "EcheverrÃ­a Luquin, Ander", acronimo: "AEL", nombre_pila: "Ander" },
             { nombre: "Lazo Orellana, Bryan Fernando", acronimo: "BLO", nombre_pila: "Bryan" },
             { nombre: "Bora, Madeleine Margareta", acronimo: "MMB", nombre_pila: "Madeleine" },
-            { nombre: "Ruiz de Erenchun Iñaki", acronimo: "IRE", nombre_pila: "Iñaki" },
+            { nombre: "Ruiz de Erenchun IÃ±aki", acronimo: "IRE", nombre_pila: "IÃ±aki" },
             { nombre: "Martinez Lezaun Javier", acronimo: "JML", nombre_pila: "Javier" },
-            { nombre: "Corral Mellado Miguel Ángel", acronimo: "MCM", nombre_pila: "Miguel Ángel" },
-            { nombre: "López Ruiz de Valbuena Paula", acronimo: "PLR", nombre_pila: "Paula" },
-            { nombre: "Rui-Wamba González Pilar", acronimo: "PRW", nombre_pila: "Pilar" },
+            { nombre: "Corral Mellado Miguel Ã�ngel", acronimo: "MCM", nombre_pila: "Miguel Ã�ngel" },
+            { nombre: "LÃ³pez Ruiz de Valbuena Paula", acronimo: "PLR", nombre_pila: "Paula" },
+            { nombre: "Rui-Wamba GonzÃ¡lez Pilar", acronimo: "PRW", nombre_pila: "Pilar" },
             { nombre: "De Prada Vega David", acronimo: "DPV", nombre_pila: "David" },
-            { nombre: "Delgado Rodríguez, Juan Antonio", acronimo: "JDR", nombre_pila: "Juan Antonio" },
+            { nombre: "Delgado RodrÃ­guez, Juan Antonio", acronimo: "JDR", nombre_pila: "Juan Antonio" },
             { nombre: "Lucas Abad, Elena", acronimo: "ELA", nombre_pila: "Elena" },
-            { nombre: "Álvarez Rodriguez, Laura", acronimo: "LAR", nombre_pila: "Laura" },
+            { nombre: "Ã�lvarez Rodriguez, Laura", acronimo: "LAR", nombre_pila: "Laura" },
             { nombre: "Martin del Rosario, Hacomar", acronimo: "HMR", nombre_pila: "Hacomar" }
         ];
         let listaOficinas = ['MADRID', 'NAVARRA'];
@@ -235,7 +235,7 @@
                     });
                 }
 
-                // Renderizar UI Configuración de Listas
+                // Renderizar UI ConfiguraciÃ³n de Listas
                 renderizarListasConfig();
 
             } catch (err) {
@@ -243,12 +243,12 @@
             }
         }
 
-        // Utilidad númerica
+        // Utilidad nÃºmerica
         function parseSpanishNum(val) {
             if (val === undefined || val === null || val === '') return 0;
             if (typeof val === 'number') return val;
             let str = String(val).trim();
-            // Si ya tiene punto como decimal o es formato inglés/puro
+            // Si ya tiene punto como decimal o es formato inglÃ©s/puro
             if (/^-?\d+\.\d+$/.test(str) && !str.includes(',')) return parseFloat(str);
             // Quitar puntos de millar, cambiar coma por punto
             str = str.replace(/\./g, '').replace(',', '.');
@@ -262,27 +262,27 @@
             return id.toString()
                 .replace(/\//g, '_') // Reemplazar todas las barras diagonales (/) por guiones bajos (_)
                 .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Eliminar acentos
-                .replace(/[^a-z0-9_]/gi, '_') // Reemplazar cualquier otro carácter no alfanumérico por guion bajo
+                .replace(/[^a-z0-9_]/gi, '_') // Reemplazar cualquier otro carÃ¡cter no alfanumÃ©rico por guion bajo
                 .replace(/__+/g, '_') // Evitar guiones bajos dobles
                 .replace(/^_+|_+$/g, ''); // Quitar guiones bajos al principio o final
         }
 
-        // Nueva función de utilidad robusta solicitada para IDs de Firebase
+        // Nueva funciÃ³n de utilidad robusta solicitada para IDs de Firebase
         function limpiarParaID(id) {
             if (!id) return 'id_invalido';
             return id.toString()
                 .normalize("NFD")
                 .replace(/[\u0300-\u036f]/g, "") // Quitar acentos/tildes
                 .replace(/\//g, '_')             // Sustituir '/' por '_'
-                .replace(/[^a-zA-Z0-9_-]/g, '_') // Solo permitir alfanuméricos, guiones y guiones bajos (reemplazar espacios y otros por _)
-                .replace(/__+/g, '_')             // Colapsar guiones bajos múltiples
+                .replace(/[^a-zA-Z0-9_-]/g, '_') // Solo permitir alfanumÃ©ricos, guiones y guiones bajos (reemplazar espacios y otros por _)
+                .replace(/__+/g, '_')             // Colapsar guiones bajos mÃºltiples
                 .replace(/^_+|_+$/g, '');        // Limpiar extremos
         }
 
-        // Referencia al tbody de la tabla y elementos de navegación
+        // Referencia al tbody de la tabla y elementos de navegaciÃ³n
         const tbody = document.getElementById('table-body');
 
-        // Elementos UI de navegación
+        // Elementos UI de navegaciÃ³n
         const tabProduccion = document.getElementById('tab-produccion');
         const tabConfiguracion = document.getElementById('tab-configuracion');
 
@@ -292,7 +292,7 @@
         const viewOfertas = document.getElementById('view-ofertas');
         const tabOfertas = document.getElementById('tab-ofertas');
 
-        // Función para cambiar de vista (pestañas)
+        // FunciÃ³n para cambiar de vista (pestaÃ±as)
         function switchView(activeTabId, activeViewId) {
             // Eliminar estado activo de todos los tabs y ocultar vistas
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -318,7 +318,7 @@
             }
         }
 
-        // Lógica de Menú Colapsable (referencia mantenida, evento reubicado)
+        // LÃ³gica de MenÃº Colapsable (referencia mantenida, evento reubicado)
         const sidebarMain = document.getElementById('sidebar-main');
 
         // Asignar eventos de click a los tabs
@@ -353,9 +353,9 @@
         if (dashYear) dashYear.addEventListener('change', cargarDashboard);
         if (dashMonth) dashMonth.addEventListener('change', cargarDashboard);
 
-        // Eventos e inicializaciones para importación
+        // Eventos e inicializaciones para importaciÃ³n
 
-        // Función para cargar datos de Firestore
+        // FunciÃ³n para cargar datos de Firestore
         let isVistaHistorico = false;
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('toggle-vista-prod')?.addEventListener('change', (e) => {
@@ -383,14 +383,14 @@
                         ? String(dataP.num_trabajo_vinculado).trim()
                         : null;
 
-                    // 2. Fallback: el campo observaciones_crudas DEBE EMPEZAR por el código numérico
-                    //    (seguido de fin de cadena, espacio, guion, dos puntos u otro no-dígito)
+                    // 2. Fallback: el campo observaciones_crudas DEBE EMPEZAR por el cÃ³digo numÃ©rico
+                    //    (seguido de fin de cadena, espacio, guion, dos puntos u otro no-dÃ­gito)
                     //    Esto evita contar horas de otros trabajos mencionados dentro del texto.
                     if (!idTrabajo && dataP.observaciones_crudas) {
                         const match = String(dataP.observaciones_crudas).trim().match(/^(\d{3,6})(?:\D|$)/);
                         if (match) idTrabajo = match[1];
                     }
-                    // 3. Fallback secundario: campo observaciones genérico (misma lógica)
+                    // 3. Fallback secundario: campo observaciones genÃ©rico (misma lÃ³gica)
                     if (!idTrabajo && dataP.observaciones) {
                         const match = String(dataP.observaciones).trim().match(/^(\d{3,6})(?:\D|$)/);
                         if (match) idTrabajo = match[1];
@@ -404,14 +404,14 @@
                     if (!horasAgregadas[idTrabajo]) horasAgregadas[idTrabajo] = { total: 0, tecnicos: {} };
                     horasAgregadas[idTrabajo].total += horas;
 
-                    // Motor de Búsqueda Inteligente de Técnicos (Fuzzy Match)
+                    // Motor de BÃºsqueda Inteligente de TÃ©cnicos (Fuzzy Match)
                     const getWords = (str) => {
                         return (str || '')
                             .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Elimina tildes
-                            .replace(/[^a-zA-Z0-9]/g, ' ') // Solo letras y números
+                            .replace(/[^a-zA-Z0-9]/g, ' ') // Solo letras y nÃºmeros
                             .toLowerCase()
                             .split(/\s+/)
-                            .filter(w => w.length > 2); // Filtra palabras muy cortas (de, la, mª)
+                            .filter(w => w.length > 2); // Filtra palabras muy cortas (de, la, mÂª)
                     };
 
                     const wordsCSV = getWords(trabajadorStr);
@@ -431,13 +431,13 @@
                         }
                     });
 
-                    // Fallback por si el técnico es literalmente un acrónimo corto en el CSV
+                    // Fallback por si el tÃ©cnico es literalmente un acrÃ³nimo corto en el CSV
                     if (maxMatches === 0) {
                         tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
                     }
 
                     if (!tec) {
-                        console.warn("⚠️ ALERTA: Técnico del CSV no reconocido ->", trabajadorStr);
+                        console.warn("âš ï¸� ALERTA: TÃ©cnico del CSV no reconocido ->", trabajadorStr);
                     }
 
                     const tecKey = tec ? tec.acronimo : trabajadorStr.trim();
@@ -448,7 +448,7 @@
                 datosProduccionMemoria.length = 0;
 
                 if (querySnapshot.empty) {
-                    tbody.innerHTML = '<tr><td colspan="30" style="text-align: center; padding: 20px;">No se encontraron datos de producción.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="30" style="text-align: center; padding: 20px;">No se encontraron datos de producciÃ³n.</td></tr>';
                     return;
                 }
 
@@ -493,7 +493,7 @@
                             else if (pctUso <= 95) pctColor = '#f97316';
                             else pctColor = '#ef4444';
                         } else if (totalHoras > 0) {
-                            pctText = '∞%';
+                            pctText = 'âˆž%';
                             pctColor = '#ef4444';
                             pctTextColor = '#ffffff';
                         }
@@ -579,7 +579,7 @@
                             const isLastWeek = (new Date().getMonth() === 11 && new Date().getDate() >= 24);
 
                             if (yearFac < currentYear || isLastWeek) canArchive = true;
-                            else archiveReason = "Solo facturación de años anteriores o última semana del año.";
+                            else archiveReason = "Solo facturaciÃ³n de aÃ±os anteriores o Ãºltima semana del aÃ±o.";
                         }
                         btnArchiveHtml = canArchive
                             ? `<button class="btn-archivar-prod" data-id="${docSnap.id}" style="padding: 4px 12px; background-color: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">Archivar</button>`
@@ -739,7 +739,7 @@
         }
 
         async function setupTableHeaders() {
-            // Leer configuración de nombres desde Firebase
+            // Leer configuraciÃ³n de nombres desde Firebase
             let headersConfig = {};
             try {
                 const docSnap = await getDoc(doc(db, "metadata", "headers"));
@@ -762,10 +762,10 @@
                     const text = th.textContent.trim();
                     if (text === '') return;
 
-                    // Identificador unívoco del texto original o field. Usaremos el texto original del HTML.
+                    // Identificador unÃ­voco del texto original o field. Usaremos el texto original del HTML.
                     const originalText = text;
                     const rawDisplay = headersConfig[originalText];
-                    // Protección: solo usar el valor si es una cadena de texto (no array ni objeto)
+                    // ProtecciÃ³n: solo usar el valor si es una cadena de texto (no array ni objeto)
                     const displayText = (typeof rawDisplay === 'string' && rawDisplay.length > 0) ? rawDisplay : originalText;
 
                     const contentSpan = document.createElement('span');
@@ -793,8 +793,8 @@
                     const popup = document.createElement('div');
                     popup.className = 'filter-popup';
 
-                    const multiSelectColsOfertas = ['Eº', 'Pertenece a Licitación', 'Es Licitación', 'Agente Comercial', 'Oficina', 'T1'];
-                    const multiSelectColsProd = ['Tipo Exp.', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)', 'Tipo Servicio', 'VB Cliente'];
+                    const multiSelectColsOfertas = ['EÂº', 'Pertenece a LicitaciÃ³n', 'Es LicitaciÃ³n', 'Agente Comercial', 'Oficina', 'T1'];
+                    const multiSelectColsProd = ['Tipo Exp.', 'TÃ©cnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)', 'Tipo Servicio', 'VB Cliente'];
 
                     const isOfertasTable = table.id === 'table-ofertas' || table.closest('#view-ofertas');
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
@@ -809,14 +809,14 @@
                         popup.style.gap = '4px';
 
                         let options = [];
-                        if (originalText === 'Eº') options = ['Aceptada', 'Rechazada', 'En curso'];
+                        if (originalText === 'EÂº') options = ['Aceptada', 'Rechazada', 'En curso'];
                         else if (originalText.includes('Oficina')) options = listaOficinas;
-                        else if (['T1', 'Agente Comercial', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)'].some(t => originalText.includes(t))) {
+                        else if (['T1', 'Agente Comercial', 'TÃ©cnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)'].some(t => originalText.includes(t))) {
                             options = listaTecnicos.map(t => preferenciaTecnicos === 'nombre_pila' ? t.nombre_pila : t.acronimo);
                         } else if (originalText.includes('VB Cliente')) options = ['Si', 'No'];
                         else if (originalText.includes('Tipo Exp.')) options = listaTiposExpediente;
                         else if (originalText.includes('Tipo Servicio')) options = listaTiposServicio;
-                        else if (['Pertenece a Licitación', 'Es Licitación'].some(t => originalText.includes(t))) options = ['Si', 'No'];
+                        else if (['Pertenece a LicitaciÃ³n', 'Es LicitaciÃ³n'].some(t => originalText.includes(t))) options = ['Si', 'No'];
 
                         // Remover duplicados y falsy
                         options = [...new Set(options)].filter(Boolean);
@@ -828,7 +828,7 @@
                             lbl.style.alignItems = 'center';
                             lbl.style.gap = '6px';
                             lbl.style.cursor = 'pointer';
-                            // Aseguramos que el click en el svg hijo de Eº tampoco cierre el popup
+                            // Aseguramos que el click en el svg hijo de EÂº tampoco cierre el popup
                             lbl.addEventListener('click', e => {
                                 // Si hizo clic en un path o svg derivamos al input para no perder el checkeo, o podemos detener la prop
                                 e.stopPropagation();
@@ -870,7 +870,7 @@
 
                             lbl.appendChild(cb);
 
-                            if (originalText === 'Eº') {
+                            if (originalText === 'EÂº') {
                                 const svgSpan = document.createElement('span');
                                 svgSpan.style.display = 'inline-flex';
                                 svgSpan.style.alignItems = 'center';
@@ -987,7 +987,7 @@
                         }
                     });
 
-                    // Fase 7: Edición de Encabezados (Solo Admin)
+                    // Fase 7: EdiciÃ³n de Encabezados (Solo Admin)
                     contentSpan.addEventListener('dblclick', (e) => {
                         if (currentUserRole !== 'admin') return;
                         e.stopPropagation(); // Evitar disparar filtros, arrastre o clicks externos
@@ -1012,7 +1012,7 @@
                             isSavingHeader = true;
 
                             const newVal = inputHeader.value.trim();
-                            const finalVal = newVal === '' ? origKey : newVal; // Si lo deja vacío, restaura el original
+                            const finalVal = newVal === '' ? origKey : newVal; // Si lo deja vacÃ­o, restaura el original
 
                             if (newVal === currentVal) {
                                 contentSpan.innerHTML = currentVal;
@@ -1153,7 +1153,7 @@
                     `;
                     fragmentOfertas.appendChild(tr);
 
-                    // Lógica del botón checkbox anterior (migrado a menú estado)
+                    // LÃ³gica del botÃ³n checkbox anterior (migrado a menÃº estado)
                 });
 
                 tbodyOfertas.appendChild(fragmentOfertas);
@@ -1178,7 +1178,7 @@
             const user = auth.currentUser;
             if (!user) return;
 
-            // Usamos un pequeño debounce para evitar múltiples escrituras seguidas
+            // Usamos un pequeÃ±o debounce para evitar mÃºltiples escrituras seguidas
             if (timeoutGuardarPref) clearTimeout(timeoutGuardarPref);
             timeoutGuardarPref = setTimeout(async () => {
                 const prefs = {
@@ -1186,7 +1186,7 @@
                     orden_columnas: {}
                 };
 
-                // Capturar orden de columnas de localStorage (el sistema actual ya lo guarda ahí)
+                // Capturar orden de columnas de localStorage (el sistema actual ya lo guarda ahÃ­)
                 document.querySelectorAll('.data-table').forEach(table => {
                     const tblId = table.id || table.dataset.tableId;
                     const savedOrder = localStorage.getItem('gestor_col_order_' + tblId);
@@ -1355,7 +1355,7 @@
                     td.style.zIndex = '';
                     td.style.boxShadow = '';
 
-                    // IMPORTANTE: Limpiamos el color de fondo SOLO si fue forzado por el inmovilizador (protegemos las rosas y técnicos)
+                    // IMPORTANTE: Limpiamos el color de fondo SOLO si fue forzado por el inmovilizador (protegemos las rosas y tÃ©cnicos)
                     if (td.dataset.forcedBg) {
                         td.style.backgroundColor = '';
                         delete td.dataset.forcedBg;
@@ -1363,7 +1363,7 @@
                 });
             });
 
-            // Aplica estilos dinámicos a las columnas fijas
+            // Aplica estilos dinÃ¡micos a las columnas fijas
             let currentLeftOffset = 0;
 
             for (let i = 0; i < fixedColsCount; i++) {
@@ -1387,7 +1387,7 @@
                         td.style.left = currentLeftOffset + 'px';
                         td.style.zIndex = '50';
 
-                        // Solo aplicamos color de fila si la celda NO tiene ya un color propio (como el rosa o los técnicos)
+                        // Solo aplicamos color de fila si la celda NO tiene ya un color propio (como el rosa o los tÃ©cnicos)
                         if (!td.style.backgroundColor) {
                             td.style.backgroundColor = tr.style.backgroundColor || '#ffffff';
                             td.dataset.forcedBg = 'true'; // Marcamos que este color lo hemos puesto nosotros
@@ -1493,7 +1493,7 @@
             });
         }
 
-        // Ejecutar carga de base de datos cuando la página termina de cargar
+        // Ejecutar carga de base de datos cuando la pÃ¡gina termina de cargar
         document.addEventListener('DOMContentLoaded', async () => {
             const loginContainer = document.getElementById('login-container');
             const sidebarMain = document.getElementById('sidebar-main');
@@ -1507,7 +1507,7 @@
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
-                        // 1. Intentar obtener rol por Email (Sincronizado desde tabla de técnicos)
+                        // 1. Intentar obtener rol por Email (Sincronizado desde tabla de tÃ©cnicos)
                         let userDoc = user.email ? await getDoc(doc(db, "usuarios", user.email)) : null;
                         
                         // 2. Respaldo: Intentar por UID (Legacy o si no hay email)
@@ -1562,13 +1562,13 @@
                         }
                     }
 
-                    // Restringir panel de técnicos solo a admin
+                    // Restringir panel de tÃ©cnicos solo a admin
                     const panelTecnicos = document.getElementById('panel-tecnicos');
                     if (panelTecnicos) {
                         panelTecnicos.style.display = currentUserRole === 'admin' ? '' : 'none';
                     }
 
-                    // Restringir auditoría solo a admin
+                    // Restringir auditorÃ­a solo a admin
                     const panelAuditoria = document.getElementById('panel-auditoria');
                     if (panelAuditoria) {
                         panelAuditoria.style.display = currentUserRole === 'admin' ? '' : 'none';
@@ -1603,7 +1603,7 @@
                         await signInWithEmailAndPassword(auth, email, pwd);
                     } catch (err) {
                         console.error("Error login:", err);
-                        loginError.textContent = "Error al iniciar sesión. Comprueba tus datos.";
+                        loginError.textContent = "Error al iniciar sesiÃ³n. Comprueba tus datos.";
                         loginError.style.display = 'block';
                     }
                 });
@@ -1623,7 +1623,7 @@
                     try {
                         await signOut(auth);
                     } catch (err) {
-                        console.error("Error cerrando sesión:", err);
+                        console.error("Error cerrando sesiÃ³n:", err);
                     }
                 });
             }
@@ -1643,7 +1643,7 @@
                     return th;
                 };
 
-                const thTotal = crearTh('Total Horas', 'Horas Histórico + Horas CSV');
+                const thTotal = crearTh('Total Horas', 'Horas HistÃ³rico + Horas CSV');
                 theadTr.insertBefore(thTotal, targetTh.nextSibling);
 
                 const thPct = crearTh('% Uso', 'Porcentaje sobre horas disponibles');
@@ -1688,7 +1688,7 @@
                 cargarAuditoriaDeNombres();
             }
 
-            // Evento para colapsar/desplegar el menú lateral
+            // Evento para colapsar/desplegar el menÃº lateral
             const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
             if (btnToggleSidebar && sidebarMain) {
                 btnToggleSidebar.addEventListener('click', () => {
@@ -1696,7 +1696,7 @@
                 });
             }
 
-            // Funciones de ordenación DOM
+            // Funciones de ordenaciÃ³n DOM
             function sortTable(tableId, headerText, type) {
                 const tb = document.getElementById(tableId);
                 if (!tb) return;
@@ -1724,9 +1724,9 @@
                 const newDir = isAsc ? 'desc' : 'asc';
                 targetTh.setAttribute('data-sort-dir', newDir);
 
-                table.querySelectorAll('thead th .sort-icon').forEach(icon => icon.textContent = '▼');
+                table.querySelectorAll('thead th .sort-icon').forEach(icon => icon.textContent = 'â–¼');
                 const icon = targetTh.querySelector('.sort-icon');
-                if (icon) icon.textContent = newDir === 'asc' ? '▲' : '▼';
+                if (icon) icon.textContent = newDir === 'asc' ? 'â–²' : 'â–¼';
 
                 const rows = Array.from(tbody.querySelectorAll('tr'));
                 rows.sort((a, b) => {
@@ -1766,7 +1766,7 @@
             const thNumTrabajo = document.getElementById('th-sort-num-trabajo');
             if (thNumTrabajo) {
                 thNumTrabajo.addEventListener('click', () => {
-                    sortTable('table-body', 'Nº Trabajo', 'numeric');
+                    sortTable('table-body', 'NÂº Trabajo', 'numeric');
                 });
             }
 
@@ -1786,7 +1786,7 @@
                 });
             }
 
-            // Delegación de eventos para Estado en Ofertas
+            // DelegaciÃ³n de eventos para Estado en Ofertas
             const menuEstado = document.createElement('div');
             menuEstado.id = 'menu-estado';
             menuEstado.style.display = 'none';
@@ -1832,7 +1832,7 @@
                             const currentState = ofertaData ? ofertaData.estado : '';
 
                             if (opt.label === 'Aceptada' && currentState !== 'Aceptada') {
-                                const confirmacion = confirm("¿Aceptar esta oferta y crear un nuevo trabajo en Producción?");
+                                const confirmacion = confirm("Â¿Aceptar esta oferta y crear un nuevo trabajo en ProducciÃ³n?");
                                 if (!confirmacion) {
                                     menuEstado.style.display = 'none';
                                     return;
@@ -1870,7 +1870,7 @@
                                 td.firstElementChild.innerHTML = getEstadoIcon('Aceptada');
                                 menuEstado.style.display = 'none';
 
-                                alert(`Oferta aceptada. Se creó el trabajo Nº ${nuevoId} en Producción.`);
+                                alert(`Oferta aceptada. Se creÃ³ el trabajo NÂº ${nuevoId} en ProducciÃ³n.`);
                                 cargarProduccion();
 
                                 // Contadores
@@ -1884,7 +1884,7 @@
                                 }
 
                             } else if ((opt.label === 'Rechazada' || opt.label === 'En curso') && currentState === 'Aceptada') {
-                                const confirmRevert = confirm("¿Deseas cambiar el estado? Se ocultará el trabajo relacionado en Producción.");
+                                const confirmRevert = confirm("Â¿Deseas cambiar el estado? Se ocultarÃ¡ el trabajo relacionado en ProducciÃ³n.");
                                 if (!confirmRevert) {
                                     menuEstado.style.display = 'none';
                                     return;
@@ -1902,10 +1902,10 @@
                                     snapshot.forEach(async (docP) => {
                                         await updateDoc(docP.ref, { visible: false });
                                     });
-                                    alert(`Oferta cambiada a ${opt.label} y trabajo ocultado en Producción.`);
+                                    alert(`Oferta cambiada a ${opt.label} y trabajo ocultado en ProducciÃ³n.`);
                                     cargarProduccion();
                                 } else {
-                                    alert(`Oferta cambiada a ${opt.label}. No se encontró trabajo en Producción para ocultar.`);
+                                    alert(`Oferta cambiada a ${opt.label}. No se encontrÃ³ trabajo en ProducciÃ³n para ocultar.`);
                                 }
 
                             } else {
@@ -1941,7 +1941,7 @@
                 }
             });
 
-            // Botón Guardar Settings de Configuración
+            // BotÃ³n Guardar Settings de ConfiguraciÃ³n
             const btnSaveSettings = document.getElementById('btn-save-settings');
             if (btnSaveSettings) {
                 btnSaveSettings.addEventListener('click', async () => {
@@ -1957,11 +1957,11 @@
                     const nuevoColsOfer = parseInt(inputColsOfer.value, 10);
 
                     if (isNaN(nuevoValor) || nuevoValor <= 0) {
-                        alert("Por favor, introduce un coste por hora válido (> 0).");
+                        alert("Por favor, introduce un coste por hora vÃ¡lido (> 0).");
                         return;
                     }
                     if (isNaN(nuevoColsProd) || nuevoColsProd < 0 || isNaN(nuevoColsOfer) || nuevoColsOfer < 0) {
-                        alert("Valores de columnas fijas inválidos.");
+                        alert("Valores de columnas fijas invÃ¡lidos.");
                         return;
                     }
 
@@ -1978,7 +1978,7 @@
                         freezeColsProd = nuevoColsProd;
                         freezeColsOfer = nuevoColsOfer;
 
-                        alert("Configuración guardada. Las 'Horas Disponibles' se recalcularán.");
+                        alert("ConfiguraciÃ³n guardada. Las 'Horas Disponibles' se recalcularÃ¡n.");
                         if (isAppInitialized) {
                             cargarProduccion();
                             cargarOfertas();
@@ -1989,12 +1989,12 @@
                         }
                     } catch (e) {
                         console.error("Error guardando global settings:", e);
-                        alert("Error guardando la configuración.");
+                        alert("Error guardando la configuraciÃ³n.");
                     }
                 });
             }
 
-            // Botón "+ Añadir Nuevo Trabajo"
+            // BotÃ³n "+ AÃ±adir Nuevo Trabajo"
             const btnNuevoTrabajo = document.getElementById('btn-nuevo-trabajo');
             if (btnNuevoTrabajo) {
                 btnNuevoTrabajo.addEventListener('click', () => {
@@ -2040,7 +2040,7 @@
                         };
 
                         await setDoc(doc(db, "produccion", nuevoId.toString()), nuevoDoc);
-                        alert(`Nuevo trabajo creado con el Nº ${nuevoId} (${tipoExp}). Doble clic en 'Responsable (G)' para asignar al técnico.`);
+                        alert(`Nuevo trabajo creado con el NÂº ${nuevoId} (${tipoExp}). Doble clic en 'Responsable (G)' para asignar al tÃ©cnico.`);
                         cargarProduccion();
                     } catch (e) {
                         console.error("Error creando trabajo libre:", e);
@@ -2048,7 +2048,7 @@
                     }
                 });
             }
-            // Lógica Botón "+ Oferta"
+            // LÃ³gica BotÃ³n "+ Oferta"
             const btnNuevaOfertaHeader = document.getElementById('btn-nueva-oferta');
             const modalNuevaOfe = document.getElementById('modal-nueva-oferta');
             if (btnNuevaOfertaHeader && modalNuevaOfe) {
@@ -2066,7 +2066,7 @@
             document.getElementById('modal-btn-aceptar-ofe')?.addEventListener('click', async () => {
                 const numOfe = document.getElementById('modal-ofe-num').value.trim();
                 const cliOfe = document.getElementById('modal-ofe-cli').value.trim();
-                if (!numOfe) { alert("El Nº de Oferta es obligatorio."); return; }
+                if (!numOfe) { alert("El NÂº de Oferta es obligatorio."); return; }
 
                 modalNuevaOfe.style.display = 'none';
                 try {
@@ -2088,7 +2088,7 @@
                 }
             });
 
-            // Delegación de eventos para seleccionar fila (resaltado visual)
+            // DelegaciÃ³n de eventos para seleccionar fila (resaltado visual)
             tbody.addEventListener('click', (e) => {
                 // Ignorar si hace clic en controles, filtros o inputs abiertos
                 if (e.target.closest('.header-filter-icon') || e.target.closest('input') || e.target.closest('select') || e.target.closest('.col-resizer')) return;
@@ -2098,11 +2098,11 @@
 
                 // Quitar clase a todas las filas
                 Array.from(tbody.children).forEach(row => row.classList.remove('selected-row'));
-                // Añadir clase a la fila clicada
+                // AÃ±adir clase a la fila clicada
                 tr.classList.add('selected-row');
             });
 
-            // Delegación de eventos para la edición inline en Producción
+            // DelegaciÃ³n de eventos para la ediciÃ³n inline en ProducciÃ³n
             tbody.addEventListener('dblclick', (e) => {
                 if (currentUserRole === 'lectura') return;
 
@@ -2118,11 +2118,11 @@
 
                 if (!docId || !fieldName) return;
 
-                // Bloquear edición del Nº Trabajo y Total Horas Histórico
+                // Bloquear ediciÃ³n del NÂº Trabajo y Total Horas HistÃ³rico
                 if (fieldName === 'num_trabajo') return;
                 if (fieldName === 'total_horas_historico') return;
 
-                // Restricción campos financieros ('fecha_ap', 'fecha_ar', 'num_at', 'mes_facturacion')
+                // RestricciÃ³n campos financieros ('fecha_ap', 'fecha_ar', 'num_at', 'mes_facturacion')
                 const camposFinancieros = ['fecha_ap', 'fecha_ar', 'num_at', 'mes_facturacion'];
                 if (camposFinancieros.includes(fieldName)) {
                     if (currentUserRole !== 'admin' && currentUserRole !== 'financiero') {
@@ -2148,7 +2148,7 @@
                         optionsHTML = `<option value="No" ${actVal === 'No' ? 'selected' : ''}>No</option><option value="Si" ${actVal === 'Si' ? 'selected' : ''}>Si</option>`;
                     } else if (fieldName === 'tipo_expediente') {
                         optionsHTML = `<option value="">-</option>` + listaTiposExpediente.map(v => `<option value="${v}" ${currentValue === v ? 'selected' : ''}>${v}</option>`).join('');
-                    } else { // Técnicos (responsable_g, ejecutor_t1, apoyo_am, apoyo_an)
+                    } else { // TÃ©cnicos (responsable_g, ejecutor_t1, apoyo_am, apoyo_an)
                         optionsHTML = `<option value="">-</option>` + listaTecnicos.map(t => {
                             const val = preferenciaTecnicos === 'nombre_pila' ? t.nombre_pila : t.acronimo;
                             return `<option value="${val}" ${currentValue === val ? 'selected' : ''}>${val}</option>`;
@@ -2201,7 +2201,7 @@
                             [fieldName]: newValue
                         });
 
-                        // Actualización ligera de los contadores para cliente/grupo
+                        // ActualizaciÃ³n ligera de los contadores para cliente/grupo
                         if ((fieldName === 'cliente' || fieldName === 'grupo') && newValue !== currentValue) {
                             const campoBase = fieldName === 'cliente' ? 'clientes' : 'grupos';
                             const updateObj = {};
@@ -2221,7 +2221,7 @@
                             }
                         }
 
-                        // Actualizar color dinámico de la fila si cambia 'visto_vb_cliente'
+                        // Actualizar color dinÃ¡mico de la fila si cambia 'visto_vb_cliente'
                         if (fieldName === 'visto_vb_cliente') {
                             if ((newValue || '').trim().toLowerCase() === 'si') {
                                 tr.classList.add('fila-vb-si');
@@ -2258,7 +2258,7 @@
                 });
             });
 
-            // Delegación de eventos para la edición inline en Ofertas
+            // DelegaciÃ³n de eventos para la ediciÃ³n inline en Ofertas
             tbodyOfertas.addEventListener('dblclick', (e) => {
                 if (currentUserRole === 'lectura') return;
 
@@ -2273,7 +2273,7 @@
 
                 if (!docId || !fieldName) return;
 
-                // Lista blanca de edición de Ofertas
+                // Lista blanca de ediciÃ³n de Ofertas
                 const editAllowedFields = [
                     'cliente', 'grupo', 'objeto', 'presupuesto_total', 'gastos_estimados',
                     'ingresos_2026', 'ingresos_2027', 'ingresos_2028', 'ingresos_2029', 'ingresos_2030',
@@ -2284,9 +2284,9 @@
 
                 if (td.querySelector('input') || td.querySelector('select')) return;
 
-                // Si era moneda formateada, limpiamos el € y lo dejamos en numérico crudo.
+                // Si era moneda formateada, limpiamos el â‚¬ y lo dejamos en numÃ©rico crudo.
                 let currentValue = td.textContent === '-' ? '' : td.textContent.trim();
-                if (currentValue.includes('€')) {
+                if (currentValue.includes('â‚¬')) {
                     currentValue = currentValue.replace(/[^0-9,\.-]/g, '').replace(',', '.');
                 }
 
@@ -2409,11 +2409,11 @@
                     try {
                         const syncHorasManual = httpsCallable(functions, 'syncHorasManual');
                         await syncHorasManual();
-                        status.textContent = '¡Éxito! Horas actualizadas correctamente.';
+                        status.textContent = 'Â¡Ã‰xito! Horas actualizadas correctamente.';
                         status.style.color = '#10b981';
                         if (typeof cargarProduccion === 'function') cargarProduccion();
                     } catch (error) {
-                        console.error("Error en sincronización SQL:", error);
+                        console.error("Error en sincronizaciÃ³n SQL:", error);
                         status.textContent = 'Error al conectar con SQL. Revisa la consola.';
                         status.style.color = '#ef4444';
                     } finally {
@@ -2424,7 +2424,7 @@
         });
 
         // ============================================
-        // Lógica del Dashboard de Métricas (Fase 8)
+        // LÃ³gica del Dashboard de MÃ©tricas (Fase 8)
         // ============================================
         function extractDateInfo(dateStr) {
             if (!dateStr || !dateStr.includes('/')) return { y: null, m: null };
@@ -2473,7 +2473,7 @@
             return true;
         }
 
-        let chartsObj = { ofeDonut: null, ofeAgentes: null, proGantt: null, proMeses: null };
+        let chartsObj = { ofeDonut: null, ofeAgentes: null, ofeAgentesImporte: null, ofeMensual: null, proGantt: null, proMeses: null };
 
         function getMulti(id) { const el = document.getElementById(id); return el ? Array.from(el.selectedOptions).map(o => o.value) : []; }
         function checkDateMatch(dateStr, yearsArr, monthsArr) {
@@ -2490,7 +2490,7 @@
             const t2 = document.getElementById('filt-pro-t2'); const t3 = document.getElementById('filt-pro-t3');
             const srv = document.getElementById('filt-pro-srv');
 
-            // 1. Rango dinámico de años (desde el menor hasta el mayor con datos)
+            // 1. Rango dinÃ¡mico de aÃ±os (desde el menor hasta el mayor con datos)
             let minYear = 2099; let maxYear = 2000;
             const checkY = (d) => {
                 const info = extractDateInfo(d);
@@ -2514,7 +2514,7 @@
             if (yOfe && yOfe.children.length === 0) yOfe.innerHTML = yHtml;
             if (yPro && yPro.children.length === 0) yPro.innerHTML = yHtml;
 
-            // 2. Opciones de técnicos y T1 por defecto
+            // 2. Opciones de tÃ©cnicos y T1 por defecto
             const tecOpts = listaTecnicos.map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
             if (rble && rble.children.length === 0) rble.innerHTML = tecOpts;
             if (t1 && t1.children.length === 0) {
@@ -2526,74 +2526,166 @@
 
             const srvOpts = listaTiposServicio.map(s => `<option value="${s}">${s}</option>`).join('');
             if (srv && srv.children.length === 0) srv.innerHTML = srvOpts;
+
+            // Partes de Trabajo - Técnicos filter
+            const partesT = document.getElementById('filt-partes-tec');
+            if (partesT && partesT.children.length === 0) {
+                listaTecnicos.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.acronimo;
+                    opt.textContent = t.nombre_pila || t.acronimo;
+                    opt.selected = true;
+                    partesT.appendChild(opt);
+                });
+            }
         }
 
         function cargarDashboardOfertas() {
             const yFil = getMulti('filt-ofe-year'); const mFil = getMulti('filt-ofe-month');
             const licFil = getMulti('filt-ofe-es-lic'); const pertFil = getMulti('filt-ofe-pert-lic');
-            let vivas = 0, aceptadas = 0, resueltas = 0;
+            let vivas = 0, aceptadas = 0, rechazadas = 0;
             let pptoCurso = 0, pptoAcep = 0, pptoRech = 0;
+            let totalLic = 0, totalOfertas = 0;
             const agentesData = {};
+            const mensualData = {};
 
             datosOfertasMemoria.forEach(of => {
                 if (!checkDateMatch(of.fecha_oferta, yFil, mFil)) return;
-
-                // Nuevos Filtros Licitación (si está vacío, cuenta como 'No')
                 const esLic = (of.es_licitacion || '').trim();
                 const pertLic = (of.pertenece_a_licitacion || '').trim();
-
                 if (licFil.length > 0 && !licFil.includes(esLic) && !(licFil.includes('No') && esLic === '')) return;
                 if (pertFil.length > 0 && !pertFil.includes(pertLic) && !(pertFil.includes('No') && pertLic === '')) return;
 
                 const est = (of.estado || 'En curso').trim();
                 const estLower = est.toLowerCase();
                 const ppto = parseSpanishNum(of.presupuesto_total) || 0;
+                totalOfertas++;
+                if (esLic.toLowerCase() === 'si') totalLic++;
 
                 if (estLower === 'en curso') { vivas++; pptoCurso += ppto; }
-                else if (estLower === 'aceptada' || estLower === 'aceptado') { aceptadas++; resueltas++; pptoAcep += ppto; }
-                else if (estLower === 'rechazada' || estLower === 'rechazado') { resueltas++; pptoRech += ppto; }
+                else if (estLower === 'aceptada' || estLower === 'aceptado') { aceptadas++; pptoAcep += ppto; }
+                else if (estLower === 'rechazada' || estLower === 'rechazado') { rechazadas++; pptoRech += ppto; }
 
                 const ag = of.agente_comercial ? of.agente_comercial.trim() : 'Sin Asignar';
-                if (!agentesData[ag]) agentesData[ag] = { acep: 0, curso: 0, rech: 0 };
-                if (estLower === 'aceptada' || estLower === 'aceptado') agentesData[ag].acep++;
-                else if (estLower === 'rechazada' || estLower === 'rechazado') agentesData[ag].rech++;
-                else agentesData[ag].curso++;
+                if (!agentesData[ag]) agentesData[ag] = { acep: 0, curso: 0, rech: 0, pptoAcep: 0, pptoCurso: 0, pptoRech: 0 };
+                if (estLower === 'aceptada' || estLower === 'aceptado') { agentesData[ag].acep++; agentesData[ag].pptoAcep += ppto; }
+                else if (estLower === 'rechazada' || estLower === 'rechazado') { agentesData[ag].rech++; agentesData[ag].pptoRech += ppto; }
+                else { agentesData[ag].curso++; agentesData[ag].pptoCurso += ppto; }
+
+                const info = extractDateInfo(of.fecha_oferta);
+                if (info && info.y && info.m) {
+                    const key = `${info.y}-${String(info.m).padStart(2,'0')}`;
+                    if (!mensualData[key]) mensualData[key] = { acep: 0, curso: 0, rech: 0 };
+                    if (estLower === 'aceptada' || estLower === 'aceptado') mensualData[key].acep++;
+                    else if (estLower === 'rechazada' || estLower === 'rechazado') mensualData[key].rech++;
+                    else mensualData[key].curso++;
+                }
             });
 
             const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
             document.getElementById('kpi-ofe-vivas').textContent = vivas;
-            document.getElementById('kpi-ofe-exito').textContent = resueltas > 0 ? ((aceptadas / resueltas) * 100).toFixed(1) + '%' : '0%';
+            if (document.getElementById('kpi-ofe-acep-count')) document.getElementById('kpi-ofe-acep-count').textContent = aceptadas;
+            if (document.getElementById('kpi-ofe-rech-count')) document.getElementById('kpi-ofe-rech-count').textContent = rechazadas;
+            document.getElementById('kpi-ofe-exito').textContent = totalOfertas > 0 ? ((totalLic / totalOfertas) * 100).toFixed(1) + '%' : '0%';
             document.getElementById('kpi-ofe-ppto-curso').textContent = fmtE.format(pptoCurso);
             document.getElementById('kpi-ofe-ppto-acep').textContent = fmtE.format(pptoAcep);
             document.getElementById('kpi-ofe-ppto-rech').textContent = fmtE.format(pptoRech);
 
-            if (chartsObj.ofeDonut) chartsObj.ofeDonut.destroy();
-            chartsObj.ofeDonut = new Chart(document.getElementById('chart-ofe-donut'), {
-                type: 'doughnut',
-                data: {
-                    labels: ['Aceptadas', 'En curso', 'Rechazadas'],
-                    datasets: [{ data: [pptoAcep, pptoCurso, pptoRech], backgroundColor: ['#10b981', '#f97316', '#ef4444'], borderWidth: 0 }]
-                },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtE.format(ctx.raw)}` } } }, cutout: '65%' }
-            });
+            // Inline label plugin for bar charts
+            const innerLabelsPlugin = {
+                id: 'innerLabels',
+                afterDatasetsDraw(chart) {
+                    const { ctx } = chart;
+                    chart.data.datasets.forEach((ds, i) => {
+                        chart.getDatasetMeta(i).data.forEach((bar, j) => {
+                            const val = ds.data[j];
+                            if (!val) return;
+                            const props = bar.getProps(['x','y','width','height','base'], true);
+                            const barW = Math.abs(props.x - props.base);
+                            if (barW < 22) return;
+                            ctx.save();
+                            ctx.fillStyle = '#fff';
+                            ctx.font = 'bold 11px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(val, props.base + barW/2, props.y + props.height/2);
+                            ctx.restore();
+                        });
+                    });
+                }
+            };
 
-            const agLabels = Object.keys(agentesData);
+            const agLabels = Object.keys(agentesData).sort((a,b) =>
+                (agentesData[b].acep+agentesData[b].curso+agentesData[b].rech) - (agentesData[a].acep+agentesData[a].curso+agentesData[a].rech)
+            );
+
+            if (chartsObj.ofeDonut) chartsObj.ofeDonut.destroy();
+
             if (chartsObj.ofeAgentes) chartsObj.ofeAgentes.destroy();
             chartsObj.ofeAgentes = new Chart(document.getElementById('chart-ofe-agentes'), {
+                type: 'bar',
+                plugins: [innerLabelsPlugin],
+                data: {
+                    labels: agLabels,
+                    datasets: [
+                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].acep), backgroundColor: '#10b981', barThickness: 22 },
+                        { label: 'En curso', data: agLabels.map(l => agentesData[l].curso), backgroundColor: '#f97316', barThickness: 22 },
+                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].rech), backgroundColor: '#ef4444', barThickness: 22 }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true } },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { callbacks: { afterBody: (items) => {
+                            const ag = agLabels[items[0].dataIndex];
+                            const d = agentesData[ag];
+                            return ['Total: ' + fmtE.format(d.pptoAcep + d.pptoCurso + d.pptoRech)];
+                        }}}
+                    }
+                }
+            });
+
+            if (chartsObj.ofeAgentesImporte) chartsObj.ofeAgentesImporte.destroy();
+            chartsObj.ofeAgentesImporte = new Chart(document.getElementById('chart-ofe-agentes-importe'), {
                 type: 'bar',
                 data: {
                     labels: agLabels,
                     datasets: [
-                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].acep), backgroundColor: '#10b981' },
-                        { label: 'En curso', data: agLabels.map(l => agentesData[l].curso), backgroundColor: '#f97316' },
-                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].rech), backgroundColor: '#ef4444' }
+                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].pptoAcep), backgroundColor: '#10b981', barThickness: 22 },
+                        { label: 'En curso', data: agLabels.map(l => agentesData[l].pptoCurso), backgroundColor: '#f97316', barThickness: 22 },
+                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].pptoRech), backgroundColor: '#ef4444', barThickness: 22 }
                     ]
                 },
-                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    scales: { x: { stacked: true, ticks: { callback: v => fmtE.format(v) }, grid: { display: false } }, y: { stacked: true } },
+                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtE.format(ctx.raw)}` } } }
+                }
+            });
+
+            const mLabels = Object.keys(mensualData).sort();
+            if (chartsObj.ofeMensual) chartsObj.ofeMensual.destroy();
+            chartsObj.ofeMensual = new Chart(document.getElementById('chart-ofe-mensual'), {
+                type: 'bar',
+                data: {
+                    labels: mLabels,
+                    datasets: [
+                        { label: 'Aceptadas', data: mLabels.map(k => mensualData[k].acep), backgroundColor: '#10b981' },
+                        { label: 'En curso', data: mLabels.map(k => mensualData[k].curso), backgroundColor: '#f97316' },
+                        { label: 'Rechazadas', data: mLabels.map(k => mensualData[k].rech), backgroundColor: '#ef4444' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { x: { stacked: true }, y: { stacked: true, ticks: { stepSize: 1 } } },
+                    plugins: { legend: { position: 'top' } }
+                }
             });
         }
 
-        function cargarDashboardProduccion() {
+                function cargarDashboardProduccion() {
             const yFil = getMulti('filt-pro-year'); const mFil = getMulti('filt-pro-month');
             const rbleFil = getMulti('filt-pro-rble'); const t1Fil = getMulti('filt-pro-t1');
             const t2Fil = getMulti('filt-pro-t2'); const t3Fil = getMulti('filt-pro-t3');
@@ -2630,7 +2722,7 @@
                 let hrsDisp = 0;
                 if (ppto > 0 && costeHoraActual > 0) hrsDisp = (ppto - gast) / costeHoraActual;
 
-                // Leer horas csv desde la tabla (para ahorrar recálculo)
+                // Leer horas csv desde la tabla (para ahorrar recÃ¡lculo)
                 let idT = prod.num_trabajo;
                 let hHist = parseSpanishNum(prod.total_horas_historico) || 0;
                 let trDom = document.querySelector(`#table-body tr[data-id="${idT}"]`);
@@ -2643,7 +2735,7 @@
                 let pdteFila = hrsDisp - hTotalCalc;
                 if (pdteFila > 0) hrsPdte += pdteFila;
 
-                // Reparto simplificado para KPIs de técnicos
+                // Reparto simplificado para KPIs de tÃ©cnicos
                 let ejecutores = [];
                 if (prod.ejecutor_t1) ejecutores.push(prod.ejecutor_t1);
                 if (prod.apoyo_am) ejecutores.push(prod.apoyo_am);
@@ -2681,7 +2773,7 @@
                     }
                 }
 
-                // Gráfica Barras Meses (basado en Fecha Inicio)
+                // GrÃ¡fica Barras Meses (basado en Fecha Inicio)
                 if (prod.fecha_inicio) {
                     let mm = extractDateInfo(prod.fecha_inicio).m;
                     if (mm) hrsPorMes[parseInt(mm, 10)] += (hrsDisp > 0 ? hrsDisp : 0);
@@ -2710,7 +2802,7 @@
                     labels: ganttLabels,
                     datasets: [
                         { label: 'Completado', data: ganttProg, backgroundColor: '#3b82f6', barPercentage: 0.5 },
-                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.5, grouped: false }
+                        { label: 'DuraciÃ³n Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.5, grouped: false }
                     ]
                 },
                 options: {
@@ -2752,32 +2844,267 @@
             });
         }
 
-        function cargarDashboard() {
+        function cargarDashboardPartes() {
+            // Populate technician filter with nombre_pila
+            const tecSelect = document.getElementById('filt-partes-tec');
+            if (tecSelect && tecSelect.children.length === 0) {
+                listaTecnicos.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.acronimo;
+                    opt.textContent = t.nombre_pila || t.acronimo;
+                    opt.selected = true;
+                    tecSelect.appendChild(opt);
+                });
+            }
+            const selTecs = getMulti('filt-partes-tec');
+
+            // Build date hierarchy from partes data
+            const hierarchy = {}; // year -> month -> week -> day -> { tec: hours }
+
+            // Get current week bounds
+            const today = new Date();
+            const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1;
+            const monday = new Date(today); monday.setDate(today.getDate() - dayOfWeek);
+            const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+            const currentWeekKey = `${monday.getFullYear()}-W${String(getISOWeek(monday)).padStart(2,'0')}`;
+
+            function getISOWeek(d) {
+                const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+                date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+                const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+                return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+            }
+
+            // Collect all partes from memory (read from Firestore snapshot stored globally)
+            if (typeof window._partesHorasData === 'undefined') {
+                document.getElementById('partes-tabla-container').innerHTML =
+                    '<p style="color:#64748b;padding:16px;">Cargando datos de partes... Vuelve a hacer clic en la pestaña en unos segundos.</p>';
+                // Load async
+                (async () => {
+                    const { getDocs: gd, collection: col } = await import("https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js");
+                    const snap = await gd(col(db, "partes_horas"));
+                    window._partesHorasData = [];
+                    snap.forEach(d => window._partesHorasData.push(d.data()));
+                    cargarDashboardPartes();
+                })();
+                return;
+            }
+
+            window._partesHorasData.forEach(p => {
+                const tec = (() => {
+                    const str = p.trabajador || '';
+                    const getWords = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]/g,' ').toLowerCase().split(/\s+/).filter(w=>w.length>2);
+                    const wCSV = getWords(str);
+                    let best = null, max = 0;
+                    listaTecnicos.forEach(t => {
+                        const wCfg = [...new Set([...getWords(t.nombre),...getWords(t.nombre_pila||''),...getWords(t.acronimo)])];
+                        let m = 0; wCSV.forEach(w => { if(wCfg.includes(w)) m++; });
+                        if(m > max) { max = m; best = t; }
+                    });
+                    return best;
+                })();
+                if (!tec) return;
+                if (selTecs.length > 0 && !selTecs.includes(tec.acronimo)) return;
+
+                const horas = parseFloat(p.horas) || 0;
+                if (!horas) return;
+
+                // Parse fecha
+                const fechaStr = p.fecha || '';
+                let d;
+                if (fechaStr.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+                    const [dd, mm, yyyy] = fechaStr.split('/');
+                    d = new Date(parseInt(yyyy), parseInt(mm)-1, parseInt(dd));
+                } else if (fechaStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    d = new Date(fechaStr);
+                } else return;
+
+                if (isNaN(d.getTime())) return;
+
+                const yyyy = String(d.getFullYear());
+                const mm = String(d.getMonth()+1).padStart(2,'0');
+                const dd2 = String(d.getDate()).padStart(2,'0');
+                const wk = getISOWeek(d);
+                const weekKey = `${yyyy}-W${String(wk).padStart(2,'0')}`;
+                const dayKey = `${yyyy}-${mm}-${dd2}`;
+
+                if (!hierarchy[yyyy]) hierarchy[yyyy] = {};
+                if (!hierarchy[yyyy][mm]) hierarchy[yyyy][mm] = {};
+                if (!hierarchy[yyyy][mm][weekKey]) hierarchy[yyyy][mm][weekKey] = {};
+                if (!hierarchy[yyyy][mm][weekKey][dayKey]) hierarchy[yyyy][mm][weekKey][dayKey] = {};
+                hierarchy[yyyy][mm][weekKey][dayKey][tec.acronimo] = (hierarchy[yyyy][mm][weekKey][dayKey][tec.acronimo] || 0) + horas;
+            });
+
+            // Render table
+            const tecKeys = selTecs.length > 0
+                ? listaTecnicos.filter(t => selTecs.includes(t.acronimo))
+                : listaTecnicos;
+
+            const fmtH = v => v ? new Intl.NumberFormat('es-ES',{minimumFractionDigits:0,maximumFractionDigits:1}).format(v) : '';
+            const legacyColors = { "TTG":"#fee2e2","JMR":"#ffedd5","CPV":"#fef3c7","BRL":"#fef08a","RAP":"#d9f99d","AEL":"#bbf7d0","BLO":"#a7f3d0","MMB":"#99f6e4","IRE":"#cffafe","JML":"#e0f2fe","MCM":"#dbeafe","PLR":"#e0e7ff","PRW":"#ede9fe","DPV":"#f3e8ff","JDR":"#fae8ff","ELA":"#fce7f3","LAR":"#f1f5f9","HMR":"#e2e8f0" };
+
+            let thead = '<tr style="background:#1e293b;color:white;"><th style="padding:8px 12px;text-align:left;position:sticky;left:0;z-index:2;background:#1e293b;min-width:130px;">Período</th>';
+            tecKeys.forEach(t => {
+                const bg = t.color || legacyColors[t.acronimo] || '#f8fafc';
+                thead += `<th style="padding:8px 12px;text-align:center;background:${bg};color:#1e293b;min-width:70px;">${t.nombre_pila || t.acronimo}</th>`;
+            });
+            thead += '</tr>';
+
+            let tbody = '';
+            const years = Object.keys(hierarchy).sort().reverse();
+
+            years.forEach(yr => {
+                // Year row - sum all hours
+                const yrTotals = {}; tecKeys.forEach(t => yrTotals[t.acronimo] = 0);
+                Object.values(hierarchy[yr]).forEach(months =>
+                    Object.values(months).forEach(weeks =>
+                        Object.values(weeks).forEach(days =>
+                            Object.entries(days).forEach(([k,v]) => { if(yrTotals[k]!==undefined) yrTotals[k] += v; })
+                        )
+                    )
+                );
+                tbody += `<tr class="partes-row-year" data-yr="${yr}" style="background:#1e293b;color:white;font-weight:700;cursor:pointer;">`;
+                tbody += `<td style="padding:6px 12px;position:sticky;left:0;background:#1e293b;color:white;">▶ ${yr}</td>`;
+                tecKeys.forEach(t => { tbody += `<td style="text-align:center;padding:6px 8px;">${fmtH(yrTotals[t.acronimo]) || ''}</td>`; });
+                tbody += '</tr>';
+
+                const months = Object.keys(hierarchy[yr]).sort().reverse();
+                months.forEach(mo => {
+                    const moNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                    const moTotals = {}; tecKeys.forEach(t => moTotals[t.acronimo] = 0);
+                    Object.values(hierarchy[yr][mo]).forEach(weeks =>
+                        Object.values(weeks).forEach(days =>
+                            Object.entries(days).forEach(([k,v]) => { if(moTotals[k]!==undefined) moTotals[k] += v; })
+                        )
+                    );
+                    tbody += `<tr class="partes-row-month partes-children-${yr}" data-yr="${yr}" data-mo="${mo}" style="display:none;background:#334155;color:white;font-weight:600;cursor:pointer;">`;
+                    tbody += `<td style="padding:5px 12px 5px 24px;position:sticky;left:0;background:#334155;color:white;">  ▶ ${moNames[parseInt(mo)]} ${yr}</td>`;
+                    tecKeys.forEach(t => { tbody += `<td style="text-align:center;padding:5px 8px;">${fmtH(moTotals[t.acronimo]) || ''}</td>`; });
+                    tbody += '</tr>';
+
+                    const weeks = Object.keys(hierarchy[yr][mo]).sort().reverse();
+                    weeks.forEach(wk => {
+                        const wkTotals = {}; tecKeys.forEach(t => wkTotals[t.acronimo] = 0);
+                        Object.values(hierarchy[yr][mo][wk]).forEach(days =>
+                            Object.entries(days).forEach(([k,v]) => { if(wkTotals[k]!==undefined) wkTotals[k] += v; })
+                        );
+                        const isCurrentWk = wk === currentWeekKey;
+                        const wkBg = isCurrentWk ? '#3b82f6' : '#475569';
+                        tbody += `<tr class="partes-row-week partes-children-${yr}-${mo}" data-yr="${yr}" data-mo="${mo}" data-wk="${wk}" style="display:none;background:${wkBg};color:white;font-weight:500;cursor:pointer;">`;
+                        tbody += `<td style="padding:4px 12px 4px 36px;position:sticky;left:0;background:${wkBg};color:white;">    ▶ ${wk}${isCurrentWk?' (actual)':''}</td>`;
+                        tecKeys.forEach(t => { tbody += `<td style="text-align:center;padding:4px 8px;">${fmtH(wkTotals[t.acronimo]) || ''}</td>`; });
+                        tbody += '</tr>';
+
+                        const days = Object.keys(hierarchy[yr][mo][wk]).sort().reverse();
+                        days.forEach(dy => {
+                            const dayData = hierarchy[yr][mo][wk][dy];
+                            tbody += `<tr class="partes-row-day partes-children-${yr}-${mo}-${wk}" data-yr="${yr}" data-mo="${mo}" data-wk="${wk}" style="display:none;background:#f8fafc;">`;
+                            const [dyy, dmm, ddd] = dy.split('-');
+                            const dateLabel = `${ddd}/${dmm}/${dyy}`;
+                            tbody += `<td style="padding:3px 12px 3px 48px;position:sticky;left:0;background:#f8fafc;color:#334155;font-size:12px;">${dateLabel}</td>`;
+                            tecKeys.forEach(t => {
+                                const v = dayData[t.acronimo] || 0;
+                                const bg = v ? (t.color || legacyColors[t.acronimo] || '#f8fafc') : 'transparent';
+                                tbody += `<td style="text-align:center;padding:3px 8px;background:${bg};font-size:12px;color:#334155;">${fmtH(v)}</td>`;
+                            });
+                            tbody += '</tr>';
+                        });
+                    });
+                });
+            });
+
+            const container = document.getElementById('partes-tabla-container');
+            container.innerHTML = `<table id="tabla-partes-horas" style="border-collapse:collapse;min-width:100%;font-size:13px;"><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+
+            // Auto-expand current week
+            const expandToCurrentWeek = () => {
+                const [cwYr, cwMo] = (() => {
+                    const d = new Date(); const yr = String(d.getFullYear());
+                    const mo = String(d.getMonth()+1).padStart(2,'0');
+                    return [yr, mo];
+                })();
+                // Show year rows (they are always visible)
+                // Expand current year
+                document.querySelectorAll(`.partes-children-${cwYr}`).forEach(r => r.style.display = '');
+                document.querySelector(`.partes-row-year[data-yr="${cwYr}"]`)?.querySelector('td:first-child')?.textContent && (() => {
+                    const yrRow = document.querySelector(`.partes-row-year[data-yr="${cwYr}"] td:first-child`);
+                    if (yrRow) yrRow.textContent = yrRow.textContent.replace('▶','▼');
+                })();
+                // Expand current month
+                document.querySelectorAll(`.partes-children-${cwYr}-${cwMo}`).forEach(r => r.style.display = '');
+                const moRow = document.querySelector(`.partes-row-month[data-yr="${cwYr}"][data-mo="${cwMo}"] td:first-child`);
+                if (moRow) moRow.textContent = moRow.textContent.replace('▶','▼');
+                // Expand current week days
+                document.querySelectorAll(`.partes-children-${cwYr}-${cwMo}-${currentWeekKey}`).forEach(r => r.style.display = '');
+                const wkRow = document.querySelector(`.partes-row-week[data-wk="${currentWeekKey}"] td:first-child`);
+                if (wkRow) wkRow.textContent = wkRow.textContent.replace('▶','▼');
+            };
+            expandToCurrentWeek();
+
+            // Click handlers for expand/collapse
+            container.addEventListener('click', e => {
+                const row = e.target.closest('tr');
+                if (!row) return;
+                const yr = row.dataset.yr, mo = row.dataset.mo, wk = row.dataset.wk;
+                const firstTd = row.querySelector('td:first-child');
+
+                if (row.classList.contains('partes-row-year')) {
+                    const children = document.querySelectorAll(`.partes-children-${yr}`);
+                    const anyVisible = Array.from(children).some(r => r.style.display !== 'none');
+                    children.forEach(r => {
+                        r.style.display = anyVisible ? 'none' : '';
+                        // Collapse sub-levels too
+                        if (anyVisible) {
+                            const mo2 = r.dataset.mo, wk2 = r.dataset.wk;
+                            if (mo2) document.querySelectorAll(`.partes-children-${yr}-${mo2}`).forEach(x => x.style.display = 'none');
+                            if (wk2) document.querySelectorAll(`.partes-children-${yr}-${mo2}-${wk2}`).forEach(x => x.style.display = 'none');
+                        }
+                    });
+                    if (firstTd) firstTd.textContent = firstTd.textContent.replace(anyVisible?'▼':'▶', anyVisible?'▶':'▼');
+                } else if (row.classList.contains('partes-row-month')) {
+                    const children = document.querySelectorAll(`.partes-children-${yr}-${mo}`);
+                    const anyVisible = Array.from(children).some(r => r.style.display !== 'none');
+                    children.forEach(r => {
+                        r.style.display = anyVisible ? 'none' : '';
+                        if (anyVisible) { const wk2 = r.dataset.wk; if(wk2) document.querySelectorAll(`.partes-children-${yr}-${mo}-${wk2}`).forEach(x => x.style.display = 'none'); }
+                    });
+                    if (firstTd) firstTd.textContent = firstTd.textContent.replace(anyVisible?'▼':'▶', anyVisible?'▶':'▼');
+                } else if (row.classList.contains('partes-row-week')) {
+                    const children = document.querySelectorAll(`.partes-children-${yr}-${mo}-${wk}`);
+                    const anyVisible = Array.from(children).some(r => r.style.display !== 'none');
+                    children.forEach(r => r.style.display = anyVisible ? 'none' : '');
+                    if (firstTd) firstTd.textContent = firstTd.textContent.replace(anyVisible?'▼':'▶', anyVisible?'▶':'▼');
+                }
+            });
+        }
+
+                function cargarDashboard() {
             initFiltrosDashboard();
             const tabIA = document.getElementById('tab-dash-ia');
             const isIA = tabIA && tabIA.classList.contains('active');
             const isOfertas = document.getElementById('tab-dash-ofertas').classList.contains('active');
+            const isPartes = document.getElementById('tab-dash-partes') && document.getElementById('tab-dash-partes').classList.contains('active');
+
+            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-ia','panel-dash-partes'];
+            panels.forEach(id => { const el = document.getElementById(id); if(el) el.style.display = 'none'; });
 
             if (isIA) {
-                document.getElementById('panel-dash-ofertas').style.display = 'none';
-                document.getElementById('panel-dash-produccion').style.display = 'none';
                 document.getElementById('panel-dash-ia').style.display = 'block';
             } else if (isOfertas) {
                 document.getElementById('panel-dash-ofertas').style.display = 'block';
-                document.getElementById('panel-dash-produccion').style.display = 'none';
-                document.getElementById('panel-dash-ia').style.display = 'none';
                 cargarDashboardOfertas();
+            } else if (isPartes) {
+                document.getElementById('panel-dash-partes').style.display = 'block';
+                cargarDashboardPartes();
             } else {
-                document.getElementById('panel-dash-ofertas').style.display = 'none';
                 document.getElementById('panel-dash-produccion').style.display = 'block';
-                document.getElementById('panel-dash-ia').style.display = 'none';
                 cargarDashboardProduccion();
             }
         }
 
         function obtenerContextoIA() {
             if (typeof datosOfertasMemoria === 'undefined' || typeof datosProduccionMemoria === 'undefined') {
-                return "Los datos del departamento aún no se han cargado completamente.";
+                return "Los datos del departamento aÃºn no se han cargado completamente.";
             }
 
             // --- RESUMEN DE OFERTAS ---
@@ -2786,7 +3113,7 @@
             const enCurso = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('en curso')).length;
             const importeTotalOfertas = datosOfertasMemoria.reduce((acc, o) => acc + (parseSpanishNum(o.presupuesto_total) || 0), 0);
 
-            // --- RESUMEN DE PRODUCCIÓN ---
+            // --- RESUMEN DE PRODUCCIÃ“N ---
             const totalProduccion = datosProduccionMemoria.length;
             const presupuestoProduccion = datosProduccionMemoria.reduce((acc, p) => acc + (parseSpanishNum(p.presupuesto_m) || 0), 0);
 
@@ -2796,7 +3123,7 @@
             ).join('\n');
 
             const ultimosTrabajos = datosProduccionMemoria.slice(-5).map(p =>
-                `- Trabajo ${p.num_trabajo || 'N/A'}: ${p.cliente || 'Sin cliente'} - ${p.servicio || 'Sin servicio'} (Presp: ${p.presupuesto_m || 0}€)`
+                `- Trabajo ${p.num_trabajo || 'N/A'}: ${p.cliente || 'Sin cliente'} - ${p.servicio || 'Sin servicio'} (Presp: ${p.presupuesto_m || 0}â‚¬)`
             ).join('\n');
 
             const fechaActual = new Date().toLocaleString('es-ES');
@@ -2808,24 +3135,24 @@ RESUMEN DE OFERTAS:
 - Total Ofertas: ${totalOfertas}
 - Aceptadas: ${aceptadas}
 - En Curso: ${enCurso}
-- Importe Total Ofertado: ${importeTotalOfertas.toLocaleString('es-ES')} €
+- Importe Total Ofertado: ${importeTotalOfertas.toLocaleString('es-ES')} â‚¬
 
-RESUMEN DE PRODUCCIÓN (TRABAJOS ACTIVOS):
-- Total Trabajos en Producción: ${totalProduccion}
-- Importe Total Presupuestado: ${presupuestoProduccion.toLocaleString('es-ES')} €
+RESUMEN DE PRODUCCIÃ“N (TRABAJOS ACTIVOS):
+- Total Trabajos en ProducciÃ³n: ${totalProduccion}
+- Importe Total Presupuestado: ${presupuestoProduccion.toLocaleString('es-ES')} â‚¬
 
-ÚLTIMAS OFERTAS REGISTRADAS:
+ÃšLTIMAS OFERTAS REGISTRADAS:
 ${ultimasOfertas}
 
-ÚLTIMOS TRABAJOS EN PRODUCCIÓN:
+ÃšLTIMOS TRABAJOS EN PRODUCCIÃ“N:
 ${ultimosTrabajos}
 -------------------------------------------
 `;
         }
 
-        // Listeners Pestañas y Filtros
+        // Listeners PestaÃ±as y Filtros
         const clearActiveTabs = () => {
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-ia'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-ia', 'tab-dash-partes'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
         };
@@ -2845,8 +3172,13 @@ ${ultimosTrabajos}
             e.target.classList.add('active');
             cargarDashboard();
         });
+        document.getElementById('tab-dash-partes')?.addEventListener('click', (e) => {
+            clearActiveTabs();
+            e.target.classList.add('active');
+            cargarDashboard();
+        });
 
-        // Lógica del Botón Consultar IA
+        // LÃ³gica del BotÃ³n Consultar IA
         document.getElementById('btn-consultar-ia')?.addEventListener('click', async () => {
             const promptInput = document.getElementById('ai-prompt-input');
             const responseArea = document.getElementById('ai-response-area');
@@ -2864,28 +3196,28 @@ ${ultimosTrabajos}
 
             // UI Feedback: Mostrar carga
             responseArea.style.display = 'block';
-            responseText.innerHTML = '<span style="color: #64748b; font-style: italic;">La IA está pensando... (Analizando datos del departamento con Gemini Pro)</span>';
+            responseText.innerHTML = '<span style="color: #64748b; font-style: italic;">La IA estÃ¡ pensando... (Analizando datos del departamento con Gemini Pro)</span>';
 
             const contexto = obtenerContextoIA();
             const promptFinal = `DATOS DEL DEPARTAMENTO: ${contexto} \n\n PREGUNTA DEL USUARIO: ${promptUsuario}`;
 
             try {
-                // PASO 2: FRONTEND - Invocación segura via Firebase Cloud Functions
+                // PASO 2: FRONTEND - InvocaciÃ³n segura via Firebase Cloud Functions
                 const callGoogleApi = httpsCallable(functions, 'callGoogleApi');
                 const result = await callGoogleApi({ prompt: promptFinal });
 
                 if (result.data && result.data.success) {
                     responseText.innerHTML = result.data.response.replace(/\n/g, '<br>');
                 } else {
-                    throw new Error('La respuesta de la IA no es válida.');
+                    throw new Error('La respuesta de la IA no es vÃ¡lida.');
                 }
             } catch (error) {
-                console.error("Error consultando IA a través de Cloud Functions:", error);
+                console.error("Error consultando IA a travÃ©s de Cloud Functions:", error);
 
-                // Manejo de errores específicos de Firebase Functions
+                // Manejo de errores especÃ­ficos de Firebase Functions
                 let mensajeError = 'Error: No se pudo conectar con el servicio de IA.';
                 if (error.code === 'unauthenticated') {
-                    mensajeError = 'Error: Debes iniciar sesión para usar la IA.';
+                    mensajeError = 'Error: Debes iniciar sesiÃ³n para usar la IA.';
                 } else if (error.message) {
                     mensajeError = `Error: ${error.message}`;
                 }
@@ -2898,6 +3230,12 @@ ${ultimosTrabajos}
         });
 
         document.getElementById('btn-update-dash-ofe')?.addEventListener('click', cargarDashboard);
+        document.getElementById('btn-update-dash-partes')?.addEventListener('click', cargarDashboard);
+        document.getElementById('btn-clear-dash-partes')?.addEventListener('click', () => {
+            const sel = document.getElementById('filt-partes-tec');
+            if (sel) Array.from(sel.options).forEach(o => o.selected = true);
+            cargarDashboard();
+        });
         document.getElementById('btn-update-dash-pro')?.addEventListener('click', cargarDashboard);
 
         document.getElementById('btn-clear-dash-ofe')?.addEventListener('click', () => {
@@ -2917,10 +3255,10 @@ ${ultimosTrabajos}
         });
 
         // ============================================
-        // Lógica de Auditoría y Fusión (Clientes y Grupos)
+        // LÃ³gica de AuditorÃ­a y FusiÃ³n (Clientes y Grupos)
         // ============================================
 
-        // Función auxiliar para sanitizar claves de Firebase (evitar errores de Document fields)
+        // FunciÃ³n auxiliar para sanitizar claves de Firebase (evitar errores de Document fields)
         function sanitizeKey(str) {
             if (!str) return "";
             // Reemplazar caracteres prohibidos en Firestore para object keys: '.', '/', '~', '[', ']'
@@ -2955,11 +3293,11 @@ ${ultimosTrabajos}
                     }
                 }
 
-                renderTablaAuditoria('tbody-auditoria-clientes', conteoClientes, 'cliente', 'Auditoría de Clientes');
-                renderTablaAuditoria('tbody-auditoria-grupos', conteoGrupos, 'grupo', 'Auditoría de Grupos');
+                renderTablaAuditoria('tbody-auditoria-clientes', conteoClientes, 'cliente', 'AuditorÃ­a de Clientes');
+                renderTablaAuditoria('tbody-auditoria-grupos', conteoGrupos, 'grupo', 'AuditorÃ­a de Grupos');
 
             } catch (error) {
-                console.error("Error al cargar auditoría centralizada:", error);
+                console.error("Error al cargar auditorÃ­a centralizada:", error);
             }
         }
 
@@ -2968,7 +3306,7 @@ ${ultimosTrabajos}
                 const conteoClientes = {};
                 const conteoGrupos = {};
 
-                // Leer Producción
+                // Leer ProducciÃ³n
                 const prodSnap = await getDocs(collection(db, "produccion"));
                 prodSnap.forEach(d => {
                     const data = d.data();
@@ -3002,7 +3340,7 @@ ${ultimosTrabajos}
             if (!tbody) return;
             tbody.innerHTML = '';
 
-            // Convertir map a array y ordenar alfabéticamente
+            // Convertir map a array y ordenar alfabÃ©ticamente
             const lista = Object.keys(conteoMap).map(k => ({ nombre: k, total: conteoMap[k] }));
             lista.sort((a, b) => a.nombre.localeCompare(b.nombre));
 
@@ -3023,7 +3361,7 @@ ${ultimosTrabajos}
                 const tdNombre = tr.querySelector('.edit-audit-name');
                 tdNombre.addEventListener('dblclick', function () {
                     const nombreAntiguo = tdNombre.textContent;
-                    // Evitar múltiples inputs
+                    // Evitar mÃºltiples inputs
                     if (tdNombre.querySelector('input')) return;
 
                     tdNombre.innerHTML = `<input type="text" class="inline-edit-input" style="width: 100%; box-sizing: border-box;" value="${escapeHTML(nombreAntiguo)}" />`;
@@ -3037,7 +3375,7 @@ ${ultimosTrabajos}
                             return;
                         }
 
-                        if (!confirm(`¿Estás seguro de renombrar TODOS los registros de '${nombreAntiguo}' a '${nombreNuevo}'? Esta acción es irreversible.`)) {
+                        if (!confirm(`Â¿EstÃ¡s seguro de renombrar TODOS los registros de '${nombreAntiguo}' a '${nombreNuevo}'? Esta acciÃ³n es irreversible.`)) {
                             tdNombre.textContent = nombreAntiguo;
                             return;
                         }
@@ -3046,13 +3384,13 @@ ${ultimosTrabajos}
 
                         try {
                             await ejecutarFusionNombres(campoFiltro, nombreAntiguo, nombreNuevo);
-                            alert(`Fusión completada con éxito. Registros actualizados a: ${nombreNuevo}`);
-                            // Recargar auditoría (así como tablas principales de fondo por si regresan)
+                            alert(`FusiÃ³n completada con Ã©xito. Registros actualizados a: ${nombreNuevo}`);
+                            // Recargar auditorÃ­a (asÃ­ como tablas principales de fondo por si regresan)
                             cargarAuditoriaDeNombres();
                             cargarProduccion();
                             cargarOfertas();
                         } catch (err) {
-                            console.error("Error en fusión de nombres", err);
+                            console.error("Error en fusiÃ³n de nombres", err);
                             alert("Ha ocurrido un error al intentar fusionar.");
                             tdNombre.textContent = nombreAntiguo;
                         }
@@ -3102,7 +3440,7 @@ ${ultimosTrabajos}
             await actualizarContadoresNombresSilencioso();
         }
 
-        // Utilidad rápida escaping HTML
+        // Utilidad rÃ¡pida escaping HTML
         function escapeHTML(str) {
             if (!str) return "";
             return String(str)
@@ -3114,7 +3452,7 @@ ${ultimosTrabajos}
         }
 
         // ============================================
-        // Lógica de Configuración: Listas Dinámicas
+        // LÃ³gica de ConfiguraciÃ³n: Listas DinÃ¡micas
         // ============================================
 
         function renderListaSimple(ulId, arrayList, docIdName, inputId) {
@@ -3174,7 +3512,7 @@ ${ultimosTrabajos}
                 });
 
                 li.querySelector('.btn-delete-list').addEventListener('click', async () => {
-                    if (confirm("¿Eliminar este elemento?")) {
+                    if (confirm("Â¿Eliminar este elemento?")) {
                         arrayList.splice(index, 1);
                         await setDoc(doc(db, "listas_config", docIdName), { items: arrayList });
                         renderizarListasConfig();
@@ -3287,7 +3625,7 @@ ${ultimosTrabajos}
                                 }
                             }
                         } else {
-                            alert("Nombre y Acrónimo son obligatorios.");
+                            alert("Nombre y AcrÃ³nimo son obligatorios.");
                         }
                         renderListaTecnicos();
                     };
@@ -3300,14 +3638,14 @@ ${ultimosTrabajos}
                 });
 
                 tr.querySelector('.btn-delete-list-tec').addEventListener('click', async () => {
-                    if (confirm(`¿Eliminar al técnico ${t.nombre}?`)) {
+                    if (confirm(`Â¿Eliminar al tÃ©cnico ${t.nombre}?`)) {
                         listaTecnicos.splice(index, 1);
                         await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
                         renderListaTecnicos();
                     }
                 });
 
-                // ── Doble clic en celda Rol: editor in-cell aislado ──────────
+                // â”€â”€ Doble clic en celda Rol: editor in-cell aislado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
                 tr.querySelector('.tec-rol').addEventListener('dblclick', () => {
                     if (currentUserRole !== 'admin') return;
                     const tdRol = tr.querySelector('.tec-rol');
@@ -3340,7 +3678,7 @@ ${ultimosTrabajos}
                             }
                         } catch (errRol) {
                             console.error("Error guardando rol:", errRol);
-                            alert("No se pudo guardar el rol. Inténtalo de nuevo.");
+                            alert("No se pudo guardar el rol. IntÃ©ntalo de nuevo.");
                         }
                         tdRol.innerHTML = `<span>${escapeHTML(nuevoRol)}</span>`;
                     };
@@ -3399,7 +3737,7 @@ ${ultimosTrabajos}
                         document.getElementById('input-tec-color').value = '#ffffff';
                         renderListaTecnicos();
                     } else {
-                        alert("El nombre y el acrónimo son requeridos.");
+                        alert("El nombre y el acrÃ³nimo son requeridos.");
                     }
                 });
             }
@@ -3420,7 +3758,7 @@ ${ultimosTrabajos}
         }
 
         // ============================================
-        // Lógica de Historial y Deshacer
+        // LÃ³gica de Historial y Deshacer
         // ============================================
 
         async function cargarHistorial() {
@@ -3430,7 +3768,7 @@ ${ultimosTrabajos}
             tbodyHistorial.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">Cargando historial...</td></tr>';
 
             try {
-                // Últimos 30 días
+                // Ãšltimos 30 dÃ­as
                 const treintaDiasAtras = new Date();
                 treintaDiasAtras.setDate(treintaDiasAtras.getDate() - 30);
                 const fechaLimite = treintaDiasAtras.toISOString();
@@ -3466,13 +3804,13 @@ ${ultimosTrabajos}
                     tbodyHistorial.appendChild(tr);
 
                     tr.querySelector('.btn-restaurar-historial').addEventListener('click', async () => {
-                        if (confirm(`¿Restaurar el campo '${data.campo}' al valor anterior ('${data.valorAnterior}')?`)) {
+                        if (confirm(`Â¿Restaurar el campo '${data.campo}' al valor anterior ('${data.valorAnterior}')?`)) {
                             try {
                                 await updateDoc(doc(db, data.coleccion, data.docId), {
                                     [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior
                                 });
                                 await deleteDoc(doc(db, "historial", docSnap.id));
-                                alert("Valor restaurado con éxito.");
+                                alert("Valor restaurado con Ã©xito.");
                                 cargarHistorial();
                                 if (data.coleccion === 'produccion') cargarProduccion();
                                 if (data.coleccion === 'ofertas') cargarOfertas();
@@ -3490,8 +3828,8 @@ ${ultimosTrabajos}
             }
         }
 
-        // Evento global para botón Deshacer (última acción)
-        // Se define listener aquí en el script global de init
+        // Evento global para botÃ³n Deshacer (Ãºltima acciÃ³n)
+        // Se define listener aquÃ­ en el script global de init
         document.addEventListener('DOMContentLoaded', () => {
             const btnDeshacer = document.getElementById('btn-deshacer');
             if (btnDeshacer) {
@@ -3508,7 +3846,7 @@ ${ultimosTrabajos}
                         const ultimoRegistroDoc = snapshot.docs[0];
                         const data = ultimoRegistroDoc.data();
 
-                        if (confirm(`¿Deshacer la última acción?\\n\\nColección: ${data.coleccion}\\nCampo: ${data.campo}\\nValor actual: ${data.valorNuevo}\\nSe restaurará a: ${data.valorAnterior}`)) {
+                        if (confirm(`Â¿Deshacer la Ãºltima acciÃ³n?\\n\\nColecciÃ³n: ${data.coleccion}\\nCampo: ${data.campo}\\nValor actual: ${data.valorNuevo}\\nSe restaurarÃ¡ a: ${data.valorAnterior}`)) {
                             await updateDoc(doc(db, data.coleccion, data.docId), {
                                 [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior
                             });
@@ -3519,11 +3857,11 @@ ${ultimosTrabajos}
                             alert("Deshecho correctamente.");
                             if (data.coleccion === 'produccion') cargarProduccion();
                             if (data.coleccion === 'ofertas') cargarOfertas();
-                            cargarHistorial(); // Refrescar pestaña si estuviese abierta
+                            cargarHistorial(); // Refrescar pestaÃ±a si estuviese abierta
                         }
                     } catch (e) {
                         console.error("Error al deshacer: ", e);
-                        alert("Ocurrió un error al intentar deshacer la acción.");
+                        alert("OcurriÃ³ un error al intentar deshacer la acciÃ³n.");
                     }
                 });
             }
@@ -3535,10 +3873,10 @@ ${ultimosTrabajos}
             }
 
             // ===================================
-            // Lógicas de Importación CSV
+            // LÃ³gicas de ImportaciÃ³n CSV
             // ===================================
 
-            // CSV Producción
+            // CSV ProducciÃ³n
             const btnUpload = document.getElementById('btn-upload-firebase');
             if (btnUpload) {
                 btnUpload.addEventListener('click', () => {
@@ -3565,7 +3903,7 @@ ${ultimosTrabajos}
                             try {
                                 const data = results.data;
                                 if (data.length < 2) {
-                                    alert("El archivo está vacío o no tiene el formato correcto.");
+                                    alert("El archivo estÃ¡ vacÃ­o o no tiene el formato correcto.");
                                     btnUpload.disabled = false;
                                     progressContainer.style.display = 'none';
                                     return;
@@ -3577,7 +3915,7 @@ ${ultimosTrabajos}
                                 let batchCount = 0;
                                 let currentBatch = writeBatch(db);
 
-                                // Limpiar base de datos actual (lógica de sobreescritura elegida por el admin)
+                                // Limpiar base de datos actual (lÃ³gica de sobreescritura elegida por el admin)
                                 progressText.textContent = 'Limpiando datos anteriores...';
                                 const currentDocs = await getDocs(collectionRef);
                                 let deleteBatch = writeBatch(db);
@@ -3652,21 +3990,21 @@ ${ultimosTrabajos}
                                 }
 
                                 progressBar.style.width = '100%';
-                                progressText.textContent = '¡Carga de Producción completada!';
+                                progressText.textContent = 'Â¡Carga de ProducciÃ³n completada!';
 
                                 await actualizarContadoresNombresSilencioso();
                                 setTimeout(() => {
                                     progressContainer.style.display = 'none';
                                     btnUpload.disabled = false;
                                     fileInput.value = '';
-                                    document.getElementById('file-label-text').textContent = "Ningún archivo seleccionado";
+                                    document.getElementById('file-label-text').textContent = "NingÃºn archivo seleccionado";
                                     cargarProduccion();
                                     cargarAuditoriaDeNombres();
                                 }, 2000);
 
                             } catch (error) {
                                 console.error("Error al procesar BBDD:", error);
-                                progressText.textContent = 'Ocurrió un error. Revisa la consola.';
+                                progressText.textContent = 'OcurriÃ³ un error. Revisa la consola.';
                                 btnUpload.disabled = false;
                             }
                         },
@@ -3706,7 +4044,7 @@ ${ultimosTrabajos}
                             try {
                                 const data = results.data;
                                 if (data.length < 2) {
-                                    alert("El archivo está vacío o no tiene el formato correcto.");
+                                    alert("El archivo estÃ¡ vacÃ­o o no tiene el formato correcto.");
                                     btnUploadOfertas.disabled = false;
                                     progressContainer.style.display = 'none';
                                     return;
@@ -3793,7 +4131,7 @@ ${ultimosTrabajos}
                                 }
 
                                 progressBar.style.width = '100%';
-                                progressText.textContent = '¡Carga de Ofertas completada!';
+                                progressText.textContent = 'Â¡Carga de Ofertas completada!';
 
                                 await actualizarContadoresNombresSilencioso();
 
@@ -3801,14 +4139,14 @@ ${ultimosTrabajos}
                                     progressContainer.style.display = 'none';
                                     btnUploadOfertas.disabled = false;
                                     fileInput.value = '';
-                                    document.getElementById('file-label-text-ofertas').textContent = "Ningún archivo seleccionado";
+                                    document.getElementById('file-label-text-ofertas').textContent = "NingÃºn archivo seleccionado";
                                     cargarOfertas();
                                     cargarAuditoriaDeNombres();
                                 }, 2000);
 
                             } catch (error) {
                                 console.error("Error al procesar Ofertas:", error);
-                                progressText.textContent = 'Ocurrió un error. Revisa la consola.';
+                                progressText.textContent = 'OcurriÃ³ un error. Revisa la consola.';
                                 btnUploadOfertas.disabled = false;
                             }
                         },
@@ -3826,23 +4164,23 @@ ${ultimosTrabajos}
             if (csvInputConfig) {
                 csvInputConfig.addEventListener('change', function () {
                     const l = document.getElementById('file-label-text');
-                    if (l) l.textContent = this.files.length > 0 ? this.files[0].name : "Ningún archivo seleccionado";
+                    if (l) l.textContent = this.files.length > 0 ? this.files[0].name : "NingÃºn archivo seleccionado";
                 });
             }
             const csvInputOfe = document.getElementById('csv-file-ofertas');
             if (csvInputOfe) {
                 csvInputOfe.addEventListener('change', function () {
                     const l = document.getElementById('file-label-text-ofertas');
-                    if (l) l.textContent = this.files.length > 0 ? this.files[0].name : "Ningún archivo seleccionado";
+                    if (l) l.textContent = this.files.length > 0 ? this.files[0].name : "NingÃºn archivo seleccionado";
                 });
             }
 
-            // Eventos e inicializaciones para importación de Horas
+            // Eventos e inicializaciones para importaciÃ³n de Horas
             const csvInputHoras = document.getElementById('csv-file-horas');
             if (csvInputHoras) {
                 csvInputHoras.addEventListener('change', function () {
                     const l = document.getElementById('file-label-text-horas');
-                    if (l) l.textContent = this.files.length > 0 ? this.files[0].name : "Ningún archivo seleccionado";
+                    if (l) l.textContent = this.files.length > 0 ? this.files[0].name : "NingÃºn archivo seleccionado";
                 });
             }
 
@@ -3872,7 +4210,7 @@ ${ultimosTrabajos}
                             try {
                                 const data = results.data;
                                 if (data.length < 2) {
-                                    alert("El archivo está vacío o no tiene el formato correcto.");
+                                    alert("El archivo estÃ¡ vacÃ­o o no tiene el formato correcto.");
                                     btnUploadHoras.disabled = false;
                                     progressContainer.style.display = 'none';
                                     return;
@@ -3900,13 +4238,13 @@ ${ultimosTrabajos}
                                     const matchId = observaciones.match(/^(\d+)/);
                                     let idTrabajoVinculado = matchId ? matchId[1] : observaciones;
 
-                                    // Limpiador básico para el trabajador para que sea apto para ID
+                                    // Limpiador bÃ¡sico para el trabajador para que sea apto para ID
                                     let trabajadorLimpio = row[7] ? row[7].trim().replace(/\s+/g, '').substring(0, 6) : 'user';
 
                                     const idTrabajoSaneado = limpiarParaID(idTrabajoVinculado);
                                     const trabajadorSaneado = limpiarParaID(trabajadorLimpio);
 
-                                    // Generar ID único usando el pattern: `hora_{num_trabajo}_timestamp_{worker}_index`
+                                    // Generar ID Ãºnico usando el pattern: `hora_{num_trabajo}_timestamp_{worker}_index`
                                     const docBase = `hora_${idTrabajoSaneado}_${new Date().getTime()}_${trabajadorSaneado}_${i}`;
                                     const docId = limpiarParaID(docBase);
 
@@ -3950,18 +4288,18 @@ ${ultimosTrabajos}
                                 }
 
                                 progressBar.style.width = '100%';
-                                progressText.textContent = `¡Importación completada! (${processedCount} registros de horas guardados)`;
+                                progressText.textContent = `Â¡ImportaciÃ³n completada! (${processedCount} registros de horas guardados)`;
 
                                 setTimeout(() => {
                                     progressContainer.style.display = 'none';
                                     btnUploadHoras.disabled = false;
                                     fileInput.value = '';
-                                    document.getElementById('file-label-text-horas').textContent = "Ningún archivo seleccionado";
+                                    document.getElementById('file-label-text-horas').textContent = "NingÃºn archivo seleccionado";
                                 }, 3000);
 
                             } catch (error) {
                                 console.error("Error al procesar Horas:", error);
-                                progressText.textContent = 'Ocurrió un error. Revisa la consola.';
+                                progressText.textContent = 'OcurriÃ³ un error. Revisa la consola.';
                                 btnUploadHoras.disabled = false;
                             }
                         },
@@ -3973,12 +4311,12 @@ ${ultimosTrabajos}
                     });
                 });
             }
-            // Lógica del Botón Archivar Trabajo
+            // LÃ³gica del BotÃ³n Archivar Trabajo
             document.getElementById('table-body')?.addEventListener('click', async (e) => {
                 const btn = e.target.closest('.btn-archivar-prod');
                 if (!btn) return;
                 const docId = btn.dataset.id;
-                if (confirm(`¿Archivar Trabajo Nº ${docId}? Se moverá al Histórico definitivo y desaparecerá de Activos.`)) {
+                if (confirm(`Â¿Archivar Trabajo NÂº ${docId}? Se moverÃ¡ al HistÃ³rico definitivo y desaparecerÃ¡ de Activos.`)) {
                     try {
                         const docData = datosProduccionMemoria.find(d => d.num_trabajo === docId);
                         if (!docData) return;
@@ -3992,15 +4330,15 @@ ${ultimosTrabajos}
                 }
             });
 
-            // CSV Histórico
+            // CSV HistÃ³rico
             document.getElementById('csv-file-historico')?.addEventListener('change', function () {
                 const l = document.getElementById('file-label-text-historico');
-                if (l) l.textContent = this.files.length > 0 ? this.files[0].name : "Ningún archivo";
+                if (l) l.textContent = this.files.length > 0 ? this.files[0].name : "NingÃºn archivo";
             });
             document.getElementById('btn-upload-firebase-historico')?.addEventListener('click', () => {
                 const file = document.getElementById('csv-file-historico').files[0];
                 if (!file) { alert("Selecciona CSV"); return; }
-                // Reutilizamos la misma lógica de PapaParse que Producción, pero apuntando a historico_produccion
+                // Reutilizamos la misma lÃ³gica de PapaParse que ProducciÃ³n, pero apuntando a historico_produccion
                 Papa.parse(file, {
                     header: false, skipEmptyLines: true,
                     complete: async function (results) {
@@ -4016,12 +4354,12 @@ ${ultimosTrabajos}
                             currentBatch.set(doc(collection(db, "historico_produccion"), docId), firestoreDoc);
                         }
                         await currentBatch.commit();
-                        alert("Histórico subido correctamente.");
+                        alert("HistÃ³rico subido correctamente.");
                     }
                 });
             });
 
-            // Motor de Búsqueda Global Inteligente
+            // Motor de BÃºsqueda Global Inteligente
             const inputSearch = document.getElementById('global-search');
             const btnSearch = document.getElementById('btn-global-search');
             const btnClearSearch = document.getElementById('btn-global-clear');
@@ -4031,7 +4369,7 @@ ${ultimosTrabajos}
                     const term = inputSearch.value.trim().toLowerCase();
                     if (term.length > 0 && term.length < 3) return; // Exigir 3 caracteres
 
-                    // Detectar qué vista está activa (Producción u Ofertas)
+                    // Detectar quÃ© vista estÃ¡ activa (ProducciÃ³n u Ofertas)
                     const activeView = document.querySelector('.app-view[style*="display: block"]');
                     if (!activeView) return;
 
@@ -4062,7 +4400,7 @@ ${ultimosTrabajos}
 
     </script>
 
-    <!-- Estilos de la aplicación -->
+    <!-- Estilos de la aplicaciÃ³n -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -4390,7 +4728,7 @@ ${ultimosTrabajos}
             /* Vista por defecto */
         }
 
-        /* --- Panel de Configuración --- */
+        /* --- Panel de ConfiguraciÃ³n --- */
         .config-panel {
             background-color: #ffffff;
             border-radius: 8px;
@@ -4416,7 +4754,7 @@ ${ultimosTrabajos}
             margin-top: 24px;
         }
 
-        /* Botón de input file personalizado */
+        /* BotÃ³n de input file personalizado */
         .file-upload-wrapper {
             position: relative;
             overflow: hidden;
@@ -4601,7 +4939,7 @@ ${ultimosTrabajos}
             color: #334155;
         }
 
-        /* Estilos CSS fijos antiguos para las columas eliminados para cambiarlos a dinámicos en JS */
+        /* Estilos CSS fijos antiguos para las columas eliminados para cambiarlos a dinÃ¡micos en JS */
 
         /* Ajuste de color hover para columnas sticky administradas via JS */
         .data-table tbody tr:hover td {
@@ -4777,10 +5115,10 @@ ${ultimosTrabajos}
                     style="color: var(--tesicnor-blue); font-weight: 700; font-size: 28px; margin-left: 12px; margin-bottom: 0;">
                     Proyectos SIN</h2>
             </div>
-            <h2>Iniciar Sesión</h2>
+            <h2>Iniciar SesiÃ³n</h2>
             <form id="login-form">
-                <input type="email" id="login-email" class="login-input" placeholder="Correo electrónico" required>
-                <input type="password" id="login-password" class="login-input" placeholder="Contraseña" required>
+                <input type="email" id="login-email" class="login-input" placeholder="Correo electrÃ³nico" required>
+                <input type="password" id="login-password" class="login-input" placeholder="ContraseÃ±a" required>
                 <button type="submit" class="login-btn">Entrar</button>
             </form>
             <div style="margin: 16px 0; display: flex; align-items: center; justify-content: center;">
@@ -4790,13 +5128,13 @@ ${ultimosTrabajos}
             </div>
             <button id="btn-login-microsoft" class="login-btn" style="background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; gap: 10px;">
                 <svg width="20" height="20" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fbb00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
-                Iniciar sesión con Microsoft
+                Iniciar sesiÃ³n con Microsoft
             </button>
             <p id="login-error" style="color: #ef4444; font-size: 14px; margin-top: 12px; display: none;"></p>
         </div>
     </div>
 
-    <!-- Sidebar / Menú Lateral -->
+    <!-- Sidebar / MenÃº Lateral -->
     <aside class="sidebar" id="sidebar-main" style="display: none;">
         <div class="sidebar-header">
             <div class="sidebar-logo" style="display: flex; align-items: center;">
@@ -4809,7 +5147,7 @@ ${ultimosTrabajos}
                 </svg>
                 Proyectos SIN
             </div>
-            <button id="btn-toggle-sidebar" title="Plegar/Desplegar Menú">
+            <button id="btn-toggle-sidebar" title="Plegar/Desplegar MenÃº">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="20"
                     height="20">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
@@ -4822,7 +5160,7 @@ ${ultimosTrabajos}
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
-                <span>Producción</span>
+                <span>ProducciÃ³n</span>
             </a>
             <a href="#" class="nav-item" id="tab-ofertas">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -4845,7 +5183,7 @@ ${ultimosTrabajos}
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                <span>Configuración</span>
+                <span>ConfiguraciÃ³n</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
@@ -4855,17 +5193,17 @@ ${ultimosTrabajos}
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
-                <span>Cerrar sesión</span>
+                <span>Cerrar sesiÃ³n</span>
             </a>
         </nav>
     </aside>
 
-    <!-- Contenedor Derecho (Aplicación Principal) -->
+    <!-- Contenedor Derecho (AplicaciÃ³n Principal) -->
     <div class="app-container" id="app-main" style="display: none;">
         <header class="header">
             <!-- Global search removed per requirements -->
             <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
-                <input type="text" id="global-search" placeholder="Buscar en la tabla actual (mín. 3 letras)..."
+                <input type="text" id="global-search" placeholder="Buscar en la tabla actual (mÃ­n. 3 letras)..."
                     class="search-input" style="max-width: 350px;">
                 <button id="btn-global-search" class="btn-primary"
                     style="padding: 8px 12px; height: auto;">Buscar</button>
@@ -4884,8 +5222,8 @@ ${ultimosTrabajos}
             <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
                 <select id="toggle-vista-prod" class="filter-select"
                     style="margin-right: 16px; font-weight: 600; color: #3b82f6;">
-                    <option value="activos">🟢 Trabajos Activos</option>
-                    <option value="historico">🗄️ Histórico (Archivados)</option>
+                    <option value="activos">ðŸŸ¢ Trabajos Activos</option>
+                    <option value="historico">ðŸ—„ï¸� HistÃ³rico (Archivados)</option>
                 </select>
                 <button id="btn-nuevo-trabajo" class="btn-primary" style="display: flex;">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
@@ -4930,21 +5268,21 @@ ${ultimosTrabajos}
 
         <main class="main-content">
             <div class="views-container">
-                <!-- Vista: Producción -->
+                <!-- Vista: ProducciÃ³n -->
                 <div id="view-produccion" class="app-view">
                     <div class="table-container" style="height: calc(100vh - 160px);">
                         <table id="table-produccion" class="data-table">
                             <thead>
                                 <tr>
                                     <th style="min-width: 100px; cursor: pointer;" id="th-sort-num-trabajo"
-                                        title="Ordenar por Nº Trabajo">Nº Trabajo <span class="sort-icon"
-                                            style="font-size: 10px; color: #94a3b8; margin-left: 4px;">▼</span></th>
+                                        title="Ordenar por NÂº Trabajo">NÂº Trabajo <span class="sort-icon"
+                                            style="font-size: 10px; color: #94a3b8; margin-left: 4px;">â–¼</span></th>
                                     <th>Ofertas Gestiona</th>
                                     <th>Expedientes</th>
                                     <th>Tipo Exp.</th>
                                     <th>Fecha Inicio</th>
                                     <th>F. Fin</th>
-                                    <th>Técnico Rble.</th>
+                                    <th>TÃ©cnico Rble.</th>
                                     <th>Ejecutor (T1)</th>
                                     <th>Apoyo (AM)</th>
                                     <th>Apoyo (AN)</th>
@@ -4960,8 +5298,8 @@ ${ultimosTrabajos}
                                     <th style="background-color: #fce7f3; color: #334155;">VB Cliente</th>
                                     <th style="background-color: #fce7f3; color: #334155;">Fecha AR</th>
                                     <th style="background-color: #fce7f3; color: #334155;">Observaciones</th>
-                                    <th style="background-color: #fce7f3; color: #334155;">Nº Fact</th>
-                                    <th style="background-color: #fce7f3; color: #334155;">Mes Facturación</th>
+                                    <th style="background-color: #fce7f3; color: #334155;">NÂº Fact</th>
+                                    <th style="background-color: #fce7f3; color: #334155;">Mes FacturaciÃ³n</th>
                                     <th style="background-color: #e2e8f0; color: #475569; text-align: center;">Archivar
                                     </th>
                                 </tr>
@@ -4969,7 +5307,7 @@ ${ultimosTrabajos}
                             <tbody id="table-body">
                                 <tr>
                                     <td colspan="23" style="text-align: center; padding: 20px;">Cargando datos de
-                                        producción...</td>
+                                        producciÃ³n...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -4981,13 +5319,13 @@ ${ultimosTrabajos}
                         <table id="table-ofertas" class="data-table">
                             <thead>
                                 <tr>
-                                    <th style="min-width: 50px; position: sticky; left: 0; z-index: 60;">Eº</th>
+                                    <th style="min-width: 50px; position: sticky; left: 0; z-index: 60;">EÂº</th>
                                     <th>Oferta Gestiona</th>
-                                    <th>Pertenece a Licitación</th>
-                                    <th>Es Licitación</th>
+                                    <th>Pertenece a LicitaciÃ³n</th>
+                                    <th>Es LicitaciÃ³n</th>
                                     <th style="cursor: pointer;" id="th-sort-fecha-oferta"
                                         title="Ordenar por Fecha Oferta">Fecha Oferta <span class="sort-icon"
-                                            style="font-size: 10px; color: #94a3b8; margin-left: 4px;">▼</span></th>
+                                            style="font-size: 10px; color: #94a3b8; margin-left: 4px;">â–¼</span></th>
                                     <th>Agente Comercial</th>
                                     <th>Oficina</th>
                                     <th>Grupo</th>
@@ -4999,7 +5337,7 @@ ${ultimosTrabajos}
                                     <th>Presupuesto</th>
                                     <th>Gastos Estimados</th>
                                     <th>T1</th>
-                                    <th>Fin Licitación</th>
+                                    <th>Fin LicitaciÃ³n</th>
                                     <th>2026</th>
                                     <th>2027</th>
                                     <th>2028</th>
@@ -5022,18 +5360,19 @@ ${ultimosTrabajos}
 
                     <div
                         style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
-                        <h1 style="margin: 0; color: #1e293b; font-size: 24px;">Dashboard de Análisis</h1>
+                        <h1 style="margin: 0; color: #1e293b; font-size: 24px;">Dashboard de AnÃ¡lisis</h1>
                     </div>
 
                     <div class="dash-tabs">
-                        <button class="dash-tab active" id="tab-dash-produccion">Producción</button>
+                        <button class="dash-tab active" id="tab-dash-produccion">ProducciÃ³n</button>
                         <button class="dash-tab" id="tab-dash-ofertas">Ofertas</button>
+                        <button class="dash-tab" id="tab-dash-partes">Partes de Trabajo</button>
                     </div>
 
-                    <div id="panel-dash-produccion" style="display: block;">
+                    <div id="panel-dash-ofertas" style="display: block;">
                         <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año (Ctrl+Click)</label><select id="filt-ofe-year"
+                            <div class="filter-group"><label>AÃ±o (Ctrl+Click)</label><select id="filt-ofe-year"
                                     class="multi-select" multiple></select></div>
                             <div class="filter-group"><label>Mes (Ctrl+Click)</label>
                                 <select id="filt-ofe-month" class="multi-select" multiple>
@@ -5051,7 +5390,7 @@ ${ultimosTrabajos}
                                     <option value="12">Dic</option>
                                 </select>
                             </div>
-                            <div class="filter-group"><label>Es Licitación</label><select id="filt-ofe-es-lic"
+                            <div class="filter-group"><label>Es LicitaciÃ³n</label><select id="filt-ofe-es-lic"
                                     class="multi-select" multiple>
                                     <option value="Si">Si</option>
                                     <option value="No">No</option>
@@ -5071,50 +5410,59 @@ ${ultimosTrabajos}
                         </div>
 
                         <div
-                            style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 24px;">
+                            style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
-                                <div class="kpi-title">Ofertas Vivas</div>
+                                <div class="kpi-title">En Curso</div>
                                 <div class="kpi-value" id="kpi-ofe-vivas" style="color: #3b82f6;">0</div>
                             </div>
                             <div class="kpi-card">
-                                <div class="kpi-title">Tasa de Éxito</div>
-                                <div class="kpi-value" id="kpi-ofe-exito" style="color: #10b981;">0%</div>
+                                <di<div class="kpi-title">% Licitación</div>
+                                <div class="kpi-value" id="kpi-ofe-exito" style="color: #8b5cf6;">0%</div>
                             </div>
                             <div class="kpi-card">
-                                <div class="kpi-title">Total Ppto. (En Curso)</div>
+                                <div class="kpi-title">Aceptadas</div>
+                                <div class="kpi-value" id="kpi-ofe-acep-count" style="color: #10b981;">0</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title">Rechazadas</div>
+                                <div class="kpi-value" id="kpi-ofe-rech-count" style="color: #ef4444;">0</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title" style="display:none">Total Ppto. (En Curso)</div>
                                 <div class="kpi-value" id="kpi-ofe-ppto-curso" style="color: #f59e0b; font-size: 20px;">
-                                    0 €</div>
+                                    0 â‚¬</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Total Aceptado</div>
                                 <div class="kpi-value" id="kpi-ofe-ppto-acep" style="color: #10b981; font-size: 20px;">0
-                                    €</div>
+                                    â‚¬</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Total Rechazado</div>
                                 <div class="kpi-value" id="kpi-ofe-ppto-rech" style="color: #ef4444; font-size: 20px;">0
-                                    €</div>
+                                    â‚¬</div>
                             </div>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 20px;">
-                            <div class="chart-box" style="display: flex; flex-direction: column; align-items: center;">
-                                <h3 class="chart-title" style="width: 100%;">Estado de Ofertas (Importes)</h3>
-                                <div style="width: 100%; height: 300px; position: relative;"><canvas
-                                        id="chart-ofe-donut"></canvas></div>
-                            </div>
-                            <div class="chart-box" style="display: flex; flex-direction: column;">
-                                <h3 class="chart-title" style="width: 100%;">Ofertas por Agente Comercial</h3>
-                                <div style="width: 100%; height: 300px; position: relative;"><canvas
-                                        id="chart-ofe-agentes"></canvas></div>
-                            </div>
+                        <div style="display:none"><canvas id="chart-ofe-donut"></canvas></div>
+                        <div class="chart-box" style="margin-bottom: 20px;">
+                            <h3 class="chart-title">Nº de Ofertas por Agente Comercial</h3>
+                            <div style="width: 100%; height: 340px; position: relative;"><canvas id="chart-ofe-agentes"></canvas></div>
+                        </div>
+                        <div class="chart-box" style="margin-bottom: 20px;">
+                            <h3 class="chart-title">Importe por Agente Comercial (€)</h3>
+                            <div style="width: 100%; height: 340px; position: relative;"><canvas id="chart-ofe-agentes-importe"></canvas></div>
+                        </div>
+                        <div class="chart-box">
+                            <h3 class="chart-title">Evolución Mensual de Ofertas</h3>
+                            <div style="width: 100%; height: 320px; position: relative;"><canvas id="chart-ofe-mensual"></canvas></div>
                         </div>
                     </div>
 
-                    <div id="panel-dash-ofertas" style="display: none;">
+                    <div id="panel-dash-produccion" style="display: none;">
                         <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año</label><select id="filt-pro-year" class="multi-select"
+                            <div class="filter-group"><label>AÃ±o</label><select id="filt-pro-year" class="multi-select"
                                     multiple></select></div>
                             <div class="filter-group"><label>Mes</label>
                                 <select id="filt-pro-month" class="multi-select" multiple>
@@ -5132,7 +5480,7 @@ ${ultimosTrabajos}
                                     <option value="12">Dic</option>
                                 </select>
                             </div>
-                            <div class="filter-group"><label>Téc. Rble.</label><select id="filt-pro-rble"
+                            <div class="filter-group"><label>TÃ©c. Rble.</label><select id="filt-pro-rble"
                                     class="multi-select" multiple></select></div>
                             <div class="filter-group"><label>Ejecutor (T1)</label><select id="filt-pro-t1"
                                     class="multi-select" multiple></select></div>
@@ -5158,15 +5506,15 @@ ${ultimosTrabajos}
 
                         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
-                                <div class="kpi-title">Facturación Pendiente (Ppto - Gastos)</div>
-                                <div class="kpi-value" id="kpi-pro-fact" style="color: #8b5cf6;">0 €</div>
+                                <div class="kpi-title">FacturaciÃ³n Pendiente (Ppto - Gastos)</div>
+                                <div class="kpi-value" id="kpi-pro-fact" style="color: #8b5cf6;">0 â‚¬</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Total Horas Pendientes</div>
                                 <div class="kpi-value" id="kpi-pro-hrs" style="color: #f59e0b;">0 h</div>
                             </div>
                             <div class="kpi-card" style="padding: 12px 20px;">
-                                <div class="kpi-title">Horas Pdtes. por Técnico</div>
+                                <div class="kpi-title">Horas Pdtes. por TÃ©cnico</div>
                                 <div id="kpi-pro-lista-tec"
                                     style="max-height: 80px; overflow-y: auto; font-size: 13px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
                                 </div>
@@ -5191,18 +5539,28 @@ ${ultimosTrabajos}
                         </div>
                     </div>
 
+                    <div id="panel-dash-partes" style="display: none;">
+                        <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
+                            <div class="filter-group"><label>Técnico (nombre de pila)</label>
+                                <select id="filt-partes-tec" class="multi-select" multiple></select>
+                            </div>
+                            <button id="btn-update-dash-partes" class="btn-primary" style="height: 38px;">Aplicar</button>
+                            <button id="btn-clear-dash-partes" class="btn-secondary" style="height: 38px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
+                        </div>
+                        <div id="partes-tabla-container" style="overflow-x: auto;"></div>
+                    </div>
                     <div id="panel-dash-ia" style="display: none;">
                         <div class="chart-box" style="margin-bottom: 24px;">
-                            <h2 class="config-section-title" style="border: none; margin-bottom: 8px;">Análisis
+                            <h2 class="config-section-title" style="border: none; margin-bottom: 8px;">AnÃ¡lisis
                                 Inteligente con IA</h2>
                             <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
-                                Realiza consultas sobre la gestión del departamento, pide resúmenes o solicita análisis
-                                predictivos basados en los datos (próximamente).
+                                Realiza consultas sobre la gestiÃ³n del departamento, pide resÃºmenes o solicita anÃ¡lisis
+                                predictivos basados en los datos (prÃ³ximamente).
                             </p>
 
                             <div style="display: flex; flex-direction: column; gap: 16px;">
                                 <textarea id="ai-prompt-input"
-                                    placeholder="Escribe aquí tu consulta para la IA... (ej: Analiza la carga de trabajo de los técnicos)"
+                                    placeholder="Escribe aquÃ­ tu consulta para la IA... (ej: Analiza la carga de trabajo de los tÃ©cnicos)"
                                     style="width: 100%; min-height: 120px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none; resize: vertical;"></textarea>
 
                                 <div style="display: flex; justify-content: flex-end;">
@@ -5218,28 +5576,28 @@ ${ultimosTrabajos}
                                 Inteligencia Artificial</h3>
                             <div id="ai-response-text"
                                 style="font-size: 15px; color: #1e293b; line-height: 1.6; padding: 8px 0;">
-                                <!-- Aquí se inyectará la respuesta -->
+                                <!-- AquÃ­ se inyectarÃ¡ la respuesta -->
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Vista: Configuración -->
+                <!-- Vista: ConfiguraciÃ³n -->
                 <div id="view-configuracion" class="app-view"
                     style="overflow-y: auto; height: calc(100vh - 60px); padding-bottom: 40px;">
-                    <h1>Configuración</h1>
+                    <h1>ConfiguraciÃ³n</h1>
 
                     <div class="config-panel" style="margin-bottom: 30px;">
-                        <h2 class="config-section-title">Variables de la Aplicación</h2>
+                        <h2 class="config-section-title">Variables de la AplicaciÃ³n</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 16px;">
-                            Estos valores definen constantes y preferencias utilizadas globalmente en los módulos de la
+                            Estos valores definen constantes y preferencias utilizadas globalmente en los mÃ³dulos de la
                             App.
                         </p>
                         <div style="display: flex; gap: 24px; align-items: flex-end; flex-wrap: wrap;">
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label for="input-coste-hora"
                                     style="font-size: 14px; font-weight: 500; color: #334155;">Coste por hora estimada
-                                    (€)</label>
+                                    (â‚¬)</label>
                                 <input type="number" id="input-coste-hora" placeholder="Ej: 60" value="60"
                                     style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; outline: none; width: 200px;">
                             </div>
@@ -5249,7 +5607,7 @@ ${ultimosTrabajos}
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label for="input-cols-prod"
                                     style="font-size: 14px; font-weight: 500; color: #334155;">Columnas Fijas
-                                    (Producción)</label>
+                                    (ProducciÃ³n)</label>
                                 <input type="number" id="input-cols-prod" min="0" max="10"
                                     style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; outline: none; width: 200px;">
                             </div>
@@ -5267,9 +5625,9 @@ ${ultimosTrabajos}
                     </div>
 
                     <div class="config-panel">
-                        <h2 class="config-section-title">Importación Masiva de Datos</h2>
+                        <h2 class="config-section-title">ImportaciÃ³n Masiva de Datos</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5;">Selecciona un archivo CSV para
-                            actualizar masivamente los datos de producción en la base de datos de Firebase. Asegúrate de
+                            actualizar masivamente los datos de producciÃ³n en la base de datos de Firebase. AsegÃºrate de
                             que
                             las columnas coincidan con la estructura esperada.</p>
 
@@ -5281,11 +5639,11 @@ ${ultimosTrabajos}
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                     </svg>
-                                    Seleccionar Archivo CSV de Producción
+                                    Seleccionar Archivo CSV de ProducciÃ³n
                                 </button>
                                 <input type="file" id="csv-file" accept=".csv" />
                             </div>
-                            <span id="file-label-text" class="file-name-text">Ningún archivo seleccionado</span>
+                            <span id="file-label-text" class="file-name-text">NingÃºn archivo seleccionado</span>
 
                             <button class="btn-primary" id="btn-upload-firebase">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
@@ -5307,18 +5665,18 @@ ${ultimosTrabajos}
 
                         <!-- Importador de Ofertas -->
                         <h2 class="config-section-title"
-                            style="margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 30px;">Importación
-                            Masiva de Histórico (Años Anteriores)</h2>
+                            style="margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 30px;">ImportaciÃ³n
+                            Masiva de HistÃ³rico (AÃ±os Anteriores)</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5;">Sube un CSV con trabajos cerrados
-                            de años anteriores para poblar la vista de Histórico sin saturar la Producción activa.</p>
+                            de aÃ±os anteriores para poblar la vista de HistÃ³rico sin saturar la ProducciÃ³n activa.</p>
                         <div class="upload-container">
                             <div class="file-upload-wrapper">
-                                <button class="btn-secondary">Seleccionar CSV Histórico</button>
+                                <button class="btn-secondary">Seleccionar CSV HistÃ³rico</button>
                                 <input type="file" id="csv-file-historico" accept=".csv" />
                             </div>
-                            <span id="file-label-text-historico" class="file-name-text">Ningún archivo
+                            <span id="file-label-text-historico" class="file-name-text">NingÃºn archivo
                                 seleccionado</span>
-                            <button class="btn-primary" id="btn-upload-firebase-historico">Subir Histórico</button>
+                            <button class="btn-primary" id="btn-upload-firebase-historico">Subir HistÃ³rico</button>
                         </div>
                         <div id="progress-container-historico" style="display: none; margin-top: 24px;">
                             <div class="progress-container" style="display: block;">
@@ -5328,13 +5686,13 @@ ${ultimosTrabajos}
                         </div>
 
                         <h2 class="config-section-title"
-                            style="margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 30px;">Importación
+                            style="margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 30px;">ImportaciÃ³n
                             Masiva
                             de Ofertas</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5;">Selecciona un archivo CSV para
                             cargar
-                            el listado de Ofertas. Se usará la columna <strong>"num_oferta"</strong> como identificador
-                            único.</p>
+                            el listado de Ofertas. Se usarÃ¡ la columna <strong>"num_oferta"</strong> como identificador
+                            Ãºnico.</p>
 
                         <div class="upload-container">
                             <div class="file-upload-wrapper">
@@ -5348,7 +5706,7 @@ ${ultimosTrabajos}
                                 </button>
                                 <input type="file" id="csv-file-ofertas" accept=".csv" />
                             </div>
-                            <span id="file-label-text-ofertas" class="file-name-text">Ningún archivo seleccionado</span>
+                            <span id="file-label-text-ofertas" class="file-name-text">NingÃºn archivo seleccionado</span>
 
                             <button class="btn-primary" id="btn-upload-firebase-ofertas">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
@@ -5370,12 +5728,12 @@ ${ultimosTrabajos}
 
                     </div>
 
-                    <!-- Gestión de Listas Desplegables -->
+                    <!-- GestiÃ³n de Listas Desplegables -->
                     <div class="config-panel" style="margin-top: 30px;">
-                        <h2 class="config-section-title">Gestión de Listas Desplegables</h2>
+                        <h2 class="config-section-title">GestiÃ³n de Listas Desplegables</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 24px;">
-                            Aquí puedes administrar las opciones que aparecerán en los menús desplegables de la
-                            aplicación.
+                            AquÃ­ puedes administrar las opciones que aparecerÃ¡n en los menÃºs desplegables de la
+                            aplicaciÃ³n.
                         </p>
 
                         <div style="display: flex; gap: 32px; flex-wrap: wrap;">
@@ -5389,7 +5747,7 @@ ${ultimosTrabajos}
                                     <input type="text" id="input-add-expediente" placeholder="Nuevo Tipo"
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <button id="btn-add-expediente" class="btn-primary"
-                                        style="padding: 6px 12px; font-size: 13px;">Añadir</button>
+                                        style="padding: 6px 12px; font-size: 13px;">AÃ±adir</button>
                                 </div>
                                 <ul id="ul-tipos-exp"
                                     style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
@@ -5405,7 +5763,7 @@ ${ultimosTrabajos}
                                     <input type="text" id="input-add-tipo" placeholder="Nuevo Tipo"
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <button id="btn-add-tipo" class="btn-primary"
-                                        style="padding: 6px 12px; font-size: 13px;">Añadir</button>
+                                        style="padding: 6px 12px; font-size: 13px;">AÃ±adir</button>
                                 </div>
                                 <ul id="ul-tipos-servicio"
                                     style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
@@ -5421,35 +5779,35 @@ ${ultimosTrabajos}
                                     <input type="text" id="input-add-oficina" placeholder="Nueva Oficina"
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <button id="btn-add-oficina" class="btn-primary"
-                                        style="padding: 6px 12px; font-size: 13px;">Añadir</button>
+                                        style="padding: 6px 12px; font-size: 13px;">AÃ±adir</button>
                                 </div>
                                 <ul id="ul-oficinas"
                                     style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
                                 </ul>
                             </div>
 
-                            <!-- Lista: Orígenes -->
+                            <!-- Lista: OrÃ­genes -->
                             <div
                                 style="flex: 1; min-width: 280px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
                                 <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">
-                                    Orígenes</h3>
+                                    OrÃ­genes</h3>
                                 <div style="display: flex; gap: 8px; margin-bottom: 12px;">
                                     <input type="text" id="input-add-origen" placeholder="Nuevo Origen"
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <button id="btn-add-origen" class="btn-primary"
-                                        style="padding: 6px 12px; font-size: 13px;">Añadir</button>
+                                        style="padding: 6px 12px; font-size: 13px;">AÃ±adir</button>
                                 </div>
                                 <ul id="ul-origenes"
                                     style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
                                 </ul>
                             </div>
 
-                            <!-- Lista: Técnicos (Solo Admin) -->
+                            <!-- Lista: TÃ©cnicos (Solo Admin) -->
                             <div id="panel-tecnicos"
                                 style="flex: 1; min-width: 600px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
                                 <div
                                     style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                                    <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin: 0;">Técnicos
+                                    <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin: 0;">TÃ©cnicos
                                     </h3>
                                     <div style="display: flex; align-items: center; gap: 8px;">
                                         <label for="preferencia-tecnicos"
@@ -5457,7 +5815,7 @@ ${ultimosTrabajos}
                                             tablas:</label>
                                         <select id="preferencia-tecnicos"
                                             style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; outline: none; background-color: white;">
-                                            <option value="acronimo">Acrónimo</option>
+                                            <option value="acronimo">AcrÃ³nimo</option>
                                             <option value="nombre_pila">Nombre de Pila</option>
                                         </select>
                                     </div>
@@ -5465,9 +5823,9 @@ ${ultimosTrabajos}
                                 <div style="display: flex; gap: 8px; margin-bottom: 12px;">
                                     <input type="text" id="input-tec-nom" placeholder="Nombre completo"
                                         style="flex: 2; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
-                                    <input type="text" id="input-tec-acr" placeholder="Acrónimo"
+                                    <input type="text" id="input-tec-acr" placeholder="AcrÃ³nimo"
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
-                                    <input type="text" id="input-tec-id" placeholder="Nº Téc."
+                                    <input type="text" id="input-tec-id" placeholder="NÂº TÃ©c."
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <input type="color" id="input-tec-color" value="#ffffff"
                                         style="width: 36px; height: 32px; padding: 0; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;"
@@ -5478,7 +5836,7 @@ ${ultimosTrabajos}
                                         <option value="admin">admin</option>
                                     </select>
                                     <button id="btn-add-tecnico" class="btn-primary"
-                                        style="padding: 6px 12px; font-size: 13px;">Añadir</button>
+                                        style="padding: 6px 12px; font-size: 13px;">AÃ±adir</button>
                                 </div>
                                 <div
                                     style="max-height: 250px; overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
@@ -5490,13 +5848,13 @@ ${ultimosTrabajos}
                                                     Nombre</th>
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
-                                                    Acrónimo</th>
+                                                    AcrÃ³nimo</th>
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
                                                     Nombre Pila</th>
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
-                                                    Nº Téc.</th>
+                                                    NÂº TÃ©c.</th>
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
                                                     Rol</th>
@@ -5515,23 +5873,23 @@ ${ultimosTrabajos}
                         </div>
                     </div>
 
-                    <!-- Auditoría masiva de nombres -->
+                    <!-- AuditorÃ­a masiva de nombres -->
                     <div id="panel-auditoria" class="config-panel" style="margin-top: 30px;">
-                        <h2 class="config-section-title">Auditoría y Fusión Masiva</h2>
+                        <h2 class="config-section-title">AuditorÃ­a y FusiÃ³n Masiva</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 24px;">
-                            Visualiza los nombres únicos detectados para "Cliente" y "Grupo" y cuántos registros
+                            Visualiza los nombres Ãºnicos detectados para "Cliente" y "Grupo" y cuÃ¡ntos registros
                             (Ofertas +
-                            Producción) posee cada uno.
+                            ProducciÃ³n) posee cada uno.
                             <strong>Haz doble clic</strong> sobre un nombre para sobrescribirlo y fusionar todos sus
                             registros con el nuevo destino.
                         </p>
 
                         <div style="display: flex; gap: 32px; flex-wrap: wrap;">
-                            <!-- Auditoría: Clientes -->
+                            <!-- AuditorÃ­a: Clientes -->
                             <div
                                 style="flex: 1; min-width: 350px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
                                 <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">
-                                    Auditoría de Clientes</h3>
+                                    AuditorÃ­a de Clientes</h3>
                                 <div
                                     style="max-height: 400px; overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 4px;">
                                     <table style="width: 100%; border-collapse: collapse; text-align: left;">
@@ -5543,7 +5901,7 @@ ${ultimosTrabajos}
                                                     Nombre (Doble Clic para Editar)</th>
                                                 <th
                                                     style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569; text-align: center; width: 120px;">
-                                                    Nº de Registros</th>
+                                                    NÂº de Registros</th>
                                             </tr>
                                         </thead>
                                         <tbody id="tbody-auditoria-clientes">
@@ -5556,11 +5914,11 @@ ${ultimosTrabajos}
                                     </table>
                                 </div>
                             </div>
-                            <!-- Auditoría: Grupos -->
+                            <!-- AuditorÃ­a: Grupos -->
                             <div
                                 style="flex: 1; min-width: 350px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
                                 <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">
-                                    Auditoría de Grupos</h3>
+                                    AuditorÃ­a de Grupos</h3>
                                 <div
                                     style="max-height: 400px; overflow-y: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 4px;">
                                     <table style="width: 100%; border-collapse: collapse; text-align: left;">
@@ -5572,7 +5930,7 @@ ${ultimosTrabajos}
                                                     Nombre (Doble Clic para Editar)</th>
                                                 <th
                                                     style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569; text-align: center; width: 120px;">
-                                                    Nº de Registros</th>
+                                                    NÂº de Registros</th>
                                             </tr>
                                         </thead>
                                         <tbody id="tbody-auditoria-grupos">
@@ -5588,10 +5946,10 @@ ${ultimosTrabajos}
                         </div>
                     </div>
                     <div class="config-panel" style="margin-top: 30px;">
-                        <h2 class="config-section-title">Importación Manual de Horas (Backup SQL)</h2>
+                        <h2 class="config-section-title">ImportaciÃ³n Manual de Horas (Backup SQL)</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 24px;">Alternativa
-                            manual a la conexión SQL. Sube el CSV generado por el ERP con los partes de horas de los
-                            técnicos.</p>
+                            manual a la conexiÃ³n SQL. Sube el CSV generado por el ERP con los partes de horas de los
+                            tÃ©cnicos.</p>
 
                         <div class="upload-container">
                             <div class="file-upload-wrapper">
@@ -5605,7 +5963,7 @@ ${ultimosTrabajos}
                                 </button>
                                 <input type="file" id="csv-file-horas" accept=".csv" />
                             </div>
-                            <span id="file-label-text-horas" class="file-name-text">Ningún archivo seleccionado</span>
+                            <span id="file-label-text-horas" class="file-name-text">NingÃºn archivo seleccionado</span>
 
                             <button class="btn-primary" id="btn-upload-firebase-horas">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
@@ -5626,10 +5984,10 @@ ${ultimosTrabajos}
                     </div>
 
                     <div class="config-panel" style="margin-top: 30px;">
-                        <h2 class="config-section-title">Sincronización de Horas (Base de Datos SQL)</h2>
+                        <h2 class="config-section-title">SincronizaciÃ³n de Horas (Base de Datos SQL)</h2>
                         <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">
-                            La sincronización automática se ejecuta todas las madrugadas. Puedes forzar una
-                            sincronización manual de las horas invertidas por los técnicos en este momento.
+                            La sincronizaciÃ³n automÃ¡tica se ejecuta todas las madrugadas. Puedes forzar una
+                            sincronizaciÃ³n manual de las horas invertidas por los tÃ©cnicos en este momento.
                         </p>
                         <div style="display: flex; align-items: center; gap: 16px;">
                             <button id="btn-sync-sql" class="btn-primary">Sincronizar Ahora</button>
@@ -5647,7 +6005,7 @@ ${ultimosTrabajos}
         style="width: 33.33%; min-width: 400px; border-left: 1px solid #e2e8f0; display: none; overflow-y: auto; padding-left: 24px; padding-right: 12px; margin-right: -12px;">
         <div
             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; position: sticky; top: 0; background: #f8fafc; padding-top: 0px; z-index: 20; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-            <h2 class="config-section-title" style="margin-bottom: 0; border: none; padding: 0;">Histórico de Cambios
+            <h2 class="config-section-title" style="margin-bottom: 0; border: none; padding: 0;">HistÃ³rico de Cambios
             </h2>
             <button id="btn-refrescar-historial" class="btn-secondary"
                 style="padding: 6px 12px; margin-right: 12px;">Refrescar</button>
@@ -5659,7 +6017,7 @@ ${ultimosTrabajos}
                         <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Fecha / Info
                         </th>
                         <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Usuario</th>
-                        <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Modificación
+                        <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">ModificaciÃ³n
                         </th>
                     </tr>
                 </thead>
@@ -5683,7 +6041,7 @@ ${ultimosTrabajos}
             style="background-color: white; padding: 24px; border-radius: 8px; width: 400px; max-width: 90vw; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
             <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">Aceptar Oferta</h2>
             <p style="margin-bottom: 16px; font-size: 14px; color: #475569;">Por favor, completa los siguientes datos
-                para crear el trabajo en Producción.</p>
+                para crear el trabajo en ProducciÃ³n.</p>
 
             <div style="margin-bottom: 16px;">
                 <label
@@ -5715,7 +6073,7 @@ ${ultimosTrabajos}
         style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
         <div
             style="background-color: white; padding: 24px; border-radius: 8px; width: 400px; max-width: 90vw; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">Añadir Nuevo Trabajo</h2>
+            <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">AÃ±adir Nuevo Trabajo</h2>
             <p style="margin-bottom: 16px; font-size: 14px; color: #475569;">Por favor, selecciona el tipo de expediente
                 para crear el trabajo con el ID de rango adecuado.</p>
 
@@ -5747,11 +6105,11 @@ ${ultimosTrabajos}
             style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
             <div
                 style="background-color: white; padding: 24px; border-radius: 8px; width: 400px; max-width: 90vw; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">Añadir Nueva Oferta
+                <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">AÃ±adir Nueva Oferta
                 </h2>
                 <div style="margin-bottom: 16px;">
                     <label
-                        style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Nº
+                        style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">NÂº
                         Oferta (Gestiona) *</label>
                     <input type="text" id="modal-ofe-num"
                         style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;" required>
