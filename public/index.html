@@ -2489,29 +2489,33 @@
             const t2 = document.getElementById('filt-pro-t2'); const t3 = document.getElementById('filt-pro-t3');
             const srv = document.getElementById('filt-pro-srv');
 
-            // 1. Rango dinámico de años (desde el menor hasta el mayor con datos)
-            let minYear = 2099; let maxYear = 2000;
-            const checkY = (d) => {
+            // 1. Rango dinámico de años — solo años con datos reales en cada colección
+            const ofeYears = new Set();
+            const proYears = new Set();
+            const extractYear = (d) => {
                 const info = extractDateInfo(d);
                 if (info && info.y) {
                     const y = parseInt(info.y, 10);
-                    if (y > 2000 && y < 2100) {
-                        if (y < minYear) minYear = y;
-                        if (y > maxYear) maxYear = y;
-                    }
+                    if (y > 2000 && y < 2100) return y;
                 }
+                return null;
             };
-            datosOfertasMemoria.forEach(o => checkY(o.fecha_oferta));
-            datosProduccionMemoria.forEach(p => { checkY(p.fecha_inicio); checkY(p.fecha_fin); });
+            datosOfertasMemoria.forEach(o => { const y = extractYear(o.fecha_oferta); if (y) ofeYears.add(y); });
+            datosProduccionMemoria.forEach(p => {
+                const y1 = extractYear(p.fecha_inicio);
+                const y2 = extractYear(p.fecha_fin);
+                if (y1) proYears.add(y1);
+                if (y2) proYears.add(y2);
+            });
 
-            if (minYear > maxYear) { minYear = new Date().getFullYear(); maxYear = minYear; }
+            if (ofeYears.size === 0) ofeYears.add(new Date().getFullYear());
+            if (proYears.size === 0) proYears.add(new Date().getFullYear());
 
-            const yOpts = [];
-            for (let y = minYear; y <= maxYear; y++) yOpts.push(`<option value="${y}">${y}</option>`);
-            const yHtml = yOpts.join('');
+            const ofeYHtml = [...ofeYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
+            const proYHtml = [...proYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
 
-            if (yOfe && yOfe.children.length === 0) yOfe.innerHTML = yHtml;
-            if (yPro && yPro.children.length === 0) yPro.innerHTML = yHtml;
+            if (yOfe && yOfe.children.length === 0) yOfe.innerHTML = ofeYHtml;
+            if (yPro && yPro.children.length === 0) yPro.innerHTML = proYHtml;
 
             // 2. Opciones de técnicos y T1 por defecto
             const tecOpts = listaTecnicos.map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
@@ -2745,7 +2749,7 @@
 
             let factPdte = 0; let hrsPdte = 0;
             const tecHorasPdte = {};
-            const ganttLabels = []; const ganttBase = []; const ganttProg = [];
+            const ganttLabels = []; const ganttBase = []; const ganttProg = []; const ganttMeta = [];
             let minGanttTime = null; let maxGanttTime = null;
             const hrsPorMes = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0 };
 
@@ -2769,7 +2773,11 @@
 
                 const ppto = parseSpanishNum(prod.presupuesto_m) || 0;
                 const gast = parseSpanishNum(prod.gastos_n) || 0;
-                factPdte += (ppto - gast);
+                const vbCliente = (prod.visto_vb_cliente || '').trim().toLowerCase();
+                // Facturación pendiente: solo presupuesto_m donde VB cliente NO es "Si"
+                if (vbCliente !== 'si') {
+                    factPdte += ppto;
+                }
 
                 let hrsDisp = 0;
                 if (ppto > 0 && costeHoraActual > 0) hrsDisp = (ppto - gast) / costeHoraActual;
@@ -2813,6 +2821,24 @@
                             ganttLabels.push(`${prod.num_trabajo} - ${(prod.servicio || '').substring(0, 15)}`);
                             ganttBase.push([dStart.getTime(), dEnd.getTime()]);
 
+                            // Metadata for tooltip
+                            const getAcr = (val) => {
+                                if (!val) return '';
+                                const check = typeof val === 'string' ? val.trim() : val;
+                                const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
+                                return obj ? obj.acronimo : check;
+                            };
+                            ganttMeta.push({
+                                horas: hrsDisp > 0 ? Math.round(hrsDisp) : 0,
+                                horasUsadas: Math.round(hTotalCalc),
+                                rble: getAcr(prod.responsable_g),
+                                t1: getAcr(prod.ejecutor_t1),
+                                t2: getAcr(prod.apoyo_am),
+                                t3: getAcr(prod.apoyo_an),
+                                servicio: prod.servicio || '',
+                                cliente: prod.cliente || ''
+                            });
+
                             if (!minGanttTime || dStart.getTime() < minGanttTime) minGanttTime = dStart.getTime();
                             if (!maxGanttTime || dEnd.getTime() > maxGanttTime) maxGanttTime = dEnd.getTime();
 
@@ -2833,17 +2859,18 @@
             });
 
             const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+            const fmtN = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 });
             document.getElementById('kpi-pro-fact').textContent = fmtE.format(factPdte);
-            document.getElementById('kpi-pro-hrs').textContent = Math.round(hrsPdte) + ' h';
+            document.getElementById('kpi-pro-hrs').textContent = fmtN.format(Math.round(hrsPdte)) + ' h';
 
             const boxTec = document.getElementById('kpi-pro-lista-tec');
             boxTec.innerHTML = Object.keys(tecHorasPdte).sort((a, b) => tecHorasPdte[b] - tecHorasPdte[a])
-                .map(k => `<div><strong>${k}:</strong> ${Math.round(tecHorasPdte[k])}h</div>`).join('');
+                .map(k => `<div><strong>${k}:</strong> ${fmtN.format(Math.round(tecHorasPdte[k]))}h</div>`).join('');
 
             // Redimensionar contenedor Gantt para habilitar scroll vertical
             const ganttContainer = document.getElementById('gantt-scroll-container');
             if (ganttContainer) {
-                const heightCalc = Math.max(400, ganttLabels.length * 35 + 80);
+                const heightCalc = Math.max(400, ganttLabels.length * 38 + 80);
                 ganttContainer.style.height = heightCalc + 'px';
             }
 
@@ -2853,8 +2880,8 @@
                 data: {
                     labels: ganttLabels,
                     datasets: [
-                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.5 },
-                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.5, grouped: false }
+                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85 },
+                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false }
                     ]
                 },
                 options: {
@@ -2880,7 +2907,35 @@
                         }
                     },
                     plugins: {
-                        tooltip: { callbacks: { label: function (ctx) { return 'Trabajo en curso'; } } }
+                        tooltip: {
+                            callbacks: {
+                                title: function(items) {
+                                    return ganttLabels[items[0].dataIndex] || '';
+                                },
+                                label: function(ctx) {
+                                    const meta = ganttMeta[ctx.dataIndex];
+                                    if (!meta) return ctx.dataset.label;
+                                    const lines = [];
+                                    if (ctx.datasetIndex === 0) {
+                                        lines.push('Progreso: ' + meta.horasUsadas + 'h / ' + meta.horas + 'h');
+                                    } else {
+                                        lines.push('Horas totales: ' + fmtN.format(meta.horas) + 'h');
+                                    }
+                                    return lines;
+                                },
+                                afterBody: function(items) {
+                                    const meta = ganttMeta[items[0].dataIndex];
+                                    if (!meta) return [];
+                                    const lines = [];
+                                    if (meta.rble) lines.push('Rble: ' + meta.rble);
+                                    if (meta.t1) lines.push('T1: ' + meta.t1);
+                                    if (meta.t2) lines.push('T2: ' + meta.t2);
+                                    if (meta.t3) lines.push('T3: ' + meta.t3);
+                                    if (meta.cliente) lines.push('Cliente: ' + meta.cliente);
+                                    return lines;
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -2890,7 +2945,7 @@
                 type: 'bar',
                 data: {
                     labels: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
-                    datasets: [{ label: 'Horas Asignadas', data: Object.values(hrsPorMes), backgroundColor: '#8b5cf6', borderRadius: 4 }]
+                    datasets: [{ label: 'Horas Asignadas', data: Object.values(hrsPorMes), backgroundColor: '#F38E00', borderRadius: 4 }]
                 },
                 options: { responsive: true, maintainAspectRatio: false }
             });
@@ -5479,7 +5534,7 @@ ${ultimosTrabajos}
 
                         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
-                                <div class="kpi-title">Facturación Pendiente (Ppto - Gastos)</div>
+                                <div class="kpi-title">Facturación Pendiente (sin VB)</div>
                                 <div class="kpi-value" id="kpi-pro-fact" style="color: #2176AC;">0 €</div>
                             </div>
                             <div class="kpi-card">
