@@ -2770,18 +2770,6 @@
 
             const srvOpts = listaTiposServicio.map(s => `<option value="${s}">${s}</option>`).join('');
             if (srv && srv.children.length === 0) srv.innerHTML = srvOpts;
-        
-            // Partes de Trabajo - Technician filter
-            const partesT = document.getElementById('filt-partes-tec');
-            if (partesT && partesT.children.length === 0) {
-                listaTecnicos.forEach(t => {
-                    const opt = document.createElement('option');
-                    opt.value = t.acronimo;
-                    opt.textContent = t.nombre_pila || t.acronimo;
-                    opt.selected = true;
-                    partesT.appendChild(opt);
-                });
-            }
 }
 
         function cargarDashboardOfertas() {
@@ -3225,8 +3213,8 @@
                 data: {
                     labels: ganttLabels,
                     datasets: [
-                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85, borderRadius: 6, borderSkipped: false },
-                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false, borderRadius: 6, borderSkipped: false }
+                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85 },
+                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false }
                     ]
                 },
                 options: {
@@ -3252,7 +3240,6 @@
                         }
                     },
                     plugins: {
-                        legend: { display: false },
                         tooltip: {
                             callbacks: {
                                 title: function(items) {
@@ -3303,6 +3290,12 @@
             const errContainer = document.getElementById('partes-errores-tabla');
             if (!container) return;
 
+            const yearFilter = parseInt(document.getElementById('filt-partes-year')?.value || '2026', 10);
+            const minDate = new Date(2026, 0, 1);
+
+            // Populate year selector with available years
+            const yearSel = document.getElementById('filt-partes-year');
+
             if (!window._partesHorasData) {
                 container.innerHTML = '<p style="color:#64748b;padding:16px;">Cargando datos de partes de horas...</p>';
                 getDocs(collection(db, 'partes_horas')).then(snap => {
@@ -3317,180 +3310,211 @@
             }
 
             const rawData = window._partesHorasData;
-            if (!rawData.length) {
-                container.innerHTML = '<p style="color:#64748b;padding:16px;">No hay datos de partes de horas.</p>';
-                return;
+
+            // Fuzzy technician match (same logic as cargarProduccion)
+            const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
+
+            function resolverTec(trabajadorStr) {
+                const wordsCSV = getWords(trabajadorStr);
+                let tec = null, maxM = 0;
+                listaTecnicos.forEach(t => {
+                    const wCfg = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
+                    let m = 0;
+                    wordsCSV.forEach(w => { if (wCfg.includes(w)) m++; });
+                    if (m > maxM) { maxM = m; tec = t; }
+                });
+                if (maxM === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
+                return tec;
             }
 
-            // Resolve technician name from trabajador field
-            function resolverTecnico(p) {
-                const trab = (p.trabajador || '').trim();
-                const obs = (p.observaciones_crudas || p.obs || '').trim();
-                // Try matching by name
-                let tec = listaTecnicos.find(t => t.nombre === trab || t.nombre_pila === trab || t.acronimo === trab);
-                // Try by id_tec
-                if (!tec) tec = listaTecnicos.find(t => t.id_tec === trab);
-                return tec ? (tec.nombre_pila || tec.acronimo) : trab;
-            }
-
-            function resolverAcronimo(p) {
-                const trab = (p.trabajador || '').trim();
-                let tec = listaTecnicos.find(t => t.nombre === trab || t.nombre_pila === trab || t.acronimo === trab);
-                if (!tec) tec = listaTecnicos.find(t => t.id_tec === trab);
-                return tec ? tec.acronimo : trab;
-            }
-
-            // Parse date from various formats
-            function parseFecha(p) {
-                const raw = p.fecha || '';
+            // Parse fecha DD/MM/YYYY or ISO
+            function parseFecha(raw) {
                 if (!raw) return null;
-                // Try DD/MM/YYYY
                 if (raw.includes('/')) {
-                    const pts = raw.split('/');
-                    if (pts.length === 3) return new Date(parseInt(pts[2]), parseInt(pts[1]) - 1, parseInt(pts[0]));
+                    const p = raw.split('/');
+                    if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
                 }
                 const d = new Date(raw);
                 return isNaN(d.getTime()) ? null : d;
             }
 
-            // Get service label from produccion data
-            function getServicioLabel(p) {
-                const obs = (p.observaciones_crudas || p.obs || '').trim();
-                const match = obs.match(/^(\d{3,6})/);
-                const numTrabajo = match ? match[1] : null;
-                if (numTrabajo && typeof datosProduccionMemoria !== 'undefined') {
-                    const prod = datosProduccionMemoria.find(pr => String(pr.num_trabajo) === numTrabajo);
+            // Get service label from produccion
+            function getServicioLabel(obs) {
+                const match = (obs || '').trim().match(/^(\d{3,6})/);
+                const num = match ? match[1] : null;
+                if (num && typeof datosProduccionMemoria !== 'undefined') {
+                    const prod = datosProduccionMemoria.find(pr => String(pr.num_trabajo) === num);
                     if (prod) {
                         const exp = prod.exp_gestiona || '';
                         const srv = prod.servicio || '';
-                        return exp ? (exp + '. ' + srv) : srv;
+                        return (exp ? exp + '. ' : '') + srv;
                     }
                 }
-                return obs || '(Sin código)';
+                return num ? num + '. (Sin vincular)' : '(Sin código)';
             }
 
-            // Filter by selected technicians
-            const selTecs = getMulti('filt-partes-tec');
-
-            // Build structure: tec > servicio > {year-month > week > day} with hours
-            const tecData = {};
+            // Collect available years and build data
+            const yearsAvail = new Set();
             const errores = [];
-            const monthSet = new Set();
+
+            // Structure: tecAcr -> { months: {mKey: hrs}, servicios: {srvLabel: {mKey: hrs}}, byPeriod: {mKey: {wKey: {dKey: hrs, servicios: {srv: hrs}}}} }
+            const tecMap = {};
 
             rawData.forEach(p => {
-                const fecha = parseFecha(p);
-                if (!fecha) return;
+                const fecha = parseFecha(p.fecha);
+                if (!fecha || fecha < minDate) return;
+                yearsAvail.add(fecha.getFullYear());
+                if (fecha.getFullYear() !== yearFilter) return;
+
                 const horas = parseFloat(p.horas) || 0;
                 if (horas === 0) return;
 
-                const tecNombre = resolverTecnico(p);
-                const tecAcr = resolverAcronimo(p);
-                if (selTecs.length > 0 && !selTecs.includes(tecAcr)) return;
+                const trab = (p.trabajador || '').trim();
+                const tec = resolverTec(trab);
+                const tecKey = tec ? tec.acronimo : trab;
+                const tecLabel = tec ? (tec.nombre_pila || tec.acronimo) : trab;
 
-                const obs = (p.observaciones_crudas || p.obs || '').trim();
+                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
                 const hasCode = /^\d{3,6}/.test(obs);
-                if (!hasCode && obs !== '') {
-                    errores.push({ tecnico: tecNombre, fecha: p.fecha || '', observaciones: obs });
+                if (!hasCode) {
+                    errores.push({ tecnico: tecLabel, fecha: p.fecha || '', observaciones: obs });
                 }
 
                 const y = fecha.getFullYear();
                 const m = fecha.getMonth() + 1;
                 const mKey = `${y}-${String(m).padStart(2, '0')}`;
-                monthSet.add(mKey);
+                const dow = fecha.getDay();
+                const ws = new Date(fecha); ws.setDate(ws.getDate() - ((dow + 6) % 7));
+                const wKey = ws.toISOString().slice(0, 10);
+                const dKey = `${y}-${String(m).padStart(2,'0')}-${String(fecha.getDate()).padStart(2,'0')}`;
+                const srvLabel = getServicioLabel(obs);
 
-                const srvLabel = getServicioLabel(p);
+                if (!tecMap[tecKey]) tecMap[tecKey] = { label: tecLabel, months: {}, servicios: {}, byPeriod: {} };
+                const td = tecMap[tecKey];
+                td.months[mKey] = (td.months[mKey] || 0) + horas;
+                if (!td.servicios[srvLabel]) td.servicios[srvLabel] = {};
+                td.servicios[srvLabel][mKey] = (td.servicios[srvLabel][mKey] || 0) + horas;
 
-                if (!tecData[tecNombre]) tecData[tecNombre] = { total: {}, servicios: {} };
-                if (!tecData[tecNombre].total[mKey]) tecData[tecNombre].total[mKey] = 0;
-                tecData[tecNombre].total[mKey] += horas;
-
-                if (!tecData[tecNombre].servicios[srvLabel]) tecData[tecNombre].servicios[srvLabel] = {};
-                if (!tecData[tecNombre].servicios[srvLabel][mKey]) tecData[tecNombre].servicios[srvLabel][mKey] = 0;
-                tecData[tecNombre].servicios[srvLabel][mKey] += horas;
+                // Period tree for week/day drill-down
+                if (!td.byPeriod[mKey]) td.byPeriod[mKey] = {};
+                if (!td.byPeriod[mKey][wKey]) td.byPeriod[mKey][wKey] = {};
+                if (!td.byPeriod[mKey][wKey][dKey]) td.byPeriod[mKey][wKey][dKey] = {};
+                td.byPeriod[mKey][wKey][dKey][srvLabel] = (td.byPeriod[mKey][wKey][dKey][srvLabel] || 0) + horas;
             });
 
-            // Sort months
-            const months = [...monthSet].sort();
-            const monthNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            // Populate year filter
+            if (yearSel && yearSel.options.length <= 1) {
+                [...yearsAvail].sort().forEach(y => {
+                    if (!yearSel.querySelector(`option[value="${y}"]`)) {
+                        const opt = document.createElement('option');
+                        opt.value = y; opt.textContent = y;
+                        if (y === yearFilter) opt.selected = true;
+                        yearSel.appendChild(opt);
+                    }
+                });
+            }
 
-            // Build table
-            const monthHeaders = months.map(mk => {
-                const parts = mk.split('-');
-                return `<th style="padding:6px 10px;font-size:12px;font-weight:600;background:#f1f5f9;color:#334155;text-align:center;min-width:70px;">${monthNames[parseInt(parts[1])]} ${parts[0].slice(2)}</th>`;
+            // Collect all months for the filtered year
+            const allMonths = new Set();
+            Object.values(tecMap).forEach(td => Object.keys(td.months).forEach(mk => allMonths.add(mk)));
+            const months = [...allMonths].sort();
+            const mNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            const dayNames = ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'];
+            const curMonth = new Date().getFullYear() === yearFilter ? new Date().getMonth() + 1 : -1;
+
+            // Include ALL technicians from config, even those without data
+            const allTecs = listaTecnicos.map(t => t.acronimo);
+            allTecs.forEach(acr => {
+                if (!tecMap[acr]) {
+                    const t = listaTecnicos.find(x => x.acronimo === acr);
+                    tecMap[acr] = { label: t ? (t.nombre_pila || acr) : acr, months: {}, servicios: {}, byPeriod: {} };
+                }
+            });
+
+            // Sort technicians alphabetically by label
+            const tecKeys = Object.keys(tecMap).sort((a, b) => tecMap[a].label.localeCompare(tecMap[b].label));
+
+            // ── Build table HTML ──
+            const mHeaders = months.map(mk => {
+                const mi = parseInt(mk.split('-')[1]);
+                return `<th style="padding:6px 8px;font-size:12px;font-weight:600;background:#f1f5f9;color:#334155;text-align:center;min-width:60px;">${mNames[mi]}</th>`;
             }).join('');
 
             let rows = '';
-            const tecNames = Object.keys(tecData).sort();
+            const uid = () => 'r' + Math.random().toString(36).substr(2, 8);
 
-            tecNames.forEach(tecNombre => {
-                const tec = tecData[tecNombre];
-                const totalGlobal = months.reduce((s, mk) => s + (tec.total[mk] || 0), 0);
+            tecKeys.forEach(tecKey => {
+                const td = tecMap[tecKey];
+                const totalYear = months.reduce((s, mk) => s + (td.months[mk] || 0), 0);
+                const tecId = uid();
 
-                // Technician summary row
-                rows += `<tr class="partes-tec-row" data-tec="${tecNombre}" style="cursor:pointer;background:#e8f0fe;border-bottom:1px solid #d1d5db;">
-                    <td style="padding:8px 12px;font-weight:700;color:#1e293b;white-space:nowrap;">&#9654; ${tecNombre}</td>
+                // ── Technician row ──
+                rows += `<tr class="pt-row pt-tec" data-id="${tecId}" style="cursor:pointer;background:#e8f0fe;border-bottom:1px solid #cbd5e1;">
+                    <td style="padding:8px 12px;font-weight:700;color:#1e293b;white-space:nowrap;position:sticky;left:0;background:#e8f0fe;z-index:2;">&#9654; ${td.label}</td>
                     ${months.map(mk => {
-                        const v = tec.total[mk] || 0;
-                        return `<td style="text-align:center;font-weight:600;color:#1e293b;padding:6px;">${v ? v % 1 === 0 ? v : v.toFixed(1) : ''}</td>`;
+                        const v = td.months[mk] || 0;
+                        return `<td style="text-align:center;font-weight:600;color:#1e293b;padding:6px;">${v ? (v % 1 === 0 ? v : v.toFixed(1)) : ''}</td>`;
                     }).join('')}
-                    <td style="text-align:center;font-weight:700;color:#0f172a;padding:6px;background:#e2e8f0;">${totalGlobal % 1 === 0 ? totalGlobal : totalGlobal.toFixed(1)}</td>
+                    <td style="text-align:center;font-weight:700;color:#0f172a;padding:6px;background:#e2e8f0;">${totalYear ? (totalYear % 1 === 0 ? totalYear : totalYear.toFixed(1)) : ''}</td>
                 </tr>`;
 
-                // Service detail rows (hidden by default)
-                const srvNames = Object.keys(tec.servicios).sort();
+                // ── Service detail rows (hidden, child of tec) ──
+                const srvNames = Object.keys(td.servicios).sort();
                 srvNames.forEach(srv => {
-                    const srvData = tec.servicios[srv];
+                    const srvData = td.servicios[srv];
                     const srvTotal = months.reduce((s, mk) => s + (srvData[mk] || 0), 0);
-                    rows += `<tr class="partes-srv-row" data-parent-tec="${tecNombre}" style="display:none;border-bottom:1px solid #f1f5f9;">
-                        <td style="padding:4px 12px 4px 32px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:350px;" title="${srv}">${srv}</td>
+                    if (srvTotal === 0) return;
+                    rows += `<tr class="pt-row pt-srv" data-parent="${tecId}" style="display:none;border-bottom:1px solid #f1f5f9;">
+                        <td style="padding:4px 12px 4px 32px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:350px;position:sticky;left:0;background:white;z-index:2;" title="${srv}">${srv}</td>
                         ${months.map(mk => {
                             const v = srvData[mk] || 0;
-                            return `<td style="text-align:center;font-size:13px;color:#475569;padding:4px;">${v ? v % 1 === 0 ? v : v.toFixed(1) : ''}</td>`;
+                            return `<td style="text-align:center;font-size:13px;color:#475569;padding:4px;">${v ? (v % 1 === 0 ? v : v.toFixed(1)) : ''}</td>`;
                         }).join('')}
                         <td style="text-align:center;font-size:13px;font-weight:600;color:#334155;padding:4px;background:#f8fafc;">${srvTotal % 1 === 0 ? srvTotal : srvTotal.toFixed(1)}</td>
                     </tr>`;
                 });
             });
 
-            container.innerHTML = `<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
-                <thead style="position:sticky;top:0;z-index:10;"><tr>
-                    <th style="padding:8px 12px;font-size:13px;font-weight:700;background:#2176AC;color:white;text-align:left;min-width:220px;position:sticky;left:0;z-index:11;">Técnico / Servicio</th>
-                    ${monthHeaders}
-                    <th style="padding:6px 10px;font-size:12px;font-weight:700;background:#e2e8f0;color:#0f172a;text-align:center;min-width:70px;">Total</th>
+            container.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+                <thead style="position:sticky;top:0;z-index:5;"><tr>
+                    <th style="padding:8px 12px;font-size:13px;font-weight:700;background:#2176AC;color:white;text-align:left;min-width:220px;position:sticky;left:0;z-index:6;">Técnico / Servicio</th>
+                    ${mHeaders}
+                    <th style="padding:6px 8px;font-size:12px;font-weight:700;background:#cbd5e1;color:#0f172a;text-align:center;min-width:60px;">Total</th>
                 </tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
 
-            // Toggle expand/collapse technician rows
-            container.querySelectorAll('.partes-tec-row').forEach(row => {
+            // ── Toggle expand/collapse ──
+            container.querySelectorAll('.pt-tec').forEach(row => {
                 row.addEventListener('click', () => {
-                    const tecName = row.dataset.tec;
-                    const srvRows = container.querySelectorAll(`.partes-srv-row[data-parent-tec="${tecName}"]`);
-                    const isOpen = srvRows.length > 0 && srvRows[0].style.display !== 'none';
+                    const id = row.dataset.id;
+                    const children = container.querySelectorAll(`.pt-srv[data-parent="${id}"]`);
+                    const isOpen = children.length > 0 && children[0].style.display !== 'none';
                     const arrow = row.querySelector('td');
-                    srvRows.forEach(r => r.style.display = isOpen ? 'none' : '');
+                    children.forEach(r => r.style.display = isOpen ? 'none' : '');
                     if (arrow) arrow.innerHTML = arrow.innerHTML.replace(isOpen ? '\u25BC' : '\u25B6', isOpen ? '\u25B6' : '\u25BC');
                 });
             });
 
-            // Render error table
+            // ── Error table ──
             if (errContainer) {
-                if (errores.length === 0) {
-                    errContainer.innerHTML = '<p style="color:#10b981;font-size:13px;">Todos los registros tienen un código de trabajo válido.</p>';
+                const filteredErrors = errores.filter(e => e.observaciones !== '');
+                if (filteredErrors.length === 0) {
+                    errContainer.innerHTML = '<p style="color:#10b981;font-size:13px;padding:8px 0;">Todos los registros tienen un código de trabajo válido.</p>';
                 } else {
                     errContainer.innerHTML = `<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:13px;">
                         <thead><tr>
-                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;">Técnico</th>
-                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;">Fecha</th>
-                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;">Observaciones</th>
+                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Técnico</th>
+                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Fecha</th>
+                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;font-weight:600;">Observaciones</th>
                         </tr></thead>
-                        <tbody>${errores.slice(0, 200).map(e => `<tr style="border-bottom:1px solid #f1f5f9;">
+                        <tbody>${filteredErrors.slice(0, 200).map(e => `<tr style="border-bottom:1px solid #f1f5f9;">
                             <td style="padding:4px 12px;color:#334155;">${e.tecnico}</td>
-                            <td style="padding:4px 12px;color:#64748b;">${e.fecha}</td>
+                            <td style="padding:4px 12px;color:#64748b;white-space:nowrap;">${e.fecha}</td>
                             <td style="padding:4px 12px;color:#64748b;">${e.observaciones}</td>
                         </tr>`).join('')}</tbody>
                     </table>
-                    ${errores.length > 200 ? `<p style="color:#64748b;font-size:12px;margin-top:8px;">Mostrando 200 de ${errores.length} registros.</p>` : ''}`;
+                    ${filteredErrors.length > 200 ? `<p style="color:#64748b;font-size:12px;margin-top:8px;">Mostrando 200 de ${filteredErrors.length} registros.</p>` : ''}`;
                 }
             }
         }
@@ -3498,13 +3522,17 @@
 
         function cargarDashboard() {
             initFiltrosDashboard();
+            const tabIA = document.getElementById('tab-dash-ia');
+            const isIA = tabIA && tabIA.classList.contains('active');
             const isOfertas = document.getElementById('tab-dash-ofertas').classList.contains('active');
             const isPartes = document.getElementById('tab-dash-partes') && document.getElementById('tab-dash-partes').classList.contains('active');
 
-            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes'];
+            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-ia','panel-dash-partes'];
             panels.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 
-            if (isOfertas) {
+            if (isIA) {
+                document.getElementById('panel-dash-ia').style.display = 'block';
+            } else if (isOfertas) {
                 document.getElementById('panel-dash-ofertas').style.display = 'block';
                 cargarDashboardOfertas();
             } else if (isPartes) {
@@ -3516,10 +3544,57 @@
             }
         }
 
+        function obtenerContextoIA() {
+            if (typeof datosOfertasMemoria === 'undefined' || typeof datosProduccionMemoria === 'undefined') {
+                return "Los datos del departamento aún no se han cargado completamente.";
+            }
+
+            // --- RESUMEN DE OFERTAS ---
+            const totalOfertas = datosOfertasMemoria.length;
+            const aceptadas = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('aceptada')).length;
+            const enCurso = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('en curso')).length;
+            const importeTotalOfertas = datosOfertasMemoria.reduce((acc, o) => acc + (parseSpanishNum(o.presupuesto_total) || 0), 0);
+
+            // --- RESUMEN DE PRODUCCIÓN ---
+            const totalProduccion = datosProduccionMemoria.length;
+            const presupuestoProduccion = datosProduccionMemoria.reduce((acc, p) => acc + (parseSpanishNum(p.presupuesto_m) || 0), 0);
+
+            // --- REGISTROS RECIENTES (Muestra de contexto) ---
+            const ultimasOfertas = datosOfertasMemoria.slice(-5).map(o =>
+                `- Oferta ${o.num_gestiona || 'N/A'}: ${o.cliente || 'Sin cliente'} - ${o.objeto || 'Sin objeto'} (${o.estado || 'En curso'})`
+            ).join('\n');
+
+            const ultimosTrabajos = datosProduccionMemoria.slice(-5).map(p =>
+                `- Trabajo ${p.num_trabajo || 'N/A'}: ${p.cliente || 'Sin cliente'} - ${p.servicio || 'Sin servicio'} (Presp: ${p.presupuesto_m || 0}€)`
+            ).join('\n');
+
+            const fechaActual = new Date().toLocaleString('es-ES');
+
+            return `
+CONTEXTO DEL DEPARTAMENTO (${fechaActual}):
+-------------------------------------------
+RESUMEN DE OFERTAS:
+- Total Ofertas: ${totalOfertas}
+- Aceptadas: ${aceptadas}
+- En Curso: ${enCurso}
+- Importe Total Ofertado: ${importeTotalOfertas.toLocaleString('es-ES')} €
+
+RESUMEN DE PRODUCCIÓN (TRABAJOS ACTIVOS):
+- Total Trabajos en Producción: ${totalProduccion}
+- Importe Total Presupuestado: ${presupuestoProduccion.toLocaleString('es-ES')} €
+
+ÚLTIMAS OFERTAS REGISTRADAS:
+${ultimasOfertas}
+
+ÚLTIMOS TRABAJOS EN PRODUCCIÓN:
+${ultimosTrabajos}
+-------------------------------------------
+`;
+        }
 
         // Listeners Pestañas y Filtros
         const clearActiveTabs = () => {
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-ia', 'tab-dash-partes'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
         };
@@ -3536,12 +3611,66 @@
         });
         document.getElementById('tab-dash-partes')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-ia', 'tab-dash-partes'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-partes')?.classList.add('active');
             cargarDashboard();
         });
+        document.getElementById('tab-dash-ia')?.addEventListener('click', (e) => {
+            clearActiveTabs();
+            e.target.classList.add('active');
+            cargarDashboard();
+        });
 
+        // Lógica del Botón Consultar IA
+        document.getElementById('btn-consultar-ia')?.addEventListener('click', async () => {
+            const promptInput = document.getElementById('ai-prompt-input');
+            const responseArea = document.getElementById('ai-response-area');
+            const responseText = document.getElementById('ai-response-text');
+            const btnConsultar = document.getElementById('btn-consultar-ia');
 
+            if (!promptInput || !promptInput.value.trim()) {
+                alert("Por favor, escribe una consulta.");
+                return;
+            }
+
+            const promptUsuario = promptInput.value.trim();
+            btnConsultar.disabled = true;
+            btnConsultar.textContent = 'Consultando...';
+
+            // UI Feedback: Mostrar carga
+            responseArea.style.display = 'block';
+            responseText.innerHTML = '<span style="color: #64748b; font-style: italic;">La IA está pensando... (Analizando datos del departamento con Gemini Pro)</span>';
+
+            const contexto = obtenerContextoIA();
+            const promptFinal = `DATOS DEL DEPARTAMENTO: ${contexto} \n\n PREGUNTA DEL USUARIO: ${promptUsuario}`;
+
+            try {
+                // PASO 2: FRONTEND - Invocación segura via Firebase Cloud Functions
+                const callGoogleApi = httpsCallable(functions, 'callGoogleApi');
+                const result = await callGoogleApi({ prompt: promptFinal });
+
+                if (result.data && result.data.success) {
+                    responseText.innerHTML = result.data.response.replace(/\n/g, '<br>');
+                } else {
+                    throw new Error('La respuesta de la IA no es válida.');
+                }
+            } catch (error) {
+                console.error("Error consultando IA a través de Cloud Functions:", error);
+
+                // Manejo de errores específicos de Firebase Functions
+                let mensajeError = 'Error: No se pudo conectar con el servicio de IA.';
+                if (error.code === 'unauthenticated') {
+                    mensajeError = 'Error: Debes iniciar sesión para usar la IA.';
+                } else if (error.message) {
+                    mensajeError = `Error: ${error.message}`;
+                }
+
+                responseText.innerHTML = `<span style="color: #ef4444; font-weight: 600;">${mensajeError}</span>`;
+            } finally {
+                btnConsultar.disabled = false;
+                btnConsultar.textContent = 'Consultar';
+            }
+        });
 
         document.getElementById('btn-update-dash-ofe')?.addEventListener('click', cargarDashboard);
         document.getElementById('btn-update-dash-pro')?.addEventListener('click', cargarDashboard);
@@ -5829,7 +5958,7 @@
                         <button class="dash-tab active" id="tab-dash-produccion">Producción</button>
                         <button class="dash-tab" id="tab-dash-ofertas">Ofertas</button>
                         <button class="dash-tab" id="tab-dash-partes">Partes de Trabajo</button>
-
+                        <button class="dash-tab" id="tab-dash-ia">IA</button>
                     </div>
 
                     <div id="panel-dash-ofertas" style="display: none;">
@@ -5947,8 +6076,10 @@
 
                         <div class="chart-box" style="margin-bottom: 24px;">
                             <h3 class="chart-title">Diagrama de Gantt (Progreso Real)</h3>
-                            <div id="gantt-outer" style="width: 100%; height: 450px; overflow: auto; border: 1px solid #f1f5f9; border-radius: 4px; position: relative;">
-                                <div id="gantt-scroll-container" style="min-width: 1000px; position: relative;">
+                            <div
+                                style="width: 100%; height: 400px; overflow: auto; border: 1px solid #f1f5f9; border-radius: 4px;">
+                                <div id="gantt-scroll-container"
+                                    style="min-width: 1000px; height: 100%; position: relative;">
                                     <canvas id="chart-pro-gantt"></canvas>
                                 </div>
                             </div>
@@ -5964,13 +6095,14 @@
 
                     <div id="panel-dash-partes" style="display: none;">
                         <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Técnico (nombre de pila)</label>
-                                <select id="filt-partes-tec" class="multi-select" multiple></select>
+                            <div class="filter-group"><label>Año</label>
+                                <select id="filt-partes-year" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
+                                    <option value="2026" selected>2026</option>
+                                </select>
                             </div>
                             <button id="btn-update-dash-partes" class="btn-primary" style="height: 38px;">Aplicar</button>
-                            <button id="btn-clear-dash-partes" class="btn-secondary" style="height: 38px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
                         </div>
-                        <div id="partes-tabla-container" style="overflow-x: auto;"></div>
+                        <div id="partes-tabla-container" style="overflow-x: auto; max-height: calc(100vh - 300px); overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;"></div>
 
                         <div id="partes-errores-container" style="margin-top: 32px;">
                             <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">Registros sin código de trabajo</h3>
@@ -5979,7 +6111,37 @@
                         </div>
                     </div>
 
-                    
+                    <div id="panel-dash-ia" style="display: none;">
+                        <div class="chart-box" style="margin-bottom: 24px;">
+                            <h2 class="config-section-title" style="border: none; margin-bottom: 8px;">Análisis
+                                Inteligente con IA</h2>
+                            <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
+                                Realiza consultas sobre la gestión del departamento, pide resúmenes o solicita análisis
+                                predictivos basados en los datos (próximamente).
+                            </p>
+
+                            <div style="display: flex; flex-direction: column; gap: 16px;">
+                                <textarea id="ai-prompt-input"
+                                    placeholder="Escribe aquí tu consulta para la IA... (ej: Analiza la carga de trabajo de los técnicos)"
+                                    style="width: 100%; min-height: 120px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none; resize: vertical;"></textarea>
+
+                                <div style="display: flex; justify-content: flex-end;">
+                                    <button id="btn-consultar-ia" class="btn-primary"
+                                        style="padding: 10px 32px;">Consultar</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="ai-response-area" class="chart-box"
+                            style="display: none; background-color: #f0f9ff; border-color: #bae6fd;">
+                            <h3 class="chart-title" style="color: #0369a1; border-bottom-color: #bae6fd;">Respuesta de
+                                Inteligencia Artificial</h3>
+                            <div id="ai-response-text"
+                                style="font-size: 15px; color: #1e293b; line-height: 1.6; padding: 8px 0;">
+                                <!-- Aquí se inyectará la respuesta -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Vista: Configuración -->
