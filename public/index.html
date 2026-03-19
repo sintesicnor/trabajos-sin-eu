@@ -64,10 +64,10 @@
 
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
         let permisosRoles = {
-            admin:      { ver_tab_configuracion:true, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:true, ver_importes:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:false, ver_importes:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            lectura:    { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:false, ver_importes:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
-            financiero: { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:true, ver_importes:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
+            admin:      { ver_tab_configuracion:true, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            lectura:    { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
+            financiero: { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
         };
 
         function tienePermiso(permiso) {
@@ -574,10 +574,9 @@
                         else if (numTrabajo >= 4000) rowBgColor = '#fff7ed';
                     }
 
-                    // Regla de color: fecha_fin rellena => azul claro
-                    const fechaFinVal = (data['fecha_fin'] || '').trim();
+                    // Regla de color: solo cuando fecha_fin fue confirmada manualmente
                     if ((data['visto_vb_cliente'] || '').trim().toLowerCase() === 'si') tr.classList.add('fila-vb-si');
-                    else if (fechaFinVal !== '') tr.classList.add('fila-fecha-fin');
+                    else if (data['fecha_fin_confirmada'] === true) tr.classList.add('fila-fecha-fin');
                     else if (rowBgColor) tr.style.backgroundColor = rowBgColor;
 
                     const f_ap = (data['fecha_ap'] || '').trim();
@@ -2257,8 +2256,8 @@
 
             // Delegación de eventos para la edición inline en Producción
             tbody.addEventListener('dblclick', (e) => {
-                // Bloquear si no tiene permiso de edición general NI financiero
-                if (!tienePermiso('editar_campos_generales') && !tienePermiso('editar_campos_financieros')) return;
+                // Bloquear si no tiene ningún permiso de edición y no podría ser responsable de la fila
+                if (!tienePermiso('editar_campos_generales') && !tienePermiso('editar_campos_financieros') && !tienePermiso('editar_fecha_fin') && !currentUserAcronym) return;
 
                 // Evitar atrapar dblclick sobre filtros o arrastres de columnas u otros inputs
                 if (e.target.closest('.header-filter-icon') || e.target.closest('input') || e.target.closest('.col-resizer')) return;
@@ -2280,6 +2279,15 @@
                 const camposFinancieros = ['fecha_ap', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
                 if (camposFinancieros.includes(fieldName)) {
                     if (!tienePermiso('editar_campos_financieros')) return;
+                } else if (fieldName === 'fecha_fin') {
+                    // Solo admin o técnico responsable pueden editar fecha_fin
+                    if (!tienePermiso('editar_fecha_fin')) {
+                        // Comprobar si es el técnico responsable de esta fila
+                        const tdResp = tr.querySelector('td[data-field="responsable_g"]');
+                        const respVal = tdResp ? tdResp.textContent.trim() : '';
+                        const esResponsable = currentUserAcronym && (respVal === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === respVal || t.nombre === respVal)));
+                        if (!esResponsable) return;
+                    }
                 } else {
                     // Campo general
                     if (!tienePermiso('editar_campos_generales')) return;
@@ -2355,9 +2363,19 @@
 
                     try {
                         await registrarCambio("produccion", docId, fieldName, currentValue, newValue);
-                        await updateDoc(doc(db, "produccion", docId), {
-                            [fieldName]: newValue
-                        });
+
+                        // Si se edita fecha_fin, guardar también fecha_fin_confirmada
+                        if (fieldName === 'fecha_fin') {
+                            const confirmada = (newValue || '').trim() !== '';
+                            await updateDoc(doc(db, "produccion", docId), {
+                                [fieldName]: newValue,
+                                fecha_fin_confirmada: confirmada
+                            });
+                        } else {
+                            await updateDoc(doc(db, "produccion", docId), {
+                                [fieldName]: newValue
+                            });
+                        }
 
                         // Actualización ligera de los contadores para cliente/grupo
                         if ((fieldName === 'cliente' || fieldName === 'grupo') && newValue !== currentValue) {
@@ -2386,10 +2404,6 @@
                                 tr.classList.remove('fila-fecha-fin');
                             } else {
                                 tr.classList.remove('fila-vb-si');
-                                // Comprobar si fecha_fin tiene valor para aplicar azul claro
-                                const tdFechaFin = tr.querySelector('td[data-field="fecha_fin"]');
-                                const ffVal = tdFechaFin ? tdFechaFin.textContent.trim() : '';
-                                if (ffVal) tr.classList.add('fila-fecha-fin');
                             }
                         }
 
@@ -4177,6 +4191,7 @@ ${ultimosTrabajos}
                 crear_trabajo: 'Crear nuevo trabajo',
                 editar_campos_generales: 'Editar campos generales (Producción)',
                 editar_campos_financieros: 'Editar campos financieros (fecha fact., obs., nº fact., mes fact.)',
+                editar_fecha_fin: 'Editar fecha finalización (o técnico responsable de la fila)',
                 ver_importes: 'Ver importes (presupuesto, gastos, horas disp.)',
                 ver_todas_columnas_tec: 'Ver todas las columnas de técnicos',
                 historial_global: 'Historial global',
