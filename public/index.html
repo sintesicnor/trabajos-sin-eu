@@ -162,8 +162,8 @@
         let listaTiposExpediente = ['INTERNO', 'MATRIZ', 'ANUAL', 'PUNTUAL', 'PARADO'];
 
         let preferenciaTecnicos = 'acronimo'; // 'acronimo' o 'nombre_pila'
-        let freezeColsProd = 3; // Nº de columnas que muestran icono fijador
-        let freezeColsOfer = 1;
+        let freezeColsProd = 5; // Nº de columnas que muestran icono fijador
+        let freezeColsOfer = 5;
         let pinnedColsProd = []; // Índices de columnas fijadas por el usuario (Producción)
         let pinnedColsOfer = []; // Índices de columnas fijadas por el usuario (Ofertas)
         let tableProd = null;
@@ -670,8 +670,22 @@
             // Obtener índices de columnas a ocultar
             const indicesToHide = new Set();
 
-            // Campos de horas/uso a ocultar si no tiene permiso ver_columnas_horas
-            const camposHoras = ['horas_disponibles', 'total_horas_historico', 'total_horas_calc', 'pct_uso'];
+            // Helper: buscar índice por data-field en primera fila
+            function idxByField(fieldName) {
+                if (rows.length === 0) return -1;
+                for (let i = 0; i < headers.length; i++) {
+                    const td = rows[0].children[i];
+                    if (td && td.dataset.field === fieldName) return i;
+                }
+                return -1;
+            }
+
+            // Ocultar total_horas_historico para todos los roles
+            const idxHist = idxByField('total_horas_historico');
+            if (idxHist > -1) indicesToHide.add(idxHist);
+
+            // Campos de horas/uso a ocultar si no tiene permiso ver_columnas_horas (financiero)
+            const camposHoras = ['horas_disponibles', 'total_horas_calc', 'pct_uso'];
             if (!tienePermiso('ver_columnas_horas')) {
                 headers.forEach((th, idx) => {
                     if (rows.length > 0) {
@@ -679,7 +693,6 @@
                         if (td) {
                             const f = td.dataset.field;
                             if (camposHoras.includes(f)) indicesToHide.add(idx);
-                            // Ocultar TODAS las columnas de técnicos
                             if (f && f.startsWith('tec_')) indicesToHide.add(idx);
                         }
                     }
@@ -701,7 +714,22 @@
                 });
             }
 
-            // Para lectura: ocultar columnas de técnicos que no son el propio usuario (solo si tiene permiso de ver horas)
+            // Lectura: ocultar columnas de gestión/financieras y archivar
+            if (!tienePermiso('editar_campos_generales') && !tienePermiso('editar_campos_financieros')) {
+                const camposOcultar = ['fecha_fin', 'visto_vb_cliente', 'fecha_ap', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
+                camposOcultar.forEach(f => {
+                    const idx = idxByField(f);
+                    if (idx > -1) indicesToHide.add(idx);
+                });
+                // Ocultar columna Archivar (última columna, sin data-field)
+                if (rows.length > 0) {
+                    const lastIdx = headers.length - 1;
+                    const lastTd = rows[0].children[lastIdx];
+                    if (lastTd && !lastTd.dataset.field) indicesToHide.add(lastIdx);
+                }
+            }
+
+            // Columnas de técnicos: lectura solo ve la suya
             if (tienePermiso('ver_columnas_horas') && !tienePermiso('ver_todas_columnas_tec')) {
                 headers.forEach((th, idx) => {
                     if (rows.length > 0) {
@@ -856,8 +884,11 @@
                     table.dataset.tableId = table.id || ('tbl_' + Math.random().toString(36).substr(2, 9));
                 }
                 const ths = table.querySelectorAll('th');
+                const isOfertasTable_outer = table.id === 'table-ofertas' || table.closest('#view-ofertas');
+                const maxPins = isOfertasTable_outer ? freezeColsOfer : freezeColsProd;
+                const pinnedArr = isOfertasTable_outer ? pinnedColsOfer : pinnedColsProd;
 
-                ths.forEach(th => {
+                ths.forEach((th, thIndex) => {
                     const text = th.textContent.trim();
                     if (text === '') return;
 
@@ -1017,6 +1048,38 @@
                     }
 
                     wrapper.appendChild(iconContainer);
+
+                    // Inject pin icon for the first N columns
+                    if (thIndex < maxPins) {
+                        const isPinned = pinnedArr.includes(thIndex);
+                        const pinSpan = document.createElement('span');
+                        pinSpan.className = 'pin-icon' + (isPinned ? ' pinned' : '');
+                        pinSpan.dataset.colIdx = thIndex;
+                        pinSpan.dataset.tableScope = isOfertasTable_outer ? 'ofer' : 'prod';
+                        pinSpan.title = isPinned ? 'Desfijar columna' : 'Fijar columna';
+                        pinSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.89A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.89A2 2 0 005 15.24z"/></svg>';
+                        pinSpan.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const colIdx = parseInt(pinSpan.dataset.colIdx, 10);
+                            const isOfe = pinSpan.dataset.tableScope === 'ofer';
+                            const arr = isOfe ? pinnedColsOfer : pinnedColsProd;
+                            const pos = arr.indexOf(colIdx);
+                            if (pos > -1) {
+                                arr.splice(pos, 1);
+                                pinSpan.classList.remove('pinned');
+                                pinSpan.title = 'Fijar columna';
+                            } else {
+                                arr.push(colIdx);
+                                arr.sort((a,b) => a - b);
+                                pinSpan.classList.add('pinned');
+                                pinSpan.title = 'Desfijar columna';
+                            }
+                            guardarPinnedCols();
+                            updateDynamicStickyColumns(table);
+                        });
+                        wrapper.insertBefore(pinSpan, iconContainer);
+                    }
+
                     th.appendChild(wrapper);
                     th.appendChild(popup);
 
@@ -1446,7 +1509,6 @@
 
         function updateDynamicStickyColumns(table) {
             const isOfertas = table.id === 'table-ofertas' || table.closest('#view-ofertas');
-            const maxPinIcons = isOfertas ? freezeColsOfer : freezeColsProd;
             const pinnedArr = isOfertas ? pinnedColsOfer : pinnedColsProd;
 
             const theadTr = table.querySelector('thead tr');
@@ -1455,14 +1517,12 @@
             if (!theadTr) return;
             const ths = Array.from(theadTr.children);
 
-            // 1. Reset ALL sticky and pin icons
-            ths.forEach((th, idx) => {
+            // 1. Reset ALL sticky styles
+            ths.forEach((th) => {
                 th.style.position = '';
                 th.style.left = '';
                 th.style.zIndex = '';
                 th.style.boxShadow = '';
-                const oldPin = th.querySelector('.pin-icon');
-                if (oldPin) oldPin.remove();
             });
 
             tbodyTrs.forEach(tr => {
@@ -1478,39 +1538,7 @@
                 });
             });
 
-            // 2. Inject pin icons in the first N columns
-            for (let i = 0; i < maxPinIcons && i < ths.length; i++) {
-                const th = ths[i];
-                const isPinned = pinnedArr.includes(i);
-                const pinSpan = document.createElement('span');
-                pinSpan.className = 'pin-icon' + (isPinned ? ' pinned' : '');
-                pinSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.89A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.89A2 2 0 005 15.24z"/></svg>';
-                pinSpan.title = isPinned ? 'Desfijar columna' : 'Fijar columna';
-                pinSpan.dataset.colIdx = i;
-                pinSpan.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const colIdx = parseInt(pinSpan.dataset.colIdx, 10);
-                    const arr = isOfertas ? pinnedColsOfer : pinnedColsProd;
-                    const pos = arr.indexOf(colIdx);
-                    if (pos > -1) {
-                        arr.splice(pos, 1);
-                    } else {
-                        arr.push(colIdx);
-                        arr.sort((a,b) => a - b);
-                    }
-                    guardarPinnedCols();
-                    updateDynamicStickyColumns(table);
-                });
-                // Insert pin before the filter icon or resizer, or at end
-                const filterIcon = th.querySelector('.header-filter-icon');
-                if (filterIcon) {
-                    th.insertBefore(pinSpan, filterIcon);
-                } else {
-                    th.appendChild(pinSpan);
-                }
-            }
-
-            // 3. Apply sticky to pinned columns only (sorted by index, left to right)
+            // 2. Apply sticky to pinned columns only (sorted by index, left to right)
             const sortedPinned = [...pinnedArr].sort((a,b) => a - b);
             let currentLeftOffset = 0;
 
@@ -5248,8 +5276,15 @@ ${ultimosTrabajos}
             border-bottom: 1px solid #e2e8f0;
             white-space: nowrap;
             max-width: 250px;
+        }
+
+        .data-table td {
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+
+        .data-table th {
+            overflow: visible;
         }
 
         /* Controles de filtro y col-resizer en tabla */
@@ -5260,12 +5295,17 @@ ${ultimosTrabajos}
         .pin-icon {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             cursor: pointer;
-            margin-left: 3px;
-            color: #cbd5e1;
+            margin-left: 4px;
+            margin-right: 2px;
+            color: #94a3b8;
             transition: color 0.15s, transform 0.15s;
             vertical-align: middle;
             user-select: none;
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
         }
         .pin-icon:hover {
             color: #3b82f6;
