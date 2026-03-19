@@ -162,8 +162,10 @@
         let listaTiposExpediente = ['INTERNO', 'MATRIZ', 'ANUAL', 'PUNTUAL', 'PARADO'];
 
         let preferenciaTecnicos = 'acronimo'; // 'acronimo' o 'nombre_pila'
-        let freezeColsProd = 3;
+        let freezeColsProd = 3; // Nº de columnas que muestran icono fijador
         let freezeColsOfer = 1;
+        let pinnedColsProd = []; // Índices de columnas fijadas por el usuario (Producción)
+        let pinnedColsOfer = []; // Índices de columnas fijadas por el usuario (Ofertas)
         let tableProd = null;
         let tableOfe = null;
 
@@ -572,7 +574,10 @@
                         else if (numTrabajo >= 4000) rowBgColor = '#fff7ed';
                     }
 
+                    // Regla de color: fecha_fin rellena => azul claro
+                    const fechaFinVal = (data['fecha_fin'] || '').trim();
                     if ((data['visto_vb_cliente'] || '').trim().toLowerCase() === 'si') tr.classList.add('fila-vb-si');
+                    else if (fechaFinVal !== '') tr.classList.add('fila-fecha-fin');
                     else if (rowBgColor) tr.style.backgroundColor = rowBgColor;
 
                     const f_ap = (data['fecha_ap'] || '').trim();
@@ -641,6 +646,7 @@
                     applyColumnOrder(tableProd); 
                     actualizarIconosFiltroDeTabla(tableProd);
                     aplicarVisibilidadColumnas(tableProd);
+                    updateDynamicStickyColumns(tableProd);
                 }
             } catch (error) {
                 console.error("Error al obtener documentos: ", error);
@@ -1245,8 +1251,8 @@
             if (tableOfe) {
                 if (typeof applyTableFilters === 'function') applyTableFilters(tableOfe);
                 if (typeof applyColumnOrder === 'function') applyColumnOrder(tableOfe);
-                // Marcar iconos de filtro si hay filtros activos cargados
                 actualizarIconosFiltroDeTabla(tableOfe);
+                updateDynamicStickyColumns(tableOfe);
             }
         }
 
@@ -1290,21 +1296,34 @@
                 if (docSnap.exists()) {
                     const prefs = docSnap.data();
 
-                    // Aplicar filtros a la variable global
                     if (prefs.filtros) {
                         Object.assign(tableFilters, prefs.filtros);
                     }
 
-                    // Aplicar orden de columnas a localStorage para que el sistema existente lo use
                     if (prefs.orden_columnas) {
                         Object.keys(prefs.orden_columnas).forEach(tblId => {
                             localStorage.setItem('gestor_col_order_' + tblId, JSON.stringify(prefs.orden_columnas[tblId]));
                         });
                     }
+
+                    // Cargar columnas fijadas por el usuario
+                    if (prefs.pinned_cols_prod) pinnedColsProd = prefs.pinned_cols_prod;
+                    if (prefs.pinned_cols_ofer) pinnedColsOfer = prefs.pinned_cols_ofer;
                 }
             } catch (e) {
                 console.error("Error cargando preferencias:", e);
             }
+        }
+
+        async function guardarPinnedCols() {
+            const user = auth.currentUser;
+            if (!user) return;
+            try {
+                await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), {
+                    pinned_cols_prod: pinnedColsProd,
+                    pinned_cols_ofer: pinnedColsOfer
+                }, { merge: true });
+            } catch(e) { console.error("Error guardando pinned cols:", e); }
         }
 
         function actualizarIconosFiltroDeTabla(table) {
@@ -1366,9 +1385,9 @@
                 const theadTr = table.querySelector('thead tr');
                 const ths = Array.from(theadTr.children);
 
-                // Keep the first 3 or 1 fixed columns
+                // Respect pinned columns — don't reorder them
                 const isOfertas = table.id === 'table-ofertas' || table.closest('#view-ofertas');
-                const fixedCols = isOfertas ? freezeColsOfer : freezeColsProd;
+                const pinnedArr = isOfertas ? pinnedColsOfer : pinnedColsProd;
 
                 // Reorder THs
                 savedOrder.forEach((headerText, newIdx) => {
@@ -1378,7 +1397,9 @@
                         return text === headerText;
                     });
 
-                    if (currentThIdx > -1 && newIdx >= fixedCols && currentThIdx >= fixedCols) {
+                    const isPinnedSrc = pinnedArr.includes(currentThIdx);
+                    const isPinnedDst = pinnedArr.includes(newIdx);
+                    if (currentThIdx > -1 && !isPinnedSrc && !isPinnedDst) {
                         if (currentThIdx !== newIdx && newIdx < theadTr.children.length) {
                             // Move TH
                             theadTr.insertBefore(ths[currentThIdx], theadTr.children[newIdx] || null);
@@ -1410,7 +1431,8 @@
 
         function updateDynamicStickyColumns(table) {
             const isOfertas = table.id === 'table-ofertas' || table.closest('#view-ofertas');
-            const fixedColsCount = isOfertas ? freezeColsOfer : freezeColsProd;
+            const maxPinIcons = isOfertas ? freezeColsOfer : freezeColsProd;
+            const pinnedArr = isOfertas ? pinnedColsOfer : pinnedColsProd;
 
             const theadTr = table.querySelector('thead tr');
             const tbodyTrs = table.querySelectorAll('tbody tr');
@@ -1418,12 +1440,14 @@
             if (!theadTr) return;
             const ths = Array.from(theadTr.children);
 
-            // Resetea todas las columnas primero
-            ths.forEach(th => {
+            // 1. Reset ALL sticky and pin icons
+            ths.forEach((th, idx) => {
                 th.style.position = '';
                 th.style.left = '';
                 th.style.zIndex = '';
                 th.style.boxShadow = '';
+                const oldPin = th.querySelector('.pin-icon');
+                if (oldPin) oldPin.remove();
             });
 
             tbodyTrs.forEach(tr => {
@@ -1432,8 +1456,6 @@
                     td.style.left = '';
                     td.style.zIndex = '';
                     td.style.boxShadow = '';
-
-                    // IMPORTANTE: Limpiamos el color de fondo SOLO si fue forzado por el inmovilizador (protegemos las rosas y técnicos)
                     if (td.dataset.forcedBg) {
                         td.style.backgroundColor = '';
                         delete td.dataset.forcedBg;
@@ -1441,44 +1463,85 @@
                 });
             });
 
-            // Aplica estilos dinámicos a las columnas fijas
+            // 2. Inject pin icons in the first N columns
+            for (let i = 0; i < maxPinIcons && i < ths.length; i++) {
+                const th = ths[i];
+                const isPinned = pinnedArr.includes(i);
+                const pinSpan = document.createElement('span');
+                pinSpan.className = 'pin-icon' + (isPinned ? ' pinned' : '');
+                pinSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.89A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.89A2 2 0 005 15.24z"/></svg>';
+                pinSpan.title = isPinned ? 'Desfijar columna' : 'Fijar columna';
+                pinSpan.dataset.colIdx = i;
+                pinSpan.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const colIdx = parseInt(pinSpan.dataset.colIdx, 10);
+                    const arr = isOfertas ? pinnedColsOfer : pinnedColsProd;
+                    const pos = arr.indexOf(colIdx);
+                    if (pos > -1) {
+                        arr.splice(pos, 1);
+                    } else {
+                        arr.push(colIdx);
+                        arr.sort((a,b) => a - b);
+                    }
+                    guardarPinnedCols();
+                    updateDynamicStickyColumns(table);
+                });
+                // Insert pin before the filter icon or resizer, or at end
+                const filterIcon = th.querySelector('.header-filter-icon');
+                if (filterIcon) {
+                    th.insertBefore(pinSpan, filterIcon);
+                } else {
+                    th.appendChild(pinSpan);
+                }
+            }
+
+            // 3. Apply sticky to pinned columns only (sorted by index, left to right)
+            const sortedPinned = [...pinnedArr].sort((a,b) => a - b);
             let currentLeftOffset = 0;
 
-            for (let i = 0; i < fixedColsCount; i++) {
-                if (i >= ths.length) break;
-
-                const th = ths[i];
+            sortedPinned.forEach((colIdx, pIdx) => {
+                if (colIdx >= ths.length) return;
+                const th = ths[colIdx];
                 th.style.position = 'sticky';
                 th.style.left = currentLeftOffset + 'px';
                 th.style.zIndex = '60';
-                th.style.backgroundColor = '#f8fafc'; // Color cabecera
+                th.style.backgroundColor = '#f8fafc';
 
-                if (i === fixedColsCount - 1) {
+                const isLast = pIdx === sortedPinned.length - 1;
+                if (isLast) {
                     th.style.boxShadow = 'inset -1px 0 0 #e2e8f0';
                 }
 
-                // Congela las celdas de esa misma columna y hereda el color
                 tbodyTrs.forEach(tr => {
-                    const td = tr.children[i];
+                    const td = tr.children[colIdx];
                     if (td) {
                         td.style.position = 'sticky';
                         td.style.left = currentLeftOffset + 'px';
                         td.style.zIndex = '50';
 
-                        // Solo aplicamos color de fila si la celda NO tiene ya un color propio (como el rosa o los técnicos)
-                        if (!td.style.backgroundColor) {
+                        // Determinar color de fondo correcto para la celda sticky
+                        const isPctUso = td.dataset.field === 'pct_uso';
+                        if (tr.classList.contains('fila-vb-si') && !isPctUso) {
+                            td.style.backgroundColor = '#0066FF';
+                            td.style.color = '#ffffff';
+                            td.dataset.forcedBg = 'true';
+                        } else if (tr.classList.contains('fila-fecha-fin') && !isPctUso) {
+                            td.style.backgroundColor = '#DBEAFE';
+                            td.style.color = '#1e3a5f';
+                            td.dataset.forcedBg = 'true';
+                        } else if (!td.style.backgroundColor || td.dataset.forcedBg) {
                             td.style.backgroundColor = tr.style.backgroundColor || '#ffffff';
-                            td.dataset.forcedBg = 'true'; // Marcamos que este color lo hemos puesto nosotros
+                            td.dataset.forcedBg = 'true';
                         }
 
-                        if (i === fixedColsCount - 1) {
+                        if (isLast) {
                             td.style.boxShadow = 'inset -1px 0 0 #e2e8f0';
                         }
                     }
                 });
 
                 currentLeftOffset += th.offsetWidth || 150;
-            }
+            });
         }
         function setupDragAndDropColumns(table) {
             const ths = table.querySelectorAll('thead th');
@@ -2248,11 +2311,14 @@
                     }
                     td.innerHTML = `<select class="inline-edit-input" style="padding: 2px;">${optionsHTML}</select>`;
                 } else if (esFecha) {
-                    // Convert form DD/MM/YYYY to YYYY-MM-DD for date input if it's already a valid date format
                     let dateVal = currentValue;
                     if (dateVal && dateVal.includes('/')) {
                         const parts = dateVal.split('/');
                         if (parts.length === 3) dateVal = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    }
+                    if (!dateVal) {
+                        const hoy = new Date();
+                        dateVal = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
                     }
                     td.innerHTML = `<input type="date" class="inline-edit-input" value="${dateVal}" />`;
                 } else {
@@ -2317,8 +2383,24 @@
                         if (fieldName === 'visto_vb_cliente') {
                             if ((newValue || '').trim().toLowerCase() === 'si') {
                                 tr.classList.add('fila-vb-si');
+                                tr.classList.remove('fila-fecha-fin');
                             } else {
                                 tr.classList.remove('fila-vb-si');
+                                // Comprobar si fecha_fin tiene valor para aplicar azul claro
+                                const tdFechaFin = tr.querySelector('td[data-field="fecha_fin"]');
+                                const ffVal = tdFechaFin ? tdFechaFin.textContent.trim() : '';
+                                if (ffVal) tr.classList.add('fila-fecha-fin');
+                            }
+                        }
+
+                        // Actualizar color dinámico si cambia 'fecha_fin'
+                        if (fieldName === 'fecha_fin') {
+                            if (!tr.classList.contains('fila-vb-si')) {
+                                if ((newValue || '').trim() !== '') {
+                                    tr.classList.add('fila-fecha-fin');
+                                } else {
+                                    tr.classList.remove('fila-fecha-fin');
+                                }
                             }
                         }
 
@@ -2409,6 +2491,10 @@
                     if (dateVal && dateVal.includes('/')) {
                         const parts = dateVal.split('/');
                         if (parts.length === 3) dateVal = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    }
+                    if (!dateVal) {
+                        const hoy = new Date();
+                        dateVal = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
                     }
                     td.innerHTML = `<input type="date" class="inline-edit-input" value="${dateVal}" />`;
                 } else {
@@ -5139,6 +5225,24 @@ ${ultimosTrabajos}
             position: relative;
         }
 
+        .pin-icon {
+            display: inline-flex;
+            align-items: center;
+            cursor: pointer;
+            margin-left: 3px;
+            color: #cbd5e1;
+            transition: color 0.15s, transform 0.15s;
+            vertical-align: middle;
+            user-select: none;
+        }
+        .pin-icon:hover {
+            color: #3b82f6;
+        }
+        .pin-icon.pinned {
+            color: #2563eb;
+            transform: rotate(-45deg);
+        }
+
         .col-resizer {
             position: absolute;
             top: 0;
@@ -5274,10 +5378,16 @@ ${ultimosTrabajos}
             color: #0f172a;
         }
 
-        table.data-table tbody tr.fila-vb-si td {
+        table.data-table tbody tr.fila-vb-si td:not([data-field="pct_uso"]) {
             background-color: #0066FF !important;
             color: #ffffff !important;
             border-bottom-color: #005ce6 !important;
+        }
+
+        table.data-table tbody tr.fila-fecha-fin td:not([data-field="pct_uso"]) {
+            background-color: #DBEAFE !important;
+            color: #1e3a5f !important;
+            border-bottom-color: #bfdbfe !important;
         }
 
         /* Resaltado de fila seleccionada (Capa de cristal tintado universal) */
@@ -5897,17 +6007,17 @@ ${ultimosTrabajos}
 
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label for="input-cols-prod"
-                                    style="font-size: 14px; font-weight: 500; color: #334155;">Columnas Fijas
+                                    style="font-size: 14px; font-weight: 500; color: #334155;">Columnas con icono fijador
                                     (Producción)</label>
-                                <input type="number" id="input-cols-prod" min="0" max="10"
+                                <input type="number" id="input-cols-prod" min="0" max="5"
                                     style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; outline: none; width: 200px;">
                             </div>
 
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label for="input-cols-ofer"
-                                    style="font-size: 14px; font-weight: 500; color: #334155;">Columnas Fijas
+                                    style="font-size: 14px; font-weight: 500; color: #334155;">Columnas con icono fijador
                                     (Ofertas)</label>
-                                <input type="number" id="input-cols-ofer" min="0" max="10"
+                                <input type="number" id="input-cols-ofer" min="0" max="5"
                                     style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; outline: none; width: 200px;">
                             </div>
 
