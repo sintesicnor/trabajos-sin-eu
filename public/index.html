@@ -3445,7 +3445,11 @@
                         if (cd.type === 'month') {
                             sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:#475569;padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
                         } else {
-                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:12px;color:#94a3b8;padding:4px;display:none;"></td>';
+                            let dayHrs = 0;
+                            if (td.byDay[cd.month] && td.byDay[cd.month][cd.day] && td.byDay[cd.month][cd.day].srvs[srv]) {
+                                dayHrs = td.byDay[cd.month][cd.day].srvs[srv];
+                            }
+                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:12px;color:#475569;padding:4px;display:none;">' + fmtV(dayHrs) + '</td>';
                         }
                     });
                     sCells += '<td style="text-align:center;font-size:13px;font-weight:600;color:#334155;padding:4px;background:#f8fafc;">' + fmtV(sTotal) + '</td>';
@@ -3478,11 +3482,15 @@
                 });
             });
 
-            // Error table: admin sees all, others see only own
+            // Error table: admin sees all, lectura/edicion/financiero see only own
             if (errContainer) {
                 let fe = errores.filter(e => e.observaciones !== '');
-                if (currentUserRole !== 'admin' && currentUserAcronym) {
-                    fe = fe.filter(e => e.tecAcr === currentUserAcronym);
+                if (currentUserRole !== 'admin') {
+                    if (currentUserAcronym) {
+                        fe = fe.filter(e => e.tecAcr === currentUserAcronym);
+                    } else {
+                        fe = []; // Sin acrónimo vinculado no puede ver registros
+                    }
                 }
                 if (fe.length === 0) {
                     errContainer.innerHTML = '<p style="color:#10b981;font-size:13px;padding:8px 0;">Todos los registros tienen un codigo de trabajo valido.</p>';
@@ -3499,17 +3507,13 @@
 
         function cargarDashboard() {
             initFiltrosDashboard();
-            const tabIA = document.getElementById('tab-dash-ia');
-            const isIA = tabIA && tabIA.classList.contains('active');
             const isOfertas = document.getElementById('tab-dash-ofertas').classList.contains('active');
             const isPartes = document.getElementById('tab-dash-partes') && document.getElementById('tab-dash-partes').classList.contains('active');
 
-            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-ia','panel-dash-partes'];
+            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes'];
             panels.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 
-            if (isIA) {
-                document.getElementById('panel-dash-ia').style.display = 'block';
-            } else if (isOfertas) {
+            if (isOfertas) {
                 document.getElementById('panel-dash-ofertas').style.display = 'block';
                 cargarDashboardOfertas();
             } else if (isPartes) {
@@ -3521,57 +3525,10 @@
             }
         }
 
-        function obtenerContextoIA() {
-            if (typeof datosOfertasMemoria === 'undefined' || typeof datosProduccionMemoria === 'undefined') {
-                return "Los datos del departamento aún no se han cargado completamente.";
-            }
-
-            // --- RESUMEN DE OFERTAS ---
-            const totalOfertas = datosOfertasMemoria.length;
-            const aceptadas = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('aceptada')).length;
-            const enCurso = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('en curso')).length;
-            const importeTotalOfertas = datosOfertasMemoria.reduce((acc, o) => acc + (parseSpanishNum(o.presupuesto_total) || 0), 0);
-
-            // --- RESUMEN DE PRODUCCIÓN ---
-            const totalProduccion = datosProduccionMemoria.length;
-            const presupuestoProduccion = datosProduccionMemoria.reduce((acc, p) => acc + (parseSpanishNum(p.presupuesto_m) || 0), 0);
-
-            // --- REGISTROS RECIENTES (Muestra de contexto) ---
-            const ultimasOfertas = datosOfertasMemoria.slice(-5).map(o =>
-                `- Oferta ${o.num_gestiona || 'N/A'}: ${o.cliente || 'Sin cliente'} - ${o.objeto || 'Sin objeto'} (${o.estado || 'En curso'})`
-            ).join('\n');
-
-            const ultimosTrabajos = datosProduccionMemoria.slice(-5).map(p =>
-                `- Trabajo ${p.num_trabajo || 'N/A'}: ${p.cliente || 'Sin cliente'} - ${p.servicio || 'Sin servicio'} (Presp: ${p.presupuesto_m || 0}€)`
-            ).join('\n');
-
-            const fechaActual = new Date().toLocaleString('es-ES');
-
-            return `
-CONTEXTO DEL DEPARTAMENTO (${fechaActual}):
--------------------------------------------
-RESUMEN DE OFERTAS:
-- Total Ofertas: ${totalOfertas}
-- Aceptadas: ${aceptadas}
-- En Curso: ${enCurso}
-- Importe Total Ofertado: ${importeTotalOfertas.toLocaleString('es-ES')} €
-
-RESUMEN DE PRODUCCIÓN (TRABAJOS ACTIVOS):
-- Total Trabajos en Producción: ${totalProduccion}
-- Importe Total Presupuestado: ${presupuestoProduccion.toLocaleString('es-ES')} €
-
-ÚLTIMAS OFERTAS REGISTRADAS:
-${ultimasOfertas}
-
-ÚLTIMOS TRABAJOS EN PRODUCCIÓN:
-${ultimosTrabajos}
--------------------------------------------
-`;
-        }
 
         // Listeners Pestañas y Filtros
         const clearActiveTabs = () => {
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-ia', 'tab-dash-partes'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
         };
@@ -3588,66 +3545,12 @@ ${ultimosTrabajos}
         });
         document.getElementById('tab-dash-partes')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-ia', 'tab-dash-partes'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-partes')?.classList.add('active');
             cargarDashboard();
         });
-        document.getElementById('tab-dash-ia')?.addEventListener('click', (e) => {
-            clearActiveTabs();
-            e.target.classList.add('active');
-            cargarDashboard();
-        });
 
-        // Lógica del Botón Consultar IA
-        document.getElementById('btn-consultar-ia')?.addEventListener('click', async () => {
-            const promptInput = document.getElementById('ai-prompt-input');
-            const responseArea = document.getElementById('ai-response-area');
-            const responseText = document.getElementById('ai-response-text');
-            const btnConsultar = document.getElementById('btn-consultar-ia');
 
-            if (!promptInput || !promptInput.value.trim()) {
-                alert("Por favor, escribe una consulta.");
-                return;
-            }
-
-            const promptUsuario = promptInput.value.trim();
-            btnConsultar.disabled = true;
-            btnConsultar.textContent = 'Consultando...';
-
-            // UI Feedback: Mostrar carga
-            responseArea.style.display = 'block';
-            responseText.innerHTML = '<span style="color: #64748b; font-style: italic;">La IA está pensando... (Analizando datos del departamento con Gemini Pro)</span>';
-
-            const contexto = obtenerContextoIA();
-            const promptFinal = `DATOS DEL DEPARTAMENTO: ${contexto} \n\n PREGUNTA DEL USUARIO: ${promptUsuario}`;
-
-            try {
-                // PASO 2: FRONTEND - Invocación segura via Firebase Cloud Functions
-                const callGoogleApi = httpsCallable(functions, 'callGoogleApi');
-                const result = await callGoogleApi({ prompt: promptFinal });
-
-                if (result.data && result.data.success) {
-                    responseText.innerHTML = result.data.response.replace(/\n/g, '<br>');
-                } else {
-                    throw new Error('La respuesta de la IA no es válida.');
-                }
-            } catch (error) {
-                console.error("Error consultando IA a través de Cloud Functions:", error);
-
-                // Manejo de errores específicos de Firebase Functions
-                let mensajeError = 'Error: No se pudo conectar con el servicio de IA.';
-                if (error.code === 'unauthenticated') {
-                    mensajeError = 'Error: Debes iniciar sesión para usar la IA.';
-                } else if (error.message) {
-                    mensajeError = `Error: ${error.message}`;
-                }
-
-                responseText.innerHTML = `<span style="color: #ef4444; font-weight: 600;">${mensajeError}</span>`;
-            } finally {
-                btnConsultar.disabled = false;
-                btnConsultar.textContent = 'Consultar';
-            }
-        });
 
         document.getElementById('btn-update-dash-ofe')?.addEventListener('click', cargarDashboard);
         document.getElementById('btn-update-dash-pro')?.addEventListener('click', cargarDashboard);
@@ -5935,7 +5838,6 @@ ${ultimosTrabajos}
                         <button class="dash-tab active" id="tab-dash-produccion">Producción</button>
                         <button class="dash-tab" id="tab-dash-ofertas">Ofertas</button>
                         <button class="dash-tab" id="tab-dash-partes">Partes de Trabajo</button>
-                        <button class="dash-tab" id="tab-dash-ia">IA</button>
                     </div>
 
                     <div id="panel-dash-ofertas" style="display: none;">
@@ -6088,38 +5990,7 @@ ${ultimosTrabajos}
                         </div>
                     </div>
 
-                    <div id="panel-dash-ia" style="display: none;">
-                        <div class="chart-box" style="margin-bottom: 24px;">
-                            <h2 class="config-section-title" style="border: none; margin-bottom: 8px;">Análisis
-                                Inteligente con IA</h2>
-                            <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
-                                Realiza consultas sobre la gestión del departamento, pide resúmenes o solicita análisis
-                                predictivos basados en los datos (próximamente).
-                            </p>
-
-                            <div style="display: flex; flex-direction: column; gap: 16px;">
-                                <textarea id="ai-prompt-input"
-                                    placeholder="Escribe aquí tu consulta para la IA... (ej: Analiza la carga de trabajo de los técnicos)"
-                                    style="width: 100%; min-height: 120px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none; resize: vertical;"></textarea>
-
-                                <div style="display: flex; justify-content: flex-end;">
-                                    <button id="btn-consultar-ia" class="btn-primary"
-                                        style="padding: 10px 32px;">Consultar</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="ai-response-area" class="chart-box"
-                            style="display: none; background-color: #f0f9ff; border-color: #bae6fd;">
-                            <h3 class="chart-title" style="color: #0369a1; border-bottom-color: #bae6fd;">Respuesta de
-                                Inteligencia Artificial</h3>
-                            <div id="ai-response-text"
-                                style="font-size: 15px; color: #1e293b; line-height: 1.6; padding: 8px 0;">
-                                <!-- Aquí se inyectará la respuesta -->
-                            </div>
-                        </div>
                     </div>
-                </div>
 
                 <!-- Vista: Configuración -->
                 <div id="view-configuracion" class="app-view"
