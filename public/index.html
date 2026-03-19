@@ -60,6 +60,20 @@
         // Variables Globales base
         let costeHoraActual = 60; // Valor por defecto
         let currentUserRole = null; // 'admin', 'edicion', 'lectura', 'financiero'
+        let currentUserAcronym = null; // Acrónimo del técnico logueado
+
+        // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
+        let permisosRoles = {
+            admin:      { ver_tab_configuracion:true, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:true, ver_importes:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:false, ver_importes:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            lectura:    { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:false, ver_importes:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
+            financiero: { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:true, ver_importes:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
+        };
+
+        function tienePermiso(permiso) {
+            if (!currentUserRole || !permisosRoles[currentUserRole]) return false;
+            return !!permisosRoles[currentUserRole][permiso];
+        }
         
         // Configuración de Proveedor de Microsoft
         const microsoftProvider = new OAuthProvider('microsoft.com');
@@ -118,7 +132,7 @@
         const datosOfertasMemoria = [];
         let donutChart = null;
         let barChart = null;
-        let chartsObj = { ofeDonut: null, ofeAgentes: null, ofeAgentesImporte: null, ofeMensual: null, proGantt: null, proMeses: null };
+        let chartsObj = { ofeDonut: null, ofeAgentes: null, ofeAgentesImporte: null, ofeMensual: null, ofeAnual: null, proGantt: null, proMeses: null };
 
         // Arrays globales listados
         let listaServicios = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
@@ -609,12 +623,12 @@
                         <td data-field="total_horas_calc" style="font-weight: 600; text-align: center;">${totalHoras > 0 ? formatHours(totalHoras) : ''}</td>
                         <td data-field="pct_uso" style="background-color: ${pctColor}; color: ${pctTextColor}; text-align: center; font-weight: 600; text-shadow: 0 1px 1px rgba(0,0,0,0.1);">${pctText}</td>
                         ${techHtml}
-                        <td data-field="fecha_ap" style="background-color: #fce7f3; color: #334155;">${(currentUserRole === 'admin' || currentUserRole === 'financiero') ? (data['fecha_ap'] || '') : '***'}</td>
+                        <td data-field="fecha_ap" style="background-color: #fce7f3; color: #334155;">${data['fecha_ap'] || ''}</td>
                         <td data-field="visto_vb_cliente" style="background-color: #fce7f3; color: #334155;">${data['visto_vb_cliente'] || ''}</td>
-                        <td data-field="fecha_ar" style="background-color: #fce7f3; color: #334155;">${(currentUserRole === 'admin' || currentUserRole === 'financiero') ? (data['fecha_ar'] || '') : '***'}</td>
+                        <td data-field="fecha_ar" style="background-color: #fce7f3; color: #334155;">${data['fecha_ar'] || ''}</td>
                         <td data-field="observaciones" style="background-color: #fce7f3; color: #334155;">${data['observaciones'] || ''}</td>
-                        <td data-field="num_at" style="background-color: #fce7f3; color: #334155;">${(currentUserRole === 'admin' || currentUserRole === 'financiero') ? (data['num_at'] || '') : '***'}</td>
-                        <td data-field="mes_facturacion" style="background-color: #fce7f3; color: #334155;">${(currentUserRole === 'admin' || currentUserRole === 'financiero') ? (data['mes_facturacion'] || '') : '***'}</td>
+                        <td data-field="num_at" style="background-color: #fce7f3; color: #334155;">${data['num_at'] || ''}</td>
+                        <td data-field="mes_facturacion" style="background-color: #fce7f3; color: #334155;">${data['mes_facturacion'] || ''}</td>
                         <td style="text-align: center;">${btnArchiveHtml}</td>
                     `;
                     fragment.appendChild(tr);
@@ -626,10 +640,73 @@
                     applyTableFilters(tableProd); 
                     applyColumnOrder(tableProd); 
                     actualizarIconosFiltroDeTabla(tableProd);
+                    aplicarVisibilidadColumnas(tableProd);
                 }
             } catch (error) {
                 console.error("Error al obtener documentos: ", error);
             }
+        }
+
+        // ── Visibilidad de columnas según permisos del rol ──
+        function aplicarVisibilidadColumnas(table) {
+            if (!table) return;
+            const headers = table.querySelectorAll('thead th');
+            const rows = table.querySelectorAll('tbody tr');
+
+            // Mapear índices de columnas por data-field del header
+            const colIndexByField = {};
+            headers.forEach((th, idx) => {
+                const span = th.querySelector('[data-original-text]');
+                const field = span ? span.dataset.originalText : th.textContent.trim();
+                // Intentar extraer data-field de la primera fila
+                colIndexByField[idx] = idx;
+            });
+
+            // Obtener índices de columnas a ocultar
+            const indicesToHide = new Set();
+
+            // Para lectura: ocultar columnas de importes (presupuesto_m, gastos_n) si no tiene permiso
+            if (!tienePermiso('ver_importes')) {
+                headers.forEach((th, idx) => {
+                    if (rows.length > 0) {
+                        const td = rows[0].children[idx];
+                        if (td) {
+                            const f = td.dataset.field;
+                            if (f === 'presupuesto_m' || f === 'gastos_n' || f === 'horas_disponibles') {
+                                indicesToHide.add(idx);
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Para lectura y financiero: ocultar columnas de técnicos que no son el propio usuario
+            if (!tienePermiso('ver_todas_columnas_tec')) {
+                headers.forEach((th, idx) => {
+                    if (rows.length > 0) {
+                        const td = rows[0].children[idx];
+                        if (td) {
+                            const f = td.dataset.field;
+                            if (f && f.startsWith('tec_')) {
+                                const acr = f.replace('tec_', '');
+                                if (currentUserAcronym && acr !== currentUserAcronym) {
+                                    indicesToHide.add(idx);
+                                } else if (!currentUserAcronym) {
+                                    indicesToHide.add(idx);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Aplicar visibilidad
+            indicesToHide.forEach(idx => {
+                if (headers[idx]) headers[idx].style.display = 'none';
+                rows.forEach(row => {
+                    if (row.children[idx]) row.children[idx].style.display = 'none';
+                });
+            });
         }
 
         // Funciones auxiliares y de Ofertas
@@ -1521,6 +1598,22 @@
                         } else {
                             currentUserRole = 'lectura';
                         }
+
+                        // Resolver acrónimo del usuario logueado
+                        const userEmail = user.email || '';
+                        const tecMatch = listaTecnicos.find(t => (t.id_tec || '').toLowerCase() === userEmail.toLowerCase());
+                        currentUserAcronym = tecMatch ? tecMatch.acronimo : null;
+
+                        // Cargar permisos personalizados desde Firestore (si existen)
+                        try {
+                            const permDoc = await getDoc(doc(db, "configuracion", "permisos_roles"));
+                            if (permDoc && permDoc.exists()) {
+                                const saved = permDoc.data();
+                                ['admin','edicion','lectura','financiero'].forEach(rol => {
+                                    if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
+                                });
+                            }
+                        } catch(ep) { console.error("Error cargando permisos:", ep); }
                     } catch (e) {
                         console.error("Error obteniendo rol", e);
                         currentUserRole = 'lectura';
@@ -1539,29 +1632,24 @@
                         userInfoContainer.style.display = 'block';
                     }
 
-                    // Aplicar restricciones
+                    // Aplicar restricciones basadas en permisos
                     const tabConfig = document.getElementById('tab-configuracion');
-                    if (currentUserRole !== 'admin' && tabConfig) {
-                        tabConfig.style.display = 'none';
-                    } else if (tabConfig) {
-                        tabConfig.style.display = 'flex';
-                    }
+                    if (tabConfig) tabConfig.style.display = tienePermiso('ver_tab_configuracion') ? 'flex' : 'none';
 
                     const btnNuevoTrabajo = document.getElementById('btn-nuevo-trabajo');
-                    if (currentUserRole === 'lectura' && btnNuevoTrabajo) {
-                        btnNuevoTrabajo.style.display = 'none';
-                    } else if (btnNuevoTrabajo) {
-                        btnNuevoTrabajo.style.display = 'flex';
-                    }
+                    if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = tienePermiso('crear_trabajo') ? 'flex' : 'none';
 
                     const btnHistorialGlobal = document.getElementById('btn-historial-global');
-                    if (btnHistorialGlobal) {
-                        if (currentUserRole === 'admin' || currentUserRole === 'edicion') {
-                            btnHistorialGlobal.style.display = 'flex';
-                        } else {
-                            btnHistorialGlobal.style.display = 'none';
-                        }
-                    }
+                    if (btnHistorialGlobal) btnHistorialGlobal.style.display = tienePermiso('historial_global') ? 'flex' : 'none';
+
+                    const btnExport = document.querySelector('.btn-export');
+                    if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? '' : 'none';
+
+                    // Restringir tabs de navegación para financiero
+                    const tabOfertas = document.getElementById('tab-ofertas');
+                    if (tabOfertas) tabOfertas.style.display = tienePermiso('ver_ofertas') ? 'flex' : 'none';
+                    const tabDashboard = document.getElementById('tab-dashboard');
+                    if (tabDashboard) tabDashboard.style.display = tienePermiso('ver_dashboard') ? 'flex' : 'none';
 
                     // Restringir panel de técnicos solo a admin
                     const panelTecnicos = document.getElementById('panel-tecnicos');
@@ -1584,6 +1672,7 @@
                     }
                 } else {
                     currentUserRole = null;
+                    currentUserAcronym = null;
                     loginContainer.style.display = 'flex';
                     sidebarMain.style.display = 'none';
                     appMain.style.display = 'none';
@@ -2105,7 +2194,8 @@
 
             // Delegación de eventos para la edición inline en Producción
             tbody.addEventListener('dblclick', (e) => {
-                if (currentUserRole === 'lectura') return;
+                // Bloquear si no tiene permiso de edición general NI financiero
+                if (!tienePermiso('editar_campos_generales') && !tienePermiso('editar_campos_financieros')) return;
 
                 // Evitar atrapar dblclick sobre filtros o arrastres de columnas u otros inputs
                 if (e.target.closest('.header-filter-icon') || e.target.closest('input') || e.target.closest('.col-resizer')) return;
@@ -2123,12 +2213,13 @@
                 if (fieldName === 'num_trabajo') return;
                 if (fieldName === 'total_horas_historico') return;
 
-                // Restricción campos financieros ('fecha_ap', 'fecha_ar', 'num_at', 'mes_facturacion')
-                const camposFinancieros = ['fecha_ap', 'fecha_ar', 'num_at', 'mes_facturacion'];
+                // Campos financieros redefinidos: fecha_ap, fecha_ar, observaciones, num_at, mes_facturacion
+                const camposFinancieros = ['fecha_ap', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
                 if (camposFinancieros.includes(fieldName)) {
-                    if (currentUserRole !== 'admin' && currentUserRole !== 'financiero') {
-                        return; // Bloquea si no es admin o financiero
-                    }
+                    if (!tienePermiso('editar_campos_financieros')) return;
+                } else {
+                    // Campo general
+                    if (!tienePermiso('editar_campos_generales')) return;
                 }
 
                 // Evitar editar si ya hay un input
@@ -2261,7 +2352,7 @@
 
             // Delegación de eventos para la edición inline en Ofertas
             tbodyOfertas.addEventListener('dblclick', (e) => {
-                if (currentUserRole === 'lectura') return;
+                if (!tienePermiso('editar_ofertas')) return;
 
                 if (e.target.closest('.header-filter-icon') || e.target.closest('input') || e.target.closest('.col-resizer') || e.target.closest('.estado-cell')) return;
 
@@ -2550,20 +2641,53 @@
             let pptoCurso = 0, pptoAcep = 0, pptoRech = 0;
             let totalLic = 0, totalOfertas = 0;
             const agentesData = {};
-            const mensualData = {};
+            // Mensual data collects ALL data (unfiltered) for evolution chart
+            const mensualDataAll = {};
+            // Annual summary (unfiltered)
+            const anualData = {};
 
+            // Normalize Si/No values for filtering
+            const normSiNo = (v) => {
+                const t = (v || '').trim().toLowerCase();
+                if (t === 'si' || t === 'sí' || t === 's' || t === 'yes' || t === '1' || t === 'true') return 'Si';
+                return 'No';
+            };
+
+            // First pass: collect all data for unfiltered charts
+            datosOfertasMemoria.forEach(of => {
+                const est = (of.estado || 'En curso').trim();
+                const estLower = est.toLowerCase();
+                const ppto = parseSpanishNum(of.presupuesto_total) || 0;
+                const info = extractDateInfo(of.fecha_oferta);
+
+                if (info && info.y && info.m) {
+                    const key = `${info.y}-${String(info.m).padStart(2,'0')}`;
+                    if (!mensualDataAll[key]) mensualDataAll[key] = { acep: 0, curso: 0, rech: 0, pptoAcep: 0, pptoCurso: 0, pptoRech: 0 };
+                    if (estLower === 'aceptada' || estLower === 'aceptado') { mensualDataAll[key].acep++; mensualDataAll[key].pptoAcep += ppto; }
+                    else if (estLower === 'rechazada' || estLower === 'rechazado') { mensualDataAll[key].rech++; mensualDataAll[key].pptoRech += ppto; }
+                    else { mensualDataAll[key].curso++; mensualDataAll[key].pptoCurso += ppto; }
+
+                    const yr = String(info.y);
+                    if (!anualData[yr]) anualData[yr] = { acep: 0, curso: 0, rech: 0, pptoAcep: 0, pptoCurso: 0, pptoRech: 0 };
+                    if (estLower === 'aceptada' || estLower === 'aceptado') { anualData[yr].acep++; anualData[yr].pptoAcep += ppto; }
+                    else if (estLower === 'rechazada' || estLower === 'rechazado') { anualData[yr].rech++; anualData[yr].pptoRech += ppto; }
+                    else { anualData[yr].curso++; anualData[yr].pptoCurso += ppto; }
+                }
+            });
+
+            // Second pass: filtered data for KPIs and agent charts
             datosOfertasMemoria.forEach(of => {
                 if (!checkDateMatch(of.fecha_oferta, yFil, mFil)) return;
-                const esLic = (of.es_licitacion || '').trim();
-                const pertLic = (of.pertenece_a_licitacion || '').trim();
-                if (licFil.length > 0 && !licFil.includes(esLic) && !(licFil.includes('No') && esLic === '')) return;
-                if (pertFil.length > 0 && !pertFil.includes(pertLic) && !(pertFil.includes('No') && pertLic === '')) return;
+                const esLic = normSiNo(of.es_licitacion);
+                const pertLic = normSiNo(of.pertenece_a_licitacion);
+                if (licFil.length > 0 && !licFil.includes(esLic)) return;
+                if (pertFil.length > 0 && !pertFil.includes(pertLic)) return;
 
                 const est = (of.estado || 'En curso').trim();
                 const estLower = est.toLowerCase();
                 const ppto = parseSpanishNum(of.presupuesto_total) || 0;
                 totalOfertas++;
-                if (esLic.toLowerCase() === 'si') totalLic++;
+                if (esLic === 'Si') totalLic++;
 
                 if (estLower === 'en curso') { vivas++; pptoCurso += ppto; }
                 else if (estLower === 'aceptada' || estLower === 'aceptado') { aceptadas++; pptoAcep += ppto; }
@@ -2574,26 +2698,27 @@
                 if (estLower === 'aceptada' || estLower === 'aceptado') { agentesData[ag].acep++; agentesData[ag].pptoAcep += ppto; }
                 else if (estLower === 'rechazada' || estLower === 'rechazado') { agentesData[ag].rech++; agentesData[ag].pptoRech += ppto; }
                 else { agentesData[ag].curso++; agentesData[ag].pptoCurso += ppto; }
-
-                const info = extractDateInfo(of.fecha_oferta);
-                if (info && info.y && info.m) {
-                    const key = `${info.y}-${String(info.m).padStart(2,'0')}`;
-                    if (!mensualData[key]) mensualData[key] = { acep: 0, curso: 0, rech: 0 };
-                    if (estLower === 'aceptada' || estLower === 'aceptado') mensualData[key].acep++;
-                    else if (estLower === 'rechazada' || estLower === 'rechazado') mensualData[key].rech++;
-                    else mensualData[key].curso++;
-                }
             });
 
+            // Format helper: Spanish number, no decimals unless needed
+            const fmtES = (v) => {
+                if (v === 0) return '0 €';
+                const abs = Math.abs(v);
+                if (abs % 1 === 0) return new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 }).format(v) + ' €';
+                return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v) + ' €';
+            };
             const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-            document.getElementById('kpi-ofe-vivas').textContent = vivas;
-            if (document.getElementById('kpi-ofe-acep-count')) document.getElementById('kpi-ofe-acep-count').textContent = aceptadas;
-            if (document.getElementById('kpi-ofe-rech-count')) document.getElementById('kpi-ofe-rech-count').textContent = rechazadas;
-            document.getElementById('kpi-ofe-exito').textContent = totalOfertas > 0 ? ((totalLic / totalOfertas) * 100).toFixed(1) + '%' : '0%';
-            if (document.getElementById('kpi-ofe-ppto-acep')) document.getElementById('kpi-ofe-ppto-acep').textContent = fmtE.format(pptoAcep);
-            if (document.getElementById('kpi-ofe-ppto-rech')) document.getElementById('kpi-ofe-ppto-rech').textContent = fmtE.format(pptoRech);
 
-            // Inline label plugin for bar charts
+            // Update KPIs
+            document.getElementById('kpi-ofe-vivas').textContent = vivas;
+            document.getElementById('kpi-ofe-ppto-curso').textContent = fmtES(pptoCurso);
+            document.getElementById('kpi-ofe-acep-count').textContent = aceptadas;
+            document.getElementById('kpi-ofe-ppto-acep').textContent = fmtES(pptoAcep);
+            document.getElementById('kpi-ofe-rech-count').textContent = rechazadas;
+            document.getElementById('kpi-ofe-ppto-rech').textContent = fmtES(pptoRech);
+            document.getElementById('kpi-ofe-exito').textContent = totalOfertas > 0 ? ((totalLic / totalOfertas) * 100).toFixed(1) + '%' : '0%';
+
+            // Inline label plugin
             const innerLabelsPlugin = {
                 id: 'innerLabels',
                 afterDatasetsDraw(chart) {
@@ -2621,6 +2746,7 @@
                 (agentesData[b].acep+agentesData[b].curso+agentesData[b].rech) - (agentesData[a].acep+agentesData[a].curso+agentesData[a].rech)
             );
 
+            // Agent count chart
             if (chartsObj.ofeDonut) chartsObj.ofeDonut.destroy();
             if (chartsObj.ofeAgentes) chartsObj.ofeAgentes.destroy();
             chartsObj.ofeAgentes = new Chart(document.getElementById('chart-ofe-agentes'), {
@@ -2629,14 +2755,14 @@
                 data: {
                     labels: agLabels,
                     datasets: [
-                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].acep), backgroundColor: '#10b981', barThickness: 28, categoryPercentage: 0.8 },
-                        { label: 'En curso', data: agLabels.map(l => agentesData[l].curso), backgroundColor: '#F38E00', barThickness: 28, categoryPercentage: 0.8 },
-                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].rech), backgroundColor: '#ef4444', barThickness: 28, categoryPercentage: 0.8 }
+                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].acep), backgroundColor: '#10b981', barPercentage: 0.75, categoryPercentage: 0.85 },
+                        { label: 'En curso', data: agLabels.map(l => agentesData[l].curso), backgroundColor: '#F38E00', barPercentage: 0.75, categoryPercentage: 0.85 },
+                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].rech), backgroundColor: '#ef4444', barPercentage: 0.75, categoryPercentage: 0.85 }
                     ]
                 },
                 options: {
                     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                    scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true } },
+                    scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { crossAlign: 'center' } } },
                     plugins: {
                         legend: { position: 'top' },
                         tooltip: { callbacks: { afterBody: (items) => {
@@ -2648,91 +2774,129 @@
                 }
             });
 
+            // Agent importe chart
             if (chartsObj.ofeAgentesImporte) chartsObj.ofeAgentesImporte.destroy();
             chartsObj.ofeAgentesImporte = new Chart(document.getElementById('chart-ofe-agentes-importe'), {
                 type: 'bar',
                 data: {
                     labels: agLabels,
                     datasets: [
-                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].pptoAcep), backgroundColor: '#10b981', barThickness: 28, categoryPercentage: 0.8 },
-                        { label: 'En curso', data: agLabels.map(l => agentesData[l].pptoCurso), backgroundColor: '#F38E00', barThickness: 28, categoryPercentage: 0.8 },
-                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].pptoRech), backgroundColor: '#ef4444', barThickness: 28, categoryPercentage: 0.8 }
+                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].pptoAcep), backgroundColor: '#10b981', barPercentage: 0.75, categoryPercentage: 0.85 },
+                        { label: 'En curso', data: agLabels.map(l => agentesData[l].pptoCurso), backgroundColor: '#F38E00', barPercentage: 0.75, categoryPercentage: 0.85 },
+                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].pptoRech), backgroundColor: '#ef4444', barPercentage: 0.75, categoryPercentage: 0.85 }
                     ]
                 },
                 options: {
                     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                    scales: { x: { stacked: true, ticks: { callback: v => fmtE.format(v) }, grid: { display: false } }, y: { stacked: true } },
+                    scales: { x: { stacked: true, ticks: { callback: v => fmtE.format(v) }, grid: { display: false } }, y: { stacked: true, ticks: { crossAlign: 'center' } } },
                     plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtE.format(ctx.raw)}` } } }
                 }
             });
 
-            // Monthly evolution - datasets per year for toggle
-            const mLabels = Object.keys(mensualData).sort();
-            const yearsInData = [...new Set(mLabels.map(k => k.split('-')[0]))].sort();
+            // Monthly evolution - NOT affected by filters, uses year selector
             const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-            const yearColors = ['#2176AC','#F38E00','#10b981','#ef4444','#6B4FA0','#64748b','#0ea5e9','#d946ef'];
+            const allYears = [...new Set(Object.keys(mensualDataAll).map(k => k.split('-')[0]))].sort();
+
+            // Populate year selector
+            const evolYearSel = document.getElementById('filt-ofe-evol-year');
+            if (evolYearSel) {
+                const prevVal = evolYearSel.value;
+                evolYearSel.innerHTML = '<option value="ultimos12">Últimos 12 meses</option>' + allYears.map(y => `<option value="${y}">${y}</option>`).join('');
+                if (prevVal && [...evolYearSel.options].some(o => o.value === prevVal)) evolYearSel.value = prevVal;
+                evolYearSel.onchange = () => cargarDashboardOfertas();
+            }
+
+            const selYear = evolYearSel ? evolYearSel.value : 'ultimos12';
+            let evolKeys;
+            if (selYear === 'ultimos12') {
+                const now = new Date();
+                evolKeys = [];
+                for (let i = 11; i >= 0; i--) {
+                    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                    evolKeys.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+                }
+            } else {
+                evolKeys = [];
+                for (let m = 1; m <= 12; m++) evolKeys.push(`${selYear}-${String(m).padStart(2,'0')}`);
+            }
+            const evolLabels = evolKeys.map(k => { const p = k.split('-'); return monthNames[parseInt(p[1])-1] + ' ' + p[0].slice(2); });
 
             if (chartsObj.ofeMensual) chartsObj.ofeMensual.destroy();
-
-            const evDatasets = [];
-            const evLabels = [];
-            const allMonths = new Set();
-            mLabels.forEach(k => { const m = k.split('-')[1]; allMonths.add(m); });
-            const sortedMonths = [...allMonths].sort();
-            sortedMonths.forEach(m => evLabels.push(monthNames[parseInt(m)-1]));
-
-            yearsInData.forEach((year, yi) => {
-                const baseColor = yearColors[yi % yearColors.length];
-                evDatasets.push({
-                    label: year + ' Aceptadas',
-                    data: sortedMonths.map(m => { const k = year+'-'+m; return mensualData[k] ? mensualData[k].acep : 0; }),
-                    backgroundColor: baseColor,
-                    stack: 'stack-' + year
-                });
-                evDatasets.push({
-                    label: year + ' En curso',
-                    data: sortedMonths.map(m => { const k = year+'-'+m; return mensualData[k] ? mensualData[k].curso : 0; }),
-                    backgroundColor: baseColor + '99',
-                    stack: 'stack-' + year
-                });
-                evDatasets.push({
-                    label: year + ' Rechazadas',
-                    data: sortedMonths.map(m => { const k = year+'-'+m; return mensualData[k] ? mensualData[k].rech : 0; }),
-                    backgroundColor: baseColor + '44',
-                    stack: 'stack-' + year
-                });
-            });
-
             chartsObj.ofeMensual = new Chart(document.getElementById('chart-ofe-mensual'), {
                 type: 'bar',
-                data: { labels: evLabels, datasets: evDatasets },
+                plugins: [{
+                    id: 'barCountLabels',
+                    afterDatasetsDraw(chart) {
+                        const { ctx } = chart;
+                        chart.data.datasets.forEach((ds, i) => {
+                            chart.getDatasetMeta(i).data.forEach((bar, j) => {
+                                const val = ds.data[j];
+                                if (!val) return;
+                                const { x, y, width, height, base } = bar.getProps(['x','y','width','height','base'], true);
+                                const barH = Math.abs(base - y);
+                                if (barH < 16) return;
+                                ctx.save();
+                                ctx.fillStyle = '#fff';
+                                ctx.font = 'bold 10px sans-serif';
+                                ctx.textAlign = 'center';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillText(val, x, y + barH/2);
+                                ctx.restore();
+                            });
+                        });
+                    }
+                }],
+                data: {
+                    labels: evolLabels,
+                    datasets: [
+                        { label: 'Aceptadas', data: evolKeys.map(k => mensualDataAll[k] ? mensualDataAll[k].acep : 0), backgroundColor: '#10b981', stack: 's1' },
+                        { label: 'En curso', data: evolKeys.map(k => mensualDataAll[k] ? mensualDataAll[k].curso : 0), backgroundColor: '#F38E00', stack: 's1' },
+                        { label: 'Rechazadas', data: evolKeys.map(k => mensualDataAll[k] ? mensualDataAll[k].rech : 0), backgroundColor: '#ef4444', stack: 's1' }
+                    ]
+                },
                 options: {
                     responsive: true, maintainAspectRatio: false,
                     scales: { x: { stacked: true }, y: { stacked: true, ticks: { stepSize: 1 } } },
                     plugins: {
-                        legend: {
-                            position: 'top',
-                            onClick: function(e, legendItem, legend) {
-                                const yearPrefix = legendItem.text.split(' ')[0];
-                                const ci = legend.chart;
-                                ci.data.datasets.forEach((ds, i) => {
-                                    if (ds.label.startsWith(yearPrefix)) {
-                                        const meta = ci.getDatasetMeta(i);
-                                        meta.hidden = !meta.hidden;
-                                    }
-                                });
-                                ci.update();
-                            },
-                            labels: {
-                                filter: function(legendItem) {
-                                    return legendItem.text.includes('Aceptadas');
-                                },
-                                generateLabels: function(chart) {
-                                    const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
-                                    return labels.filter(l => l.text.includes('Aceptadas')).map(l => {
-                                        l.text = l.text.replace(' Aceptadas', '');
-                                        return l;
-                                    });
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                afterBody: (items) => {
+                                    const k = evolKeys[items[0].dataIndex];
+                                    const d = mensualDataAll[k];
+                                    if (!d) return [];
+                                    return ['Importe: ' + fmtE.format(d.pptoAcep + d.pptoCurso + d.pptoRech)];
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Annual summary chart (unfiltered)
+            const anualYears = Object.keys(anualData).sort();
+            if (chartsObj.ofeAnual) chartsObj.ofeAnual.destroy();
+            chartsObj.ofeAnual = new Chart(document.getElementById('chart-ofe-anual'), {
+                type: 'bar',
+                data: {
+                    labels: anualYears,
+                    datasets: [
+                        { label: 'Aceptadas', data: anualYears.map(y => anualData[y].acep), backgroundColor: '#10b981' },
+                        { label: 'En curso', data: anualYears.map(y => anualData[y].curso), backgroundColor: '#F38E00' },
+                        { label: 'Rechazadas', data: anualYears.map(y => anualData[y].rech), backgroundColor: '#ef4444' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { x: { stacked: true }, y: { stacked: true, ticks: { stepSize: 5 } } },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                afterBody: (items) => {
+                                    const y = anualYears[items[0].dataIndex];
+                                    const d = anualData[y];
+                                    return ['Total: ' + (d.acep+d.curso+d.rech), 'Importe: ' + fmtE.format(d.pptoAcep+d.pptoCurso+d.pptoRech)];
                                 }
                             }
                         }
@@ -2745,10 +2909,12 @@
             const yFil = getMulti('filt-pro-year'); const mFil = getMulti('filt-pro-month');
             const rbleFil = getMulti('filt-pro-rble'); const t1Fil = getMulti('filt-pro-t1');
             const t2Fil = getMulti('filt-pro-t2'); const t3Fil = getMulti('filt-pro-t3');
-            const srvFil = getMulti('filt-pro-srv'); const vbFil = getMulti('filt-pro-vb');
+            const srvFil = getMulti('filt-pro-srv'); 
 
             let factPdte = 0; let hrsPdte = 0;
             const tecHorasPdte = {};
+            const tecFactPdte = {};
+            const srvFactPdte = {};
             const ganttLabels = []; const ganttBase = []; const ganttProg = []; const ganttMeta = [];
             let minGanttTime = null; let maxGanttTime = null;
             const hrsPorMes = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0 };
@@ -2769,7 +2935,7 @@
                 if (!matchTec(prod.apoyo_am, t2Fil)) return; // Mapeado T2 a AM
                 if (!matchTec(prod.apoyo_an, t3Fil)) return; // Mapeado T3 a AN
                 if (srvFil.length > 0 && !srvFil.includes((prod.tipo_servicio || '').trim())) return;
-                if (vbFil.length > 0 && !vbFil.includes((prod.visto_vb_cliente || 'No').trim())) return;
+                // VB filter removed
 
                 const ppto = parseSpanishNum(prod.presupuesto_m) || 0;
                 const gast = parseSpanishNum(prod.gastos_n) || 0;
@@ -2777,6 +2943,18 @@
                 // Facturación pendiente: solo presupuesto_m donde VB cliente NO es "Si"
                 if (vbCliente !== 'si') {
                     factPdte += ppto;
+
+                    // Facturación pendiente por técnico (T1)
+                    if (prod.ejecutor_t1) {
+                        const check = typeof prod.ejecutor_t1 === 'string' ? prod.ejecutor_t1.trim() : prod.ejecutor_t1;
+                        const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
+                        const lbl = obj ? obj.acronimo : check;
+                        tecFactPdte[lbl] = (tecFactPdte[lbl] || 0) + ppto;
+                    }
+
+                    // Facturación pendiente por servicio
+                    const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
+                    if (srv) srvFactPdte[srv] = (srvFactPdte[srv] || 0) + ppto;
                 }
 
                 let hrsDisp = 0;
@@ -2836,6 +3014,7 @@
                                 t2: getAcr(prod.apoyo_am),
                                 t3: getAcr(prod.apoyo_an),
                                 servicio: prod.servicio || '',
+                                grupo: prod.grupo || '',
                                 cliente: prod.cliente || ''
                             });
 
@@ -2866,6 +3045,22 @@
             const boxTec = document.getElementById('kpi-pro-lista-tec');
             boxTec.innerHTML = Object.keys(tecHorasPdte).sort((a, b) => tecHorasPdte[b] - tecHorasPdte[a])
                 .map(k => `<div><strong>${k}:</strong> ${fmtN.format(Math.round(tecHorasPdte[k]))}h</div>`).join('');
+
+            // Facturación pendiente por técnico
+            const boxFactTec = document.getElementById('kpi-pro-fact-tec');
+            if (boxFactTec) {
+                boxFactTec.innerHTML = Object.keys(tecFactPdte).sort((a, b) => tecFactPdte[b] - tecFactPdte[a])
+                    .filter(k => tecFactPdte[k] > 0)
+                    .map(k => `<div><strong>${k}:</strong> ${fmtN.format(Math.round(tecFactPdte[k]))}€</div>`).join('');
+            }
+
+            // Facturación pendiente por servicio
+            const boxFactSrv = document.getElementById('kpi-pro-fact-srv');
+            if (boxFactSrv) {
+                boxFactSrv.innerHTML = Object.keys(srvFactPdte).sort((a, b) => srvFactPdte[b] - srvFactPdte[a])
+                    .filter(k => srvFactPdte[k] > 0)
+                    .map(k => `<div><strong>${k}:</strong> ${fmtN.format(Math.round(srvFactPdte[k]))}€</div>`).join('');
+            }
 
             // Redimensionar contenedor Gantt para habilitar scroll vertical
             const ganttContainer = document.getElementById('gantt-scroll-container');
@@ -2931,7 +3126,8 @@
                                     if (meta.t1) lines.push('T1: ' + meta.t1);
                                     if (meta.t2) lines.push('T2: ' + meta.t2);
                                     if (meta.t3) lines.push('T3: ' + meta.t3);
-                                    if (meta.cliente) lines.push('Cliente: ' + meta.cliente);
+                                    if (meta.grupo) lines.push('Grupo: ' + meta.grupo);
+                                    if (meta.cliente && meta.cliente !== meta.grupo) lines.push('Cliente: ' + meta.cliente);
                                     return lines;
                                 }
                             }
@@ -3886,6 +4082,72 @@ ${ultimosTrabajos}
             if (btnRefrescarHistorial) {
                 btnRefrescarHistorial.addEventListener('click', () => cargarHistorial());
             }
+
+            // ===================================
+            // Panel de Permisos por Rol
+            // ===================================
+            const permisosLabels = {
+                ver_tab_configuracion: 'Ver pestaña Configuración',
+                crear_trabajo: 'Crear nuevo trabajo',
+                editar_campos_generales: 'Editar campos generales (Producción)',
+                editar_campos_financieros: 'Editar campos financieros (fecha fact., obs., nº fact., mes fact.)',
+                ver_importes: 'Ver importes (presupuesto, gastos, horas disp.)',
+                ver_todas_columnas_tec: 'Ver todas las columnas de técnicos',
+                historial_global: 'Historial global',
+                exportar_excel: 'Exportar a Excel',
+                ver_ofertas: 'Ver pestaña Ofertas',
+                editar_ofertas: 'Editar ofertas',
+                ver_dashboard: 'Ver pestaña Dashboard'
+            };
+
+            function renderTablaPermisos() {
+                const tbody = document.getElementById('tbody-permisos');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                const roles = ['admin', 'edicion', 'lectura', 'financiero'];
+                const permisoKeys = Object.keys(permisosLabels);
+
+                permisoKeys.forEach(key => {
+                    const tr = document.createElement('tr');
+                    tr.style.borderBottom = '1px solid #f1f5f9';
+                    let html = `<td style="padding: 8px 12px; color: #334155;">${permisosLabels[key]}</td>`;
+                    roles.forEach(rol => {
+                        const val = permisosRoles[rol][key];
+                        const bgColor = val ? '#dcfce7' : '#fee2e2';
+                        const txtColor = val ? '#166534' : '#991b1b';
+                        const icon = val ? '✓' : '✗';
+                        html += `<td class="perm-cell" data-rol="${rol}" data-perm="${key}" style="text-align: center; padding: 8px; cursor: pointer; background: ${bgColor}; color: ${txtColor}; font-weight: 600; font-size: 15px; transition: background 0.15s;" title="Clic para cambiar">${icon}</td>`;
+                    });
+                    tr.innerHTML = html;
+                    tbody.appendChild(tr);
+                });
+
+                // Click handler
+                tbody.querySelectorAll('.perm-cell').forEach(cell => {
+                    cell.addEventListener('click', async () => {
+                        const rol = cell.dataset.rol;
+                        const perm = cell.dataset.perm;
+                        const nuevoValor = !permisosRoles[rol][perm];
+                        permisosRoles[rol][perm] = nuevoValor;
+
+                        // Actualizar visual inmediatamente
+                        cell.textContent = nuevoValor ? '✓' : '✗';
+                        cell.style.background = nuevoValor ? '#dcfce7' : '#fee2e2';
+                        cell.style.color = nuevoValor ? '#166534' : '#991b1b';
+
+                        // Guardar en Firestore
+                        try {
+                            await setDoc(doc(db, "configuracion", "permisos_roles"), permisosRoles, { merge: true });
+                        } catch (err) {
+                            console.error("Error guardando permisos:", err);
+                            alert("Error al guardar permisos. Inténtalo de nuevo.");
+                        }
+                    });
+                });
+            }
+
+            // Renderizar tabla de permisos al inicio (se ejecuta dentro de initAppContent que es solo admin)
+            renderTablaPermisos();
 
             // ===================================
             // Lógicas de Importación CSV
@@ -5058,6 +5320,36 @@ ${ultimosTrabajos}
             gap: 4px;
         }
 
+        .filter-wrap {
+            display: flex;
+            align-items: stretch;
+            gap: 0;
+        }
+
+        .filter-wrap .multi-select {
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        .btn-clear-filter {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            border-left: none;
+            border-radius: 0 6px 6px 0;
+            padding: 0 7px;
+            cursor: pointer;
+            color: #94a3b8;
+            font-size: 13px;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+        }
+
+        .btn-clear-filter:hover {
+            background: #fee2e2;
+            color: #ef4444;
+        }
+
         .filter-group label {
             font-size: 12px;
             font-weight: 600;
@@ -5084,7 +5376,7 @@ ${ultimosTrabajos}
         .kpi-card {
             background: white;
             border: 1px solid #e2e8f0;
-            border-radius: 12px;
+            border-radius: 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.04);
             transition: box-shadow 0.2s, transform 0.2s;
             padding: 20px;
@@ -5117,7 +5409,7 @@ ${ultimosTrabajos}
         .chart-box {
             background: white;
             border: 1px solid #e2e8f0;
-            border-radius: 12px;
+            border-radius: 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.04);
             padding: 20px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
@@ -5408,34 +5700,18 @@ ${ultimosTrabajos}
                     <div id="panel-dash-ofertas" style="display: none;">
                         <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año (Ctrl+Click)</label><select id="filt-ofe-year"
-                                    class="multi-select" multiple></select></div>
-                            <div class="filter-group"><label>Mes (Ctrl+Click)</label>
+                            <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-ofe-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-year').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Mes</label><div class="filter-wrap">
                                 <select id="filt-ofe-month" class="multi-select" multiple>
-                                    <option value="1">Ene</option>
-                                    <option value="2">Feb</option>
-                                    <option value="3">Mar</option>
-                                    <option value="4">Abr</option>
-                                    <option value="5">May</option>
-                                    <option value="6">Jun</option>
-                                    <option value="7">Jul</option>
-                                    <option value="8">Ago</option>
-                                    <option value="9">Sep</option>
-                                    <option value="10">Oct</option>
-                                    <option value="11">Nov</option>
-                                    <option value="12">Dic</option>
-                                </select>
+                                    <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
+                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-month').selectedIndex=-1;">✕</button></div>
                             </div>
-                            <div class="filter-group"><label>Es Licitación</label><select id="filt-ofe-es-lic"
-                                    class="multi-select" multiple>
-                                    <option value="Si">Si</option>
-                                    <option value="No">No</option>
-                                </select></div>
-                            <div class="filter-group"><label>Pertenece a Lic.</label><select id="filt-ofe-pert-lic"
-                                    class="multi-select" multiple>
-                                    <option value="Si">Si</option>
-                                    <option value="No">No</option>
-                                </select></div>
+                            <div class="filter-group"><label>Es Licitación</label><div class="filter-wrap"><select id="filt-ofe-es-lic" class="multi-select" multiple>
+                                    <option value="Si">Si</option><option value="No">No</option>
+                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-es-lic').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Pertenece a Lic.</label><div class="filter-wrap"><select id="filt-ofe-pert-lic" class="multi-select" multiple>
+                                    <option value="Si">Si</option><option value="No">No</option>
+                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-pert-lic').selectedIndex=-1;">✕</button></div></div>
                             <div style="display: flex; gap: 8px; margin-bottom: 2px;">
                                 <button id="btn-update-dash-ofe" class="btn-primary" style="height: 38px;">Aplicar
                                     Filtros</button>
@@ -5445,30 +5721,25 @@ ${ultimosTrabajos}
                             </div>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 16px; margin-bottom: 24px;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
                                 <div class="kpi-title">En Curso</div>
                                 <div class="kpi-value" id="kpi-ofe-vivas" style="color: #2176AC;">0</div>
-                            </div>
-                            <div class="kpi-card">
-                                <div class="kpi-title">% Licitación</div>
-                                <div class="kpi-value" id="kpi-ofe-exito" style="color: #6B4FA0;">0%</div>
+                                <div class="kpi-sub" id="kpi-ofe-ppto-curso" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Aceptadas</div>
                                 <div class="kpi-value" id="kpi-ofe-acep-count" style="color: #10b981;">0</div>
+                                <div class="kpi-sub" id="kpi-ofe-ppto-acep" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Rechazadas</div>
                                 <div class="kpi-value" id="kpi-ofe-rech-count" style="color: #ef4444;">0</div>
+                                <div class="kpi-sub" id="kpi-ofe-ppto-rech" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
                             </div>
                             <div class="kpi-card">
-                                <div class="kpi-title">Total Aceptado</div>
-                                <div class="kpi-value" id="kpi-ofe-ppto-acep" style="color: #10b981; font-size: 20px;">0 €</div>
-                            </div>
-                            <div class="kpi-card">
-                                <div class="kpi-title">Total Rechazado</div>
-                                <div class="kpi-value" id="kpi-ofe-ppto-rech" style="color: #ef4444; font-size: 20px;">0 €</div>
+                                <div class="kpi-title">% Licitación</div>
+                                <div class="kpi-value" id="kpi-ofe-exito" style="color: #6B4FA0;">0%</div>
                             </div>
                         </div>
 
@@ -5481,49 +5752,33 @@ ${ultimosTrabajos}
                             <h3 class="chart-title">Importe por Agente Comercial (€)</h3>
                             <div style="width: 100%; height: 340px; position: relative;"><canvas id="chart-ofe-agentes-importe"></canvas></div>
                         </div>
+                        <div class="chart-box" style="margin-bottom: 20px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <h3 class="chart-title" style="margin-bottom: 0; border: none; padding: 0;">Evolución Mensual de Ofertas</h3>
+                                <select id="filt-ofe-evol-year" style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;"></select>
+                            </div>
+                            <div style="width: 100%; height: 360px; position: relative;"><canvas id="chart-ofe-mensual"></canvas></div>
+                        </div>
                         <div class="chart-box">
-                            <h3 class="chart-title">Evolución Mensual de Ofertas</h3>
-                            <div style="width: 100%; height: 320px; position: relative;"><canvas id="chart-ofe-mensual"></canvas></div>
+                            <h3 class="chart-title">Resumen Anual de Ofertas</h3>
+                            <div style="width: 100%; height: 300px; position: relative;"><canvas id="chart-ofe-anual"></canvas></div>
                         </div>
                     </div>
 
                     <div id="panel-dash-produccion" style="display: block;">
                         <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año</label><select id="filt-pro-year" class="multi-select"
-                                    multiple></select></div>
-                            <div class="filter-group"><label>Mes</label>
+                            <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-pro-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-year').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Mes</label><div class="filter-wrap">
                                 <select id="filt-pro-month" class="multi-select" multiple>
-                                    <option value="1">Ene</option>
-                                    <option value="2">Feb</option>
-                                    <option value="3">Mar</option>
-                                    <option value="4">Abr</option>
-                                    <option value="5">May</option>
-                                    <option value="6">Jun</option>
-                                    <option value="7">Jul</option>
-                                    <option value="8">Ago</option>
-                                    <option value="9">Sep</option>
-                                    <option value="10">Oct</option>
-                                    <option value="11">Nov</option>
-                                    <option value="12">Dic</option>
-                                </select>
+                                    <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
+                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-month').selectedIndex=-1;">✕</button></div>
                             </div>
-                            <div class="filter-group"><label>Téc. Rble.</label><select id="filt-pro-rble"
-                                    class="multi-select" multiple></select></div>
-                            <div class="filter-group"><label>Ejecutor (T1)</label><select id="filt-pro-t1"
-                                    class="multi-select" multiple></select></div>
-                            <div class="filter-group"><label>T2 (Apoyo AM)</label><select id="filt-pro-t2"
-                                    class="multi-select" multiple></select></div>
-                            <div class="filter-group"><label>T3 (Apoyo AN)</label><select id="filt-pro-t3"
-                                    class="multi-select" multiple></select></div>
-                            <div class="filter-group"><label>Servicio</label><select id="filt-pro-srv"
-                                    class="multi-select" multiple></select></div>
-                            <div class="filter-group"><label>VB Cliente</label>
-                                <select id="filt-pro-vb" class="multi-select" multiple>
-                                    <option value="Si">Si</option>
-                                    <option value="No">No</option>
-                                </select>
-                            </div>
+                            <div class="filter-group"><label>Téc. Rble.</label><div class="filter-wrap"><select id="filt-pro-rble" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-rble').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Ejecutor (T1)</label><div class="filter-wrap"><select id="filt-pro-t1" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t1').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>T2 (Apoyo AM)</label><div class="filter-wrap"><select id="filt-pro-t2" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t2').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>T3 (Apoyo AN)</label><div class="filter-wrap"><select id="filt-pro-t3" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t3').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Servicio</label><div class="filter-wrap"><select id="filt-pro-srv" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-srv').selectedIndex=-1;">✕</button></div></div>
                             <div style="display: flex; gap: 8px; margin-bottom: 2px;">
                                 <button id="btn-update-dash-pro" class="btn-primary"
                                     style="height: 38px;">Aplicar</button>
@@ -5532,7 +5787,7 @@ ${ultimosTrabajos}
                             </div>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
                                 <div class="kpi-title">Facturación Pendiente (sin VB)</div>
                                 <div class="kpi-value" id="kpi-pro-fact" style="color: #2176AC;">0 €</div>
@@ -5541,11 +5796,17 @@ ${ultimosTrabajos}
                                 <div class="kpi-title">Total Horas Pendientes</div>
                                 <div class="kpi-value" id="kpi-pro-hrs" style="color: #F38E00;">0 h</div>
                             </div>
-                            <div class="kpi-card" style="padding: 12px 20px;">
+                            <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Horas Pdtes. por Técnico</div>
-                                <div id="kpi-pro-lista-tec"
-                                    style="max-height: 80px; overflow-y: auto; font-size: 13px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                                </div>
+                                <div id="kpi-pro-lista-tec" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
+                            </div>
+                            <div class="kpi-card" style="padding: 12px 16px;">
+                                <div class="kpi-title">Fact. Pdte. por Técnico</div>
+                                <div id="kpi-pro-fact-tec" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
+                            </div>
+                            <div class="kpi-card" style="padding: 12px 16px;">
+                                <div class="kpi-title">Fact. Pdte. por Servicio</div>
+                                <div id="kpi-pro-fact-srv" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
                             </div>
                         </div>
 
@@ -5900,6 +6161,28 @@ ${ultimosTrabajos}
                                 </div>
                             </div>
 
+                        </div>
+                    </div>
+
+                    <!-- Panel de Permisos por Rol -->
+                    <div id="panel-permisos" class="config-panel" style="margin-top: 30px;">
+                        <h2 class="config-section-title">Permisos por Rol</h2>
+                        <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 16px;">
+                            Haz clic en cualquier celda para cambiar el permiso entre <strong>Permitido</strong> y <strong>Bloqueado</strong>. Los cambios se guardan automáticamente.
+                        </p>
+                        <div style="overflow-x: auto;">
+                            <table id="tabla-permisos" style="width: 100%; border-collapse: collapse; font-size: 13px; background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
+                                <thead>
+                                    <tr style="background: #f1f5f9;">
+                                        <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #334155; border-bottom: 2px solid #e2e8f0; min-width: 200px;">Permiso</th>
+                                        <th style="padding: 10px 12px; text-align: center; font-weight: 600; color: #6d28d9; border-bottom: 2px solid #e2e8f0; width: 100px;">Admin</th>
+                                        <th style="padding: 10px 12px; text-align: center; font-weight: 600; color: #0f766e; border-bottom: 2px solid #e2e8f0; width: 100px;">Edición</th>
+                                        <th style="padding: 10px 12px; text-align: center; font-weight: 600; color: #1d4ed8; border-bottom: 2px solid #e2e8f0; width: 100px;">Lectura</th>
+                                        <th style="padding: 10px 12px; text-align: center; font-weight: 600; color: #b45309; border-bottom: 2px solid #e2e8f0; width: 100px;">Financiero</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-permisos"></tbody>
+                            </table>
                         </div>
                     </div>
 
