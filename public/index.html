@@ -884,11 +884,8 @@
                     table.dataset.tableId = table.id || ('tbl_' + Math.random().toString(36).substr(2, 9));
                 }
                 const ths = table.querySelectorAll('th');
-                const isOfertasTable_outer = table.id === 'table-ofertas' || table.closest('#view-ofertas');
-                const maxPins = isOfertasTable_outer ? freezeColsOfer : freezeColsProd;
-                const pinnedArr = isOfertasTable_outer ? pinnedColsOfer : pinnedColsProd;
 
-                ths.forEach((th, thIndex) => {
+                ths.forEach(th => {
                     const text = th.textContent.trim();
                     if (text === '') return;
 
@@ -1048,38 +1045,6 @@
                     }
 
                     wrapper.appendChild(iconContainer);
-
-                    // Inject pin icon for the first N columns
-                    if (thIndex < maxPins) {
-                        const isPinned = pinnedArr.includes(thIndex);
-                        const pinSpan = document.createElement('span');
-                        pinSpan.className = 'pin-icon' + (isPinned ? ' pinned' : '');
-                        pinSpan.dataset.colIdx = thIndex;
-                        pinSpan.dataset.tableScope = isOfertasTable_outer ? 'ofer' : 'prod';
-                        pinSpan.title = isPinned ? 'Desfijar columna' : 'Fijar columna';
-                        pinSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.89A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.89A2 2 0 005 15.24z"/></svg>';
-                        pinSpan.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            const colIdx = parseInt(pinSpan.dataset.colIdx, 10);
-                            const isOfe = pinSpan.dataset.tableScope === 'ofer';
-                            const arr = isOfe ? pinnedColsOfer : pinnedColsProd;
-                            const pos = arr.indexOf(colIdx);
-                            if (pos > -1) {
-                                arr.splice(pos, 1);
-                                pinSpan.classList.remove('pinned');
-                                pinSpan.title = 'Fijar columna';
-                            } else {
-                                arr.push(colIdx);
-                                arr.sort((a,b) => a - b);
-                                pinSpan.classList.add('pinned');
-                                pinSpan.title = 'Desfijar columna';
-                            }
-                            guardarPinnedCols();
-                            updateDynamicStickyColumns(table);
-                        });
-                        wrapper.insertBefore(pinSpan, iconContainer);
-                    }
-
                     th.appendChild(wrapper);
                     th.appendChild(popup);
 
@@ -1509,6 +1474,7 @@
 
         function updateDynamicStickyColumns(table) {
             const isOfertas = table.id === 'table-ofertas' || table.closest('#view-ofertas');
+            const maxPinIcons = isOfertas ? freezeColsOfer : freezeColsProd;
             const pinnedArr = isOfertas ? pinnedColsOfer : pinnedColsProd;
 
             const theadTr = table.querySelector('thead tr');
@@ -1517,12 +1483,14 @@
             if (!theadTr) return;
             const ths = Array.from(theadTr.children);
 
-            // 1. Reset ALL sticky styles
-            ths.forEach((th) => {
+            // 1. Reset ALL sticky and pin icons
+            ths.forEach((th, idx) => {
                 th.style.position = '';
                 th.style.left = '';
                 th.style.zIndex = '';
                 th.style.boxShadow = '';
+                const oldPin = th.querySelector('.pin-icon');
+                if (oldPin) oldPin.remove();
             });
 
             tbodyTrs.forEach(tr => {
@@ -1538,7 +1506,45 @@
                 });
             });
 
-            // 2. Apply sticky to pinned columns only (sorted by index, left to right)
+            // 2. Inject pin icons in the first N columns
+            for (let i = 0; i < maxPinIcons && i < ths.length; i++) {
+                const th = ths[i];
+                const isPinned = pinnedArr.includes(i);
+                const pinSpan = document.createElement('span');
+                pinSpan.className = 'pin-icon' + (isPinned ? ' pinned' : '');
+                pinSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 00-1.11-1.79l-1.78-.89A2 2 0 0115 10.76V6h1a2 2 0 000-4H8a2 2 0 000 4h1v4.76a2 2 0 01-1.11 1.79l-1.78.89A2 2 0 005 15.24z"/></svg>';
+                pinSpan.title = isPinned ? 'Desfijar columna' : 'Fijar columna';
+                pinSpan.dataset.colIdx = i;
+                pinSpan.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const colIdx = parseInt(pinSpan.dataset.colIdx, 10);
+                    const arr = isOfertas ? pinnedColsOfer : pinnedColsProd;
+                    const pos = arr.indexOf(colIdx);
+                    if (pos > -1) {
+                        arr.splice(pos, 1);
+                    } else {
+                        arr.push(colIdx);
+                        arr.sort((a,b) => a - b);
+                    }
+                    guardarPinnedCols();
+                    updateDynamicStickyColumns(table);
+                });
+                // Insert pin inside the wrapper div, before the filter icon
+                const filterIcon = th.querySelector('.header-filter-icon');
+                if (filterIcon && filterIcon.parentNode) {
+                    filterIcon.parentNode.insertBefore(pinSpan, filterIcon);
+                } else {
+                    // Fallback: find wrapper div or append to th
+                    const wrapper = th.querySelector('div');
+                    if (wrapper) {
+                        wrapper.appendChild(pinSpan);
+                    } else {
+                        th.appendChild(pinSpan);
+                    }
+                }
+            }
+
+            // 3. Apply sticky to pinned columns only (sorted by index, left to right)
             const sortedPinned = [...pinnedArr].sort((a,b) => a - b);
             let currentLeftOffset = 0;
 
@@ -3219,8 +3225,8 @@
                 data: {
                     labels: ganttLabels,
                     datasets: [
-                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85 },
-                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false }
+                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85, borderRadius: 6, borderSkipped: false },
+                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false, borderRadius: 6, borderSkipped: false }
                     ]
                 },
                 options: {
@@ -3246,6 +3252,7 @@
                         }
                     },
                     plugins: {
+                        legend: { display: false },
                         tooltip: {
                             callbacks: {
                                 title: function(items) {
@@ -3293,164 +3300,211 @@
 
         function cargarDashboardPartes() {
             const container = document.getElementById('partes-tabla-container');
+            const errContainer = document.getElementById('partes-errores-tabla');
             if (!container) return;
 
-            const selTecs = getMulti('filt-partes-tec');
-            const tecsFiltrados = selTecs.length > 0
-                ? listaTecnicos.filter(t => selTecs.includes(t.acronimo))
-                : listaTecnicos;
-
-            if (!window._partesData) {
-                container.innerHTML =
-                    '<p style="color:#64748b;padding:16px;">Cargando datos de partes... Vuelve a hacer clic en la pestaña en unos segundos.</p>';
-                getDocs(collection(db, 'partes')).then(snap => {
-                    window._partesData = [];
-                    snap.forEach(d => window._partesData.push({ id: d.id, ...d.data() }));
+            if (!window._partesHorasData) {
+                container.innerHTML = '<p style="color:#64748b;padding:16px;">Cargando datos de partes de horas...</p>';
+                getDocs(collection(db, 'partes_horas')).then(snap => {
+                    window._partesHorasData = [];
+                    snap.forEach(d => window._partesHorasData.push({ id: d.id, ...d.data() }));
                     cargarDashboardPartes();
                 }).catch(err => {
-                    console.error('Error cargando partes:', err);
-                    container.innerHTML = '<p style="color:#ef4444;padding:16px;">Error cargando datos de partes.</p>';
+                    console.error('Error cargando partes_horas:', err);
+                    container.innerHTML = '<p style="color:#ef4444;padding:16px;">Error cargando datos.</p>';
                 });
                 return;
             }
 
-            const data = window._partesData;
-            if (!data.length) {
-                container.innerHTML = '<p style="color:#64748b;padding:16px;">No hay datos de partes de trabajo.</p>';
+            const rawData = window._partesHorasData;
+            if (!rawData.length) {
+                container.innerHTML = '<p style="color:#64748b;padding:16px;">No hay datos de partes de horas.</p>';
                 return;
             }
 
-            // Build hierarchical structure: year > month > week > day
-            const tree = {};
-            data.forEach(p => {
-                const fecha = p.fecha ? new Date(p.fecha) : null;
-                if (!fecha || isNaN(fecha)) return;
+            // Resolve technician name from trabajador field
+            function resolverTecnico(p) {
+                const trab = (p.trabajador || '').trim();
+                const obs = (p.observaciones_crudas || p.obs || '').trim();
+                // Try matching by name
+                let tec = listaTecnicos.find(t => t.nombre === trab || t.nombre_pila === trab || t.acronimo === trab);
+                // Try by id_tec
+                if (!tec) tec = listaTecnicos.find(t => t.id_tec === trab);
+                return tec ? (tec.nombre_pila || tec.acronimo) : trab;
+            }
+
+            function resolverAcronimo(p) {
+                const trab = (p.trabajador || '').trim();
+                let tec = listaTecnicos.find(t => t.nombre === trab || t.nombre_pila === trab || t.acronimo === trab);
+                if (!tec) tec = listaTecnicos.find(t => t.id_tec === trab);
+                return tec ? tec.acronimo : trab;
+            }
+
+            // Parse date from various formats
+            function parseFecha(p) {
+                const raw = p.fecha || '';
+                if (!raw) return null;
+                // Try DD/MM/YYYY
+                if (raw.includes('/')) {
+                    const pts = raw.split('/');
+                    if (pts.length === 3) return new Date(parseInt(pts[2]), parseInt(pts[1]) - 1, parseInt(pts[0]));
+                }
+                const d = new Date(raw);
+                return isNaN(d.getTime()) ? null : d;
+            }
+
+            // Get service label from produccion data
+            function getServicioLabel(p) {
+                const obs = (p.observaciones_crudas || p.obs || '').trim();
+                const match = obs.match(/^(\d{3,6})/);
+                const numTrabajo = match ? match[1] : null;
+                if (numTrabajo && typeof datosProduccionMemoria !== 'undefined') {
+                    const prod = datosProduccionMemoria.find(pr => String(pr.num_trabajo) === numTrabajo);
+                    if (prod) {
+                        const exp = prod.exp_gestiona || '';
+                        const srv = prod.servicio || '';
+                        return exp ? (exp + '. ' + srv) : srv;
+                    }
+                }
+                return obs || '(Sin código)';
+            }
+
+            // Filter by selected technicians
+            const selTecs = getMulti('filt-partes-tec');
+
+            // Build structure: tec > servicio > {year-month > week > day} with hours
+            const tecData = {};
+            const errores = [];
+            const monthSet = new Set();
+
+            rawData.forEach(p => {
+                const fecha = parseFecha(p);
+                if (!fecha) return;
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+
+                const tecNombre = resolverTecnico(p);
+                const tecAcr = resolverAcronimo(p);
+                if (selTecs.length > 0 && !selTecs.includes(tecAcr)) return;
+
+                const obs = (p.observaciones_crudas || p.obs || '').trim();
+                const hasCode = /^\d{3,6}/.test(obs);
+                if (!hasCode && obs !== '') {
+                    errores.push({ tecnico: tecNombre, fecha: p.fecha || '', observaciones: obs });
+                }
+
                 const y = fecha.getFullYear();
                 const m = fecha.getMonth() + 1;
-                const d = fecha.getDate();
-                const dayOfWeek = fecha.getDay();
-                const weekStart = new Date(fecha);
-                weekStart.setDate(weekStart.getDate() - ((dayOfWeek + 6) % 7));
-                const ws = weekStart.toISOString().slice(0, 10);
+                const mKey = `${y}-${String(m).padStart(2, '0')}`;
+                monthSet.add(mKey);
 
-                if (!tree[y]) tree[y] = {};
-                if (!tree[y][m]) tree[y][m] = {};
-                if (!tree[y][m][ws]) tree[y][m][ws] = {};
-                if (!tree[y][m][ws][d]) tree[y][m][ws][d] = {};
+                const srvLabel = getServicioLabel(p);
 
-                const tec = p.tecnico || p.acronimo || '';
-                tree[y][m][ws][d][tec] = (tree[y][m][ws][d][tec] || 0) + (parseFloat(p.horas) || 0);
+                if (!tecData[tecNombre]) tecData[tecNombre] = { total: {}, servicios: {} };
+                if (!tecData[tecNombre].total[mKey]) tecData[tecNombre].total[mKey] = 0;
+                tecData[tecNombre].total[mKey] += horas;
+
+                if (!tecData[tecNombre].servicios[srvLabel]) tecData[tecNombre].servicios[srvLabel] = {};
+                if (!tecData[tecNombre].servicios[srvLabel][mKey]) tecData[tecNombre].servicios[srvLabel][mKey] = 0;
+                tecData[tecNombre].servicios[srvLabel][mKey] += horas;
             });
 
-            // Determine current week
-            const today = new Date();
-            const todayDow = today.getDay();
-            const curWeekStart = new Date(today);
-            curWeekStart.setDate(curWeekStart.getDate() - ((todayDow + 6) % 7));
-            const curWS = curWeekStart.toISOString().slice(0, 10);
-            const curYear = today.getFullYear();
-            const curMonth = today.getMonth() + 1;
-
-            // Build HTML table
-            const tecHeaders = tecsFiltrados.map(t =>
-                `<th style="padding:6px 10px;font-size:12px;font-weight:600;background:#f1f5f9;color:#334155;min-width:70px;text-align:center;">${t.nombre_pila || t.acronimo}</th>`
-            ).join('');
-
-            let rows = '';
-            const years = Object.keys(tree).sort((a,b) => b-a);
+            // Sort months
+            const months = [...monthSet].sort();
             const monthNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-            years.forEach(y => {
-                const isCurrentYear = parseInt(y) === curYear;
-                rows += `<tr class="tree-row tree-year" data-level="year" data-key="y-${y}" style="cursor:pointer;background:#e8f0fe;">
-                    <td style="padding:8px 12px;font-weight:700;color:#1e293b;">${isCurrentYear ? '&#9660;' : '&#9654;'} ${y}</td>
-                    ${tecsFiltrados.map(() => '<td></td>').join('')}
+            // Build table
+            const monthHeaders = months.map(mk => {
+                const parts = mk.split('-');
+                return `<th style="padding:6px 10px;font-size:12px;font-weight:600;background:#f1f5f9;color:#334155;text-align:center;min-width:70px;">${monthNames[parseInt(parts[1])]} ${parts[0].slice(2)}</th>`;
+            }).join('');
+
+            let rows = '';
+            const tecNames = Object.keys(tecData).sort();
+
+            tecNames.forEach(tecNombre => {
+                const tec = tecData[tecNombre];
+                const totalGlobal = months.reduce((s, mk) => s + (tec.total[mk] || 0), 0);
+
+                // Technician summary row
+                rows += `<tr class="partes-tec-row" data-tec="${tecNombre}" style="cursor:pointer;background:#e8f0fe;border-bottom:1px solid #d1d5db;">
+                    <td style="padding:8px 12px;font-weight:700;color:#1e293b;white-space:nowrap;">&#9654; ${tecNombre}</td>
+                    ${months.map(mk => {
+                        const v = tec.total[mk] || 0;
+                        return `<td style="text-align:center;font-weight:600;color:#1e293b;padding:6px;">${v ? v % 1 === 0 ? v : v.toFixed(1) : ''}</td>`;
+                    }).join('')}
+                    <td style="text-align:center;font-weight:700;color:#0f172a;padding:6px;background:#e2e8f0;">${totalGlobal % 1 === 0 ? totalGlobal : totalGlobal.toFixed(1)}</td>
                 </tr>`;
-                const months = Object.keys(tree[y]).sort((a,b) => b-a);
-                months.forEach(m => {
-                    const isCurrentMonth = isCurrentYear && parseInt(m) === curMonth;
-                    const mHidden = !isCurrentYear;
-                    rows += `<tr class="tree-row tree-month" data-level="month" data-parent="y-${y}" data-key="m-${y}-${m}" style="cursor:pointer;background:#f0f4fa;${mHidden ? 'display:none;' : ''}">
-                        <td style="padding:6px 12px 6px 28px;font-weight:600;color:#334155;">${isCurrentMonth ? '&#9660;' : '&#9654;'} ${monthNames[parseInt(m)]}</td>
-                        ${tecsFiltrados.map(() => '<td></td>').join('')}
+
+                // Service detail rows (hidden by default)
+                const srvNames = Object.keys(tec.servicios).sort();
+                srvNames.forEach(srv => {
+                    const srvData = tec.servicios[srv];
+                    const srvTotal = months.reduce((s, mk) => s + (srvData[mk] || 0), 0);
+                    rows += `<tr class="partes-srv-row" data-parent-tec="${tecNombre}" style="display:none;border-bottom:1px solid #f1f5f9;">
+                        <td style="padding:4px 12px 4px 32px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:350px;" title="${srv}">${srv}</td>
+                        ${months.map(mk => {
+                            const v = srvData[mk] || 0;
+                            return `<td style="text-align:center;font-size:13px;color:#475569;padding:4px;">${v ? v % 1 === 0 ? v : v.toFixed(1) : ''}</td>`;
+                        }).join('')}
+                        <td style="text-align:center;font-size:13px;font-weight:600;color:#334155;padding:4px;background:#f8fafc;">${srvTotal % 1 === 0 ? srvTotal : srvTotal.toFixed(1)}</td>
                     </tr>`;
-                    const weeks = Object.keys(tree[y][m]).sort((a,b) => b.localeCompare(a));
-                    weeks.forEach(ws => {
-                        const isCurWeek = ws === curWS;
-                        const wHidden = !(isCurrentYear && isCurrentMonth);
-                        const wsDate = new Date(ws);
-                        const weEnd = new Date(wsDate); weEnd.setDate(weEnd.getDate() + 6);
-                        const wLabel = `Sem ${wsDate.getDate()}/${wsDate.getMonth()+1} - ${weEnd.getDate()}/${weEnd.getMonth()+1}`;
-                        rows += `<tr class="tree-row tree-week" data-level="week" data-parent="m-${y}-${m}" data-key="w-${ws}" style="cursor:pointer;${isCurWeek ? 'background:#dbeafe;' : 'background:#f8fafc;'}${wHidden ? 'display:none;' : ''}">
-                            <td style="padding:6px 12px 6px 44px;font-weight:500;color:#475569;">${isCurWeek ? '&#9660;' : '&#9654;'} ${wLabel}</td>
-                            ${tecsFiltrados.map(t => {
-                                let total = 0;
-                                Object.values(tree[y][m][ws]).forEach(dayData => { total += (dayData[t.acronimo] || 0); });
-                                return '<td style="text-align:center;font-size:13px;color:#334155;">' + (total ? total.toFixed(1) : '') + '</td>';
-                            }).join('')}
-                        </tr>`;
-                        const days = Object.keys(tree[y][m][ws]).sort((a,b) => b-a);
-                        const dHidden = !(isCurWeek && isCurrentYear && isCurrentMonth);
-                        days.forEach(d => {
-                            const dayDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
-                            const dayNames = ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'];
-                            rows += `<tr class="tree-row tree-day" data-level="day" data-parent="w-${ws}" style="background:white;${dHidden ? 'display:none;' : ''}">
-                                <td style="padding:4px 12px 4px 60px;font-size:13px;color:#64748b;">${dayNames[dayDate.getDay()]} ${d}</td>
-                                ${tecsFiltrados.map(t => {
-                                    const val = tree[y][m][ws][d][t.acronimo] || 0;
-                                    return '<td style="text-align:center;font-size:13px;color:#475569;">' + (val ? val.toFixed(1) : '') + '</td>';
-                                }).join('')}
-                            </tr>`;
-                        });
-                    });
                 });
             });
 
             container.innerHTML = `<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
-                <thead><tr><th style="padding:8px 12px;font-size:13px;font-weight:700;background:#2176AC;color:white;text-align:left;min-width:180px;">Periodo</th>${tecHeaders}</tr></thead>
+                <thead style="position:sticky;top:0;z-index:10;"><tr>
+                    <th style="padding:8px 12px;font-size:13px;font-weight:700;background:#2176AC;color:white;text-align:left;min-width:220px;position:sticky;left:0;z-index:11;">Técnico / Servicio</th>
+                    ${monthHeaders}
+                    <th style="padding:6px 10px;font-size:12px;font-weight:700;background:#e2e8f0;color:#0f172a;text-align:center;min-width:70px;">Total</th>
+                </tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
 
-            // Toggle expand/collapse
-            container.querySelectorAll('.tree-row[data-key]').forEach(row => {
+            // Toggle expand/collapse technician rows
+            container.querySelectorAll('.partes-tec-row').forEach(row => {
                 row.addEventListener('click', () => {
-                    const key = row.dataset.key;
+                    const tecName = row.dataset.tec;
+                    const srvRows = container.querySelectorAll(`.partes-srv-row[data-parent-tec="${tecName}"]`);
+                    const isOpen = srvRows.length > 0 && srvRows[0].style.display !== 'none';
                     const arrow = row.querySelector('td');
-                    const children = container.querySelectorAll(`[data-parent="${key}"]`);
-                    const isOpen = children.length > 0 && children[0].style.display !== 'none';
-                    if (isOpen) {
-                        // Collapse all descendants
-                        const allDesc = container.querySelectorAll(`[data-parent^="${key}"], [data-parent^="${key.replace(/^[ymw]-/,'')}"]`);
-                        function collapseDescendants(parentKey) {
-                            container.querySelectorAll(`[data-parent="${parentKey}"]`).forEach(ch => {
-                                ch.style.display = 'none';
-                                if (ch.dataset.key) collapseDescendants(ch.dataset.key);
-                            });
-                        }
-                        collapseDescendants(key);
-                        if (arrow) arrow.innerHTML = arrow.innerHTML.replace('\u25BC', '\u25B6');
-                    } else {
-                        children.forEach(ch => ch.style.display = '');
-                        if (arrow) arrow.innerHTML = arrow.innerHTML.replace('\u25B6', '\u25BC');
-                    }
+                    srvRows.forEach(r => r.style.display = isOpen ? 'none' : '');
+                    if (arrow) arrow.innerHTML = arrow.innerHTML.replace(isOpen ? '\u25BC' : '\u25B6', isOpen ? '\u25B6' : '\u25BC');
                 });
             });
+
+            // Render error table
+            if (errContainer) {
+                if (errores.length === 0) {
+                    errContainer.innerHTML = '<p style="color:#10b981;font-size:13px;">Todos los registros tienen un código de trabajo válido.</p>';
+                } else {
+                    errContainer.innerHTML = `<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:13px;">
+                        <thead><tr>
+                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;">Técnico</th>
+                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;">Fecha</th>
+                            <th style="padding:6px 12px;background:#fef2f2;color:#991b1b;text-align:left;">Observaciones</th>
+                        </tr></thead>
+                        <tbody>${errores.slice(0, 200).map(e => `<tr style="border-bottom:1px solid #f1f5f9;">
+                            <td style="padding:4px 12px;color:#334155;">${e.tecnico}</td>
+                            <td style="padding:4px 12px;color:#64748b;">${e.fecha}</td>
+                            <td style="padding:4px 12px;color:#64748b;">${e.observaciones}</td>
+                        </tr>`).join('')}</tbody>
+                    </table>
+                    ${errores.length > 200 ? `<p style="color:#64748b;font-size:12px;margin-top:8px;">Mostrando 200 de ${errores.length} registros.</p>` : ''}`;
+                }
+            }
         }
 
 
         function cargarDashboard() {
             initFiltrosDashboard();
-            const tabIA = document.getElementById('tab-dash-ia');
-            const isIA = tabIA && tabIA.classList.contains('active');
             const isOfertas = document.getElementById('tab-dash-ofertas').classList.contains('active');
             const isPartes = document.getElementById('tab-dash-partes') && document.getElementById('tab-dash-partes').classList.contains('active');
 
-            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-ia','panel-dash-partes'];
+            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes'];
             panels.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 
-            if (isIA) {
-                document.getElementById('panel-dash-ia').style.display = 'block';
-            } else if (isOfertas) {
+            if (isOfertas) {
                 document.getElementById('panel-dash-ofertas').style.display = 'block';
                 cargarDashboardOfertas();
             } else if (isPartes) {
@@ -3462,57 +3516,10 @@
             }
         }
 
-        function obtenerContextoIA() {
-            if (typeof datosOfertasMemoria === 'undefined' || typeof datosProduccionMemoria === 'undefined') {
-                return "Los datos del departamento aún no se han cargado completamente.";
-            }
-
-            // --- RESUMEN DE OFERTAS ---
-            const totalOfertas = datosOfertasMemoria.length;
-            const aceptadas = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('aceptada')).length;
-            const enCurso = datosOfertasMemoria.filter(o => (o.estado || '').toLowerCase().includes('en curso')).length;
-            const importeTotalOfertas = datosOfertasMemoria.reduce((acc, o) => acc + (parseSpanishNum(o.presupuesto_total) || 0), 0);
-
-            // --- RESUMEN DE PRODUCCIÓN ---
-            const totalProduccion = datosProduccionMemoria.length;
-            const presupuestoProduccion = datosProduccionMemoria.reduce((acc, p) => acc + (parseSpanishNum(p.presupuesto_m) || 0), 0);
-
-            // --- REGISTROS RECIENTES (Muestra de contexto) ---
-            const ultimasOfertas = datosOfertasMemoria.slice(-5).map(o =>
-                `- Oferta ${o.num_gestiona || 'N/A'}: ${o.cliente || 'Sin cliente'} - ${o.objeto || 'Sin objeto'} (${o.estado || 'En curso'})`
-            ).join('\n');
-
-            const ultimosTrabajos = datosProduccionMemoria.slice(-5).map(p =>
-                `- Trabajo ${p.num_trabajo || 'N/A'}: ${p.cliente || 'Sin cliente'} - ${p.servicio || 'Sin servicio'} (Presp: ${p.presupuesto_m || 0}€)`
-            ).join('\n');
-
-            const fechaActual = new Date().toLocaleString('es-ES');
-
-            return `
-CONTEXTO DEL DEPARTAMENTO (${fechaActual}):
--------------------------------------------
-RESUMEN DE OFERTAS:
-- Total Ofertas: ${totalOfertas}
-- Aceptadas: ${aceptadas}
-- En Curso: ${enCurso}
-- Importe Total Ofertado: ${importeTotalOfertas.toLocaleString('es-ES')} €
-
-RESUMEN DE PRODUCCIÓN (TRABAJOS ACTIVOS):
-- Total Trabajos en Producción: ${totalProduccion}
-- Importe Total Presupuestado: ${presupuestoProduccion.toLocaleString('es-ES')} €
-
-ÚLTIMAS OFERTAS REGISTRADAS:
-${ultimasOfertas}
-
-ÚLTIMOS TRABAJOS EN PRODUCCIÓN:
-${ultimosTrabajos}
--------------------------------------------
-`;
-        }
 
         // Listeners Pestañas y Filtros
         const clearActiveTabs = () => {
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-ia', 'tab-dash-partes'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
         };
@@ -3529,66 +3536,12 @@ ${ultimosTrabajos}
         });
         document.getElementById('tab-dash-partes')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-ia', 'tab-dash-partes'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-partes')?.classList.add('active');
             cargarDashboard();
         });
-        document.getElementById('tab-dash-ia')?.addEventListener('click', (e) => {
-            clearActiveTabs();
-            e.target.classList.add('active');
-            cargarDashboard();
-        });
 
-        // Lógica del Botón Consultar IA
-        document.getElementById('btn-consultar-ia')?.addEventListener('click', async () => {
-            const promptInput = document.getElementById('ai-prompt-input');
-            const responseArea = document.getElementById('ai-response-area');
-            const responseText = document.getElementById('ai-response-text');
-            const btnConsultar = document.getElementById('btn-consultar-ia');
 
-            if (!promptInput || !promptInput.value.trim()) {
-                alert("Por favor, escribe una consulta.");
-                return;
-            }
-
-            const promptUsuario = promptInput.value.trim();
-            btnConsultar.disabled = true;
-            btnConsultar.textContent = 'Consultando...';
-
-            // UI Feedback: Mostrar carga
-            responseArea.style.display = 'block';
-            responseText.innerHTML = '<span style="color: #64748b; font-style: italic;">La IA está pensando... (Analizando datos del departamento con Gemini Pro)</span>';
-
-            const contexto = obtenerContextoIA();
-            const promptFinal = `DATOS DEL DEPARTAMENTO: ${contexto} \n\n PREGUNTA DEL USUARIO: ${promptUsuario}`;
-
-            try {
-                // PASO 2: FRONTEND - Invocación segura via Firebase Cloud Functions
-                const callGoogleApi = httpsCallable(functions, 'callGoogleApi');
-                const result = await callGoogleApi({ prompt: promptFinal });
-
-                if (result.data && result.data.success) {
-                    responseText.innerHTML = result.data.response.replace(/\n/g, '<br>');
-                } else {
-                    throw new Error('La respuesta de la IA no es válida.');
-                }
-            } catch (error) {
-                console.error("Error consultando IA a través de Cloud Functions:", error);
-
-                // Manejo de errores específicos de Firebase Functions
-                let mensajeError = 'Error: No se pudo conectar con el servicio de IA.';
-                if (error.code === 'unauthenticated') {
-                    mensajeError = 'Error: Debes iniciar sesión para usar la IA.';
-                } else if (error.message) {
-                    mensajeError = `Error: ${error.message}`;
-                }
-
-                responseText.innerHTML = `<span style="color: #ef4444; font-weight: 600;">${mensajeError}</span>`;
-            } finally {
-                btnConsultar.disabled = false;
-                btnConsultar.textContent = 'Consultar';
-            }
-        });
 
         document.getElementById('btn-update-dash-ofe')?.addEventListener('click', cargarDashboard);
         document.getElementById('btn-update-dash-pro')?.addEventListener('click', cargarDashboard);
@@ -5876,7 +5829,7 @@ ${ultimosTrabajos}
                         <button class="dash-tab active" id="tab-dash-produccion">Producción</button>
                         <button class="dash-tab" id="tab-dash-ofertas">Ofertas</button>
                         <button class="dash-tab" id="tab-dash-partes">Partes de Trabajo</button>
-                        <button class="dash-tab" id="tab-dash-ia">IA</button>
+
                     </div>
 
                     <div id="panel-dash-ofertas" style="display: none;">
@@ -5994,10 +5947,8 @@ ${ultimosTrabajos}
 
                         <div class="chart-box" style="margin-bottom: 24px;">
                             <h3 class="chart-title">Diagrama de Gantt (Progreso Real)</h3>
-                            <div
-                                style="width: 100%; height: 400px; overflow: auto; border: 1px solid #f1f5f9; border-radius: 4px;">
-                                <div id="gantt-scroll-container"
-                                    style="min-width: 1000px; height: 100%; position: relative;">
+                            <div id="gantt-outer" style="width: 100%; height: 450px; overflow: auto; border: 1px solid #f1f5f9; border-radius: 4px; position: relative;">
+                                <div id="gantt-scroll-container" style="min-width: 1000px; position: relative;">
                                     <canvas id="chart-pro-gantt"></canvas>
                                 </div>
                             </div>
@@ -6020,39 +5971,15 @@ ${ultimosTrabajos}
                             <button id="btn-clear-dash-partes" class="btn-secondary" style="height: 38px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
                         </div>
                         <div id="partes-tabla-container" style="overflow-x: auto;"></div>
-                    </div>
 
-                    <div id="panel-dash-ia" style="display: none;">
-                        <div class="chart-box" style="margin-bottom: 24px;">
-                            <h2 class="config-section-title" style="border: none; margin-bottom: 8px;">Análisis
-                                Inteligente con IA</h2>
-                            <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">
-                                Realiza consultas sobre la gestión del departamento, pide resúmenes o solicita análisis
-                                predictivos basados en los datos (próximamente).
-                            </p>
-
-                            <div style="display: flex; flex-direction: column; gap: 16px;">
-                                <textarea id="ai-prompt-input"
-                                    placeholder="Escribe aquí tu consulta para la IA... (ej: Analiza la carga de trabajo de los técnicos)"
-                                    style="width: 100%; min-height: 120px; padding: 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; outline: none; resize: vertical;"></textarea>
-
-                                <div style="display: flex; justify-content: flex-end;">
-                                    <button id="btn-consultar-ia" class="btn-primary"
-                                        style="padding: 10px 32px;">Consultar</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="ai-response-area" class="chart-box"
-                            style="display: none; background-color: #f0f9ff; border-color: #bae6fd;">
-                            <h3 class="chart-title" style="color: #0369a1; border-bottom-color: #bae6fd;">Respuesta de
-                                Inteligencia Artificial</h3>
-                            <div id="ai-response-text"
-                                style="font-size: 15px; color: #1e293b; line-height: 1.6; padding: 8px 0;">
-                                <!-- Aquí se inyectará la respuesta -->
-                            </div>
+                        <div id="partes-errores-container" style="margin-top: 32px;">
+                            <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">Registros sin código de trabajo</h3>
+                            <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Líneas en las que los técnicos no han indicado un código numérico al inicio de las observaciones.</p>
+                            <div id="partes-errores-tabla" style="overflow-x: auto;"></div>
                         </div>
                     </div>
+
+                    
                 </div>
 
                 <!-- Vista: Configuración -->
