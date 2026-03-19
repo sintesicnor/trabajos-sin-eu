@@ -149,6 +149,8 @@
         let preferenciaTecnicos = 'acronimo'; // 'acronimo' o 'nombre_pila'
         let freezeColsProd = 3;
         let freezeColsOfer = 1;
+        let tableProd = null;
+        let tableOfe = null;
 
         // Motor de Registro de Historial
         async function registrarCambio(coleccion, docId, campo, valorAnterior, valorNuevo) {
@@ -1674,6 +1676,9 @@
 
                 await cargarProduccion();
                 await cargarOfertas();
+
+                tableProd = document.querySelector('#view-produccion .data-table');
+                tableOfe = document.querySelector('#view-ofertas .data-table');
 
                 if (document.getElementById('view-dashboard').style.display === 'block') {
                     cargarDashboard();
