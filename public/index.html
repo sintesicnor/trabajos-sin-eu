@@ -265,6 +265,9 @@
             if (val === undefined || val === null || val === '') return 0;
             if (typeof val === 'number') return val;
             let str = String(val).trim();
+            // Strip currency symbols, spaces, and non-numeric chars (except digits, comma, dot, minus)
+            str = str.replace(/[€$£\s]/g, '').trim();
+            if (!str) return 0;
             // Si ya tiene punto como decimal o es formato inglés/puro
             if (/^-?\d+\.\d+$/.test(str) && !str.includes(',')) return parseFloat(str);
             // Quitar puntos de millar, cambiar coma por punto
@@ -2506,6 +2509,8 @@
                             if ((newValue || '').trim().toLowerCase() === 'si') {
                                 tr.classList.add('fila-vb-si');
                                 tr.classList.remove('fila-fecha-fin');
+                                tr.style.backgroundColor = '';
+                                Array.from(tr.children).forEach(td => { td.style.backgroundColor = ''; delete td.dataset.forcedBg; });
                             } else {
                                 tr.classList.remove('fila-vb-si');
                             }
@@ -2516,6 +2521,8 @@
                             if (!tr.classList.contains('fila-vb-si')) {
                                 if ((newValue || '').trim() !== '') {
                                     tr.classList.add('fila-fecha-fin');
+                                    tr.style.backgroundColor = '';
+                                    Array.from(tr.children).forEach(td => { td.style.backgroundColor = ''; delete td.dataset.forcedBg; });
                                 } else {
                                     tr.classList.remove('fila-fecha-fin');
                                 }
@@ -2920,20 +2927,31 @@
                 id: 'innerLabels',
                 afterDatasetsDraw(chart) {
                     const { ctx } = chart;
+                    const isHorizontal = chart.config.options.indexAxis === 'y';
                     chart.data.datasets.forEach((ds, i) => {
                         chart.getDatasetMeta(i).data.forEach((bar, j) => {
                             const val = ds.data[j];
                             if (!val) return;
-                            const props = bar.getProps(['x','y','width','height','base'], true);
-                            const barW = Math.abs(props.x - props.base);
-                            if (barW < 28) return;
                             ctx.save();
                             ctx.fillStyle = '#fff';
                             ctx.font = 'bold 11px sans-serif';
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'middle';
-                            const label = val >= 1000 ? (val/1000).toFixed(0) + 'k' : String(val);
-                            ctx.fillText(label, props.base + barW/2, props.y + props.height/2);
+                            if (isHorizontal) {
+                                const x0 = bar.base;
+                                const x1 = bar.x;
+                                const segW = Math.abs(x1 - x0);
+                                if (segW < 28) { ctx.restore(); return; }
+                                const label = val >= 1000 ? Math.round(val/1000) + 'k' : String(val);
+                                ctx.fillText(label, Math.min(x0, x1) + segW / 2, bar.y);
+                            } else {
+                                const y0 = bar.base;
+                                const y1 = bar.y;
+                                const segH = Math.abs(y1 - y0);
+                                if (segH < 16) { ctx.restore(); return; }
+                                const label = val >= 1000 ? Math.round(val/1000) + 'k' : String(val);
+                                ctx.fillText(label, bar.x, Math.min(y0, y1) + segH / 2);
+                            }
                             ctx.restore();
                         });
                     });
@@ -3330,10 +3348,9 @@
                                 tooltipFormat: 'dd/MM/yyyy'
                             },
                             ticks: {
-                                maxRotation: 0,
-                                autoSkip: true,
-                                font: { size: 11 }
+                                display: false
                             },
+                            grid: { drawTicks: false },
                             min: minGanttTime || undefined,
                             max: maxGanttTime || undefined
                         }
@@ -3373,6 +3390,27 @@
                     }
                 }
             });
+
+            // Populate sticky date header from Gantt x-axis
+            setTimeout(() => {
+                const ganttChart = chartsObj.proGantt;
+                const stickyHeader = document.getElementById('gantt-sticky-header');
+                if (ganttChart && stickyHeader) {
+                    const xScale = ganttChart.scales.x;
+                    if (xScale && xScale.ticks) {
+                        const chartArea = ganttChart.chartArea;
+                        let html = '<div style="position:relative;height:32px;font-size:11px;color:#64748b;font-weight:500;">';
+                        xScale.ticks.forEach((tick, i) => {
+                            const x = xScale.getPixelForTick(i);
+                            const label = tick.label || '';
+                            html += '<span style="position:absolute;left:' + x + 'px;top:8px;transform:translateX(-50%);white-space:nowrap;">' + label + '</span>';
+                        });
+                        html += '</div>';
+                        stickyHeader.innerHTML = html;
+                        stickyHeader.style.minWidth = ganttChart.canvas.parentElement.style.minWidth || '1000px';
+                    }
+                }
+            }, 200);
 
             if (chartsObj.proMeses) chartsObj.proMeses.destroy();
             chartsObj.proMeses = new Chart(document.getElementById('chart-pro-bar-meses'), {
@@ -6056,11 +6094,12 @@
 
                         <div class="chart-box" style="margin-bottom: 24px;">
                             <h3 class="chart-title">Diagrama de Gantt (Progreso Real)</h3>
-                            <div
-                                style="width: 100%; height: 400px; overflow: auto; border: 1px solid #f1f5f9; border-radius: 4px;">
-                                <div id="gantt-scroll-container"
-                                    style="min-width: 1000px; height: 100%; position: relative;">
-                                    <canvas id="chart-pro-gantt"></canvas>
+                            <div id="gantt-wrapper" style="width: 100%; height: 500px; border: 1px solid #f1f5f9; border-radius: 4px; position: relative; overflow: hidden;">
+                                <div id="gantt-sticky-header" style="position: sticky; top: 0; z-index: 3; background: #fff; min-width: 1000px; height: 32px; border-bottom: 1px solid #e2e8f0;"></div>
+                                <div style="overflow: auto; height: calc(100% - 32px); width: 100%;">
+                                    <div id="gantt-scroll-container" style="min-width: 1000px; position: relative;">
+                                        <canvas id="chart-pro-gantt"></canvas>
+                                    </div>
                                 </div>
                             </div>
                         </div>
