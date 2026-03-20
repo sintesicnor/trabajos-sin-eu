@@ -18,7 +18,7 @@
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
 
         // Your web app's Firebase configuration
@@ -576,7 +576,7 @@
 
                     // Regla de color: solo cuando fecha_fin fue confirmada manualmente
                     if ((data['visto_vb_cliente'] || '').trim().toLowerCase() === 'si') tr.classList.add('fila-vb-si');
-                    else if (data['fecha_fin_confirmada'] === true) tr.classList.add('fila-fecha-fin');
+                    else if (data['fecha_fin_confirmada'] === true && (data['fecha_fin'] || '').trim() !== '') tr.classList.add('fila-fecha-fin');
                     else if (rowBgColor) tr.style.backgroundColor = rowBgColor;
 
                     const f_ap = (data['fecha_ap'] || '').trim();
@@ -803,11 +803,18 @@
                 const modal = document.getElementById('modal-aceptar-oferta');
                 const inputExpediente = document.getElementById('modal-input-expediente');
                 const inputT1 = document.getElementById('modal-input-t1');
+                const inputFechaInicio = document.getElementById('modal-input-fecha-inicio');
+                const inputFechaFin = document.getElementById('modal-input-fecha-fin');
                 const btnAceptar = document.getElementById('modal-btn-aceptar');
                 const btnCancelar = document.getElementById('modal-btn-cancelar');
 
                 inputExpediente.value = '';
                 inputT1.value = '';
+                // Default dates to today
+                const hoy = new Date();
+                const hoyStr = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
+                inputFechaInicio.value = hoyStr;
+                inputFechaFin.value = '';
                 modal.style.display = 'flex';
 
                 const closeModal = () => {
@@ -820,11 +827,21 @@
                     const expediente = inputExpediente.value.trim();
                     const t1 = inputT1.value.trim();
                     if (!expediente || !t1) {
-                        alert("Ambos campos son obligatorios.");
+                        alert("Expediente y T1 son obligatorios.");
                         return;
                     }
+                    // Parse dates to DD/MM/YYYY
+                    let fechaInicio = '', fechaFin = '';
+                    if (inputFechaInicio.value) {
+                        const d = new Date(inputFechaInicio.value);
+                        if (!isNaN(d)) fechaInicio = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                    }
+                    if (inputFechaFin.value) {
+                        const d = new Date(inputFechaFin.value);
+                        if (!isNaN(d)) fechaFin = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                    }
                     closeModal();
-                    resolve({ expediente, t1 });
+                    resolve({ expediente, t1, fechaInicio, fechaFin });
                 };
 
                 const onCancelar = () => {
@@ -1284,6 +1301,21 @@
                 });
 
                 tbodyOfertas.appendChild(fragmentOfertas);
+
+                // Ordenar ofertas por fecha (nuevas primero) por defecto
+                const rowsOfe = Array.from(tbodyOfertas.children);
+                rowsOfe.sort((a, b) => {
+                    const parseD = (td) => {
+                        const t = td ? td.textContent.trim() : '';
+                        if (!t || !t.includes('/')) return 0;
+                        const p = t.split('/');
+                        return p.length === 3 ? new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0])).getTime() : 0;
+                    };
+                    const tdA = a.querySelector('td[data-field="fecha_oferta"]');
+                    const tdB = b.querySelector('td[data-field="fecha_oferta"]');
+                    return parseD(tdB) - parseD(tdA);
+                });
+                rowsOfe.forEach(r => tbodyOfertas.appendChild(r));
 
             } catch (error) {
                 console.error("Error cargando ofertas:", error);
@@ -1811,6 +1843,20 @@
                 });
             }
 
+            // Recuperar contraseña
+            document.getElementById('btn-forgot-password')?.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const email = document.getElementById('login-email').value.trim();
+                if (!email) { alert('Por favor, introduce tu correo electrónico primero.'); return; }
+                try {
+                    await sendPasswordResetEmail(auth, email);
+                    alert('Se ha enviado un correo para restablecer tu contraseña a: ' + email);
+                } catch (err) {
+                    console.error('Error reset password:', err);
+                    alert('Error: ' + (err.message || 'No se pudo enviar el correo.'));
+                }
+            });
+
             const btnLoginMicrosoft = document.getElementById('btn-login-microsoft');
             if (btnLoginMicrosoft) {
                 btnLoginMicrosoft.addEventListener('click', (e) => {
@@ -1987,6 +2033,14 @@
                     historySidebar.style.display = historySidebar.style.display === 'none' ? 'block' : 'none';
                 });
             }
+            // Botón para plegar historial (flecha arriba)
+            const btnCloseHistory = document.getElementById('btn-close-history');
+            if (btnCloseHistory) {
+                btnCloseHistory.addEventListener('click', () => {
+                    const hs = document.getElementById('history-sidebar');
+                    if (hs) hs.style.display = 'none';
+                });
+            }
 
             // Delegación de eventos para Estado en Ofertas
             const menuEstado = document.createElement('div');
@@ -2056,7 +2110,7 @@
                                     responsable_g: "",
                                     presupuesto_m: prespTotal,
                                     visible: true,
-                                    fecha_inicio: "", fecha_fin: "", gastos_n: "",
+                                    fecha_inicio: datosExtra.fechaInicio || "", fecha_fin: datosExtra.fechaFin || "", gastos_n: "",
                                     ejecutor_t1: datosExtra.t1, apoyo_am: "", apoyo_an: "",
                                     total_horas_historico: "", visto_vb_cliente: "No",
                                     fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "",
@@ -2755,7 +2809,12 @@
             const ofeYHtml = [...ofeYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
             const proYHtml = [...proYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
 
-            if (yOfe && yOfe.children.length === 0) yOfe.innerHTML = ofeYHtml;
+            if (yOfe && yOfe.children.length === 0) {
+                yOfe.innerHTML = ofeYHtml;
+                const curY = String(new Date().getFullYear());
+                const curOpt = Array.from(yOfe.options).find(o => o.value === curY);
+                if (curOpt) curOpt.selected = true;
+            }
             if (yPro && yPro.children.length === 0) yPro.innerHTML = proYHtml;
 
             // 2. Opciones de técnicos y T1 por defecto
@@ -2867,13 +2926,14 @@
                             if (!val) return;
                             const props = bar.getProps(['x','y','width','height','base'], true);
                             const barW = Math.abs(props.x - props.base);
-                            if (barW < 22) return;
+                            if (barW < 28) return;
                             ctx.save();
                             ctx.fillStyle = '#fff';
                             ctx.font = 'bold 11px sans-serif';
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'middle';
-                            ctx.fillText(val, props.base + barW/2, props.y + props.height/2);
+                            const label = val >= 1000 ? (val/1000).toFixed(0) + 'k' : String(val);
+                            ctx.fillText(label, props.base + barW/2, props.y + props.height/2);
                             ctx.restore();
                         });
                     });
@@ -2893,9 +2953,9 @@
                 data: {
                     labels: agLabels,
                     datasets: [
-                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].acep), backgroundColor: '#10b981', barPercentage: 0.75, categoryPercentage: 0.85 },
-                        { label: 'En curso', data: agLabels.map(l => agentesData[l].curso), backgroundColor: '#F38E00', barPercentage: 0.75, categoryPercentage: 0.85 },
-                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].rech), backgroundColor: '#ef4444', barPercentage: 0.75, categoryPercentage: 0.85 }
+                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].acep), backgroundColor: '#10b981', barPercentage: 0.9, categoryPercentage: 0.8 },
+                        { label: 'En curso', data: agLabels.map(l => agentesData[l].curso), backgroundColor: '#F38E00', barPercentage: 0.9, categoryPercentage: 0.8 },
+                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].rech), backgroundColor: '#ef4444', barPercentage: 0.9, categoryPercentage: 0.8 }
                     ]
                 },
                 options: {
@@ -2916,18 +2976,19 @@
             if (chartsObj.ofeAgentesImporte) chartsObj.ofeAgentesImporte.destroy();
             chartsObj.ofeAgentesImporte = new Chart(document.getElementById('chart-ofe-agentes-importe'), {
                 type: 'bar',
+                plugins: [innerLabelsPlugin],
                 data: {
                     labels: agLabels,
                     datasets: [
-                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].pptoAcep), backgroundColor: '#10b981', barPercentage: 0.75, categoryPercentage: 0.85 },
-                        { label: 'En curso', data: agLabels.map(l => agentesData[l].pptoCurso), backgroundColor: '#F38E00', barPercentage: 0.75, categoryPercentage: 0.85 },
-                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].pptoRech), backgroundColor: '#ef4444', barPercentage: 0.75, categoryPercentage: 0.85 }
+                        { label: 'Aceptadas', data: agLabels.map(l => agentesData[l].pptoAcep), backgroundColor: '#10b981', barPercentage: 0.9, categoryPercentage: 0.8 },
+                        { label: 'En curso', data: agLabels.map(l => agentesData[l].pptoCurso), backgroundColor: '#F38E00', barPercentage: 0.9, categoryPercentage: 0.8 },
+                        { label: 'Rechazadas', data: agLabels.map(l => agentesData[l].pptoRech), backgroundColor: '#ef4444', barPercentage: 0.9, categoryPercentage: 0.8 }
                     ]
                 },
                 options: {
                     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
                     scales: { x: { stacked: true, ticks: { callback: v => fmtE.format(v) }, grid: { display: false } }, y: { stacked: true, ticks: { crossAlign: 'center' } } },
-                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtE.format(ctx.raw)}` } } }
+                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw) } } }
                 }
             });
 
@@ -3144,9 +3205,11 @@
                                 const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
                                 return obj ? obj.acronimo : check;
                             };
+                            const pctUsoGantt = hrsDisp > 0 ? Math.round((hTotalCalc / hrsDisp) * 100) : 0;
                             ganttMeta.push({
                                 horas: hrsDisp > 0 ? Math.round(hrsDisp) : 0,
                                 horasUsadas: Math.round(hTotalCalc),
+                                pctUso: pctUsoGantt,
                                 rble: getAcr(prod.responsable_g),
                                 t1: getAcr(prod.ejecutor_t1),
                                 t2: getAcr(prod.apoyo_am),
@@ -3159,8 +3222,7 @@
                             if (!minGanttTime || dStart.getTime() < minGanttTime) minGanttTime = dStart.getTime();
                             if (!maxGanttTime || dEnd.getTime() > maxGanttTime) maxGanttTime = dEnd.getTime();
 
-                            let pct = hrsDisp > 0 ? (hTotalCalc / hrsDisp) : 0;
-                            if (pct > 1) pct = 1;
+                            let pct = hrsDisp > 0 ? Math.min(hTotalCalc / hrsDisp, 1) : 0;
                             let duration = dEnd.getTime() - dStart.getTime();
                             let dProg = new Date(dStart.getTime() + (duration * pct));
                             ganttProg.push([dStart.getTime(), dProg.getTime()]);
@@ -3207,14 +3269,51 @@
                 ganttContainer.style.height = heightCalc + 'px';
             }
 
+            // Build red excess bars for >100%
+            const ganttExcess = ganttMeta.map((m, i) => {
+                if (m.pctUso <= 100) return null;
+                const base = ganttBase[i];
+                const prog = ganttProg[i];
+                if (!base || !prog) return null;
+                const duration = base[1] - base[0];
+                const excessPct = (m.pctUso - 100) / 100;
+                const excessEnd = Math.min(prog[1] + duration * excessPct, base[0] + duration * 2);
+                return [prog[1], excessEnd];
+            });
+
+            // Plugin to show % uso centered on bars
+            const ganttPctPlugin = {
+                id: 'ganttPctLabels',
+                afterDatasetsDraw(chart) {
+                    const { ctx } = chart;
+                    const meta0 = chart.getDatasetMeta(0); // Completado
+                    meta0.data.forEach((bar, j) => {
+                        const m = ganttMeta[j];
+                        if (!m || m.pctUso === 0) return;
+                        const props = bar.getProps(['x','y','width','height','base'], true);
+                        const barW = Math.abs(props.x - props.base);
+                        if (barW < 30) return;
+                        ctx.save();
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = 'bold 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(m.pctUso + '%', props.base + barW / 2, props.y);
+                        ctx.restore();
+                    });
+                }
+            };
+
             if (chartsObj.proGantt) chartsObj.proGantt.destroy();
             chartsObj.proGantt = new Chart(document.getElementById('chart-pro-gantt'), {
                 type: 'bar',
+                plugins: [ganttPctPlugin],
                 data: {
                     labels: ganttLabels,
                     datasets: [
-                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85 },
-                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false }
+                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85, borderRadius: 6, borderSkipped: false },
+                        { label: 'Exceso >100%', data: ganttExcess, backgroundColor: '#ef4444', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false, borderRadius: 6, borderSkipped: false },
+                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false, borderRadius: 6, borderSkipped: false }
                     ]
                 },
                 options: {
@@ -3240,6 +3339,7 @@
                         }
                     },
                     plugins: {
+                        legend: { display: false },
                         tooltip: {
                             callbacks: {
                                 title: function(items) {
@@ -5592,6 +5692,7 @@
                 <input type="password" id="login-password" class="login-input" placeholder="Contraseña" required>
                 <button type="submit" class="login-btn">Entrar</button>
             </form>
+            <a href="#" id="btn-forgot-password" style="display:block;text-align:center;margin-top:12px;font-size:13px;color:#2176AC;text-decoration:none;">¿Has olvidado tu contraseña?</a>
             <div style="margin: 16px 0; display: flex; align-items: center; justify-content: center;">
                 <div style="flex: 1; height: 1px; background-color: #e2e8f0;"></div>
                 <span style="margin: 0 10px; font-size: 12px; color: #94a3b8; font-weight: 500;">O</span>
@@ -5889,11 +5990,11 @@
                         <div style="display:none"><canvas id="chart-ofe-donut"></canvas></div>
                         <div class="chart-box" style="margin-bottom: 20px;">
                             <h3 class="chart-title">Nº de Ofertas por Agente Comercial</h3>
-                            <div style="width: 100%; height: 340px; position: relative;"><canvas id="chart-ofe-agentes"></canvas></div>
+                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-ofe-agentes"></canvas></div>
                         </div>
                         <div class="chart-box" style="margin-bottom: 20px;">
                             <h3 class="chart-title">Importe por Agente Comercial (€)</h3>
-                            <div style="width: 100%; height: 340px; position: relative;"><canvas id="chart-ofe-agentes-importe"></canvas></div>
+                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-ofe-agentes-importe"></canvas></div>
                         </div>
                         <div class="chart-box" style="margin-bottom: 20px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -6440,7 +6541,8 @@
             <h2 class="config-section-title" style="margin-bottom: 0; border: none; padding: 0;">Histórico de Cambios
             </h2>
             <button id="btn-refrescar-historial" class="btn-secondary"
-                style="padding: 6px 12px; margin-right: 12px;">Refrescar</button>
+                style="padding: 6px 12px; margin-right: 8px;">Refrescar</button>
+            <button id="btn-close-history" style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;" title="Cerrar historial">&#9650;</button>
         </div>
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
             <table class="data-table" style="min-width: 100%; border-collapse: collapse;">
@@ -6483,11 +6585,24 @@
                     style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;" required>
             </div>
 
-            <div style="margin-bottom: 24px;">
+            <div style="margin-bottom: 16px;">
                 <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">T1
                     (Ejecutor) *</label>
                 <input type="text" id="modal-input-t1"
                     style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;" required>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-bottom: 24px;">
+                <div style="flex: 1;">
+                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Fecha Inicio</label>
+                    <input type="date" id="modal-input-fecha-inicio"
+                        style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+                <div style="flex: 1;">
+                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Fecha Fin</label>
+                    <input type="date" id="modal-input-fecha-fin"
+                        style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 12px;">
