@@ -522,7 +522,7 @@
                     }
 
                     function formatCurrency(val) {
-                        const num = typeof val === 'string' ? parseFloat(val.replace(',', '.')) : val;
+                        let num = typeof val === 'number' ? val : parseSpanishNum(val);
                         if (isNaN(num) || num === 0 || val === '') return '';
                         return new Intl.NumberFormat('es-ES', {
                             style: 'currency',
@@ -581,7 +581,7 @@
 
                     // Regla de color: solo cuando fecha_fin fue confirmada manualmente
                     if ((data['visto_vb_cliente'] || '').trim().toLowerCase() === 'si') tr.classList.add('fila-vb-si');
-                    else if (data['fecha_fin_confirmada'] === true && (data['fecha_fin'] || '').trim() !== '') tr.classList.add('fila-fecha-fin');
+                    else if (data['fecha_fin_confirmada'] && (data['fecha_fin'] || '').trim() !== '') tr.classList.add('fila-fecha-fin');
                     else if (rowBgColor) tr.style.backgroundColor = rowBgColor;
 
                     const f_ap = (data['fecha_ap'] || '').trim();
@@ -2820,12 +2820,7 @@
             const ofeYHtml = [...ofeYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
             const proYHtml = [...proYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
 
-            if (yOfe && yOfe.children.length === 0) {
-                yOfe.innerHTML = ofeYHtml;
-                const curY = String(new Date().getFullYear());
-                const curOpt = Array.from(yOfe.options).find(o => o.value === curY);
-                if (curOpt) curOpt.selected = true;
-            }
+            if (yOfe && yOfe.children.length === 0) yOfe.innerHTML = ofeYHtml;
             if (yPro && yPro.children.length === 0) yPro.innerHTML = proYHtml;
 
             // 2. Opciones de técnicos y T1 por defecto
@@ -3348,7 +3343,7 @@
                             type: 'time',
                             time: {
                                 unit: 'month',
-                                displayFormats: { month: 'MMM yyyy' },
+                                displayFormats: { month: 'MMM yy' },
                                 tooltipFormat: 'dd/MM/yyyy'
                             },
                             ticks: {
@@ -3647,62 +3642,27 @@
         }
 
 
-        // ═══ Dashboard Rendimiento ═══
-        let _rendChartInterno = null;
-        let _rendChartRent = null;
-
+        // ═══ Dashboard Productividad ═══
         function cargarDashboardRendimiento() {
             const curYear = new Date().getFullYear();
+            const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
-            // Populate period filter
-            const periodoSel = document.getElementById('filt-rend-periodo');
-            if (periodoSel && periodoSel.options.length === 0) {
-                const mNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-                // Year options
+            // Populate year filter
+            const yearSel = document.getElementById('filt-prod-carga-year');
+            if (yearSel && yearSel.options.length <= 1) {
                 const years = new Set();
-                datosProduccionMemoria.forEach(p => {
-                    const info = extractDateInfo(p.fecha_inicio);
-                    if (info && info.y) years.add(parseInt(info.y));
-                });
+                datosProduccionMemoria.forEach(p => { const i = extractDateInfo(p.fecha_inicio); if (i && i.y) years.add(parseInt(i.y)); });
                 if (years.size === 0) years.add(curYear);
-                [...years].sort().reverse().forEach(y => {
-                    periodoSel.innerHTML += '<option value="y-' + y + '"' + (y === curYear ? ' selected' : '') + '>' + y + ' (año completo)</option>';
-                    for (let m = 12; m >= 1; m--) {
-                        periodoSel.innerHTML += '<option value="m-' + y + '-' + m + '">' + mNames[m] + ' ' + y + '</option>';
-                    }
-                });
+                yearSel.innerHTML = [...years].sort().reverse().map(y => '<option value="' + y + '"' + (y === curYear ? ' selected' : '') + '>' + y + '</option>').join('');
             }
 
-            // Parse selected period
-            const selPeriodo = periodoSel ? periodoSel.value : 'y-' + curYear;
-            let filterYear = curYear, filterMonth = null;
-            if (selPeriodo.startsWith('y-')) {
-                filterYear = parseInt(selPeriodo.split('-')[1]);
-            } else if (selPeriodo.startsWith('m-')) {
-                const parts = selPeriodo.split('-');
-                filterYear = parseInt(parts[1]);
-                filterMonth = parseInt(parts[2]);
-            }
+            const filtYear = parseInt(yearSel?.value || curYear, 10);
+            const filtMonth = parseInt(document.getElementById('filt-prod-carga-month')?.value || '', 10) || null;
+            const filtDay = parseInt(document.getElementById('filt-prod-carga-day')?.value || '', 10) || null;
 
-            // ── Chart 1: Interno vs Productivo ──
-            const tecHoras = {}; // tecAcr -> { interno: hrs, productivo: hrs }
-            datosProduccionMemoria.forEach(prod => {
-                const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
-                const esInterno = tipoExp === 'INTERNO';
-                // Get all technicians assigned to this work
-                ['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an'].forEach(campo => {
-                    const val = (prod[campo] || '').trim();
-                    if (!val) return;
-                    const tec = listaTecnicos.find(t => t.acronimo === val || t.nombre_pila === val || t.nombre === val);
-                    if (!tec) return;
-                    const acr = tec.acronimo;
-                    if (!tecHoras[acr]) tecHoras[acr] = { interno: 0, productivo: 0, label: tec.nombre_pila || acr };
-                });
-            });
-
-            // Use partes_horas to count actual hours per technician per tipo_expediente
+            // Helpers
             const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
-            function resolverTecPartes(trabajadorStr) {
+            function resolverTecP(trabajadorStr) {
                 const w = getWords(trabajadorStr);
                 let tec = null, mx = 0;
                 listaTecnicos.forEach(t => {
@@ -3713,144 +3673,218 @@
                 if (mx === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
                 return tec;
             }
-
-            // Map num_trabajo -> tipo_expediente from produccion
-            const tipoExpMap = {};
-            datosProduccionMemoria.forEach(p => {
-                if (p.num_trabajo) tipoExpMap[String(p.num_trabajo)] = (p.tipo_expediente || '').trim().toUpperCase();
-            });
-
-            function parseFechaRend(raw) {
+            function parseFechaR(raw) {
                 if (!raw) return null;
                 if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
                 const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
             }
+            function matchFilt(fecha) {
+                if (!fecha) return false;
+                if (fecha.getFullYear() !== filtYear) return false;
+                if (filtMonth && (fecha.getMonth() + 1) !== filtMonth) return false;
+                if (filtDay && fecha.getDate() !== filtDay) return false;
+                return true;
+            }
 
-            // Reset
-            Object.keys(tecHoras).forEach(k => { tecHoras[k].interno = 0; tecHoras[k].productivo = 0; });
+            const tipoExpMap = {};
+            const presupMap = {}; // num_trabajo -> presupuesto_m
+            datosProduccionMemoria.forEach(p => {
+                if (p.num_trabajo) {
+                    tipoExpMap[String(p.num_trabajo)] = (p.tipo_expediente || '').trim().toUpperCase();
+                    presupMap[String(p.num_trabajo)] = parseSpanishNum(p.presupuesto_m) || 0;
+                }
+            });
 
             const partesData = window._partesHorasData || [];
-            partesData.forEach(p => {
-                const fecha = parseFechaRend(p.fecha);
-                if (!fecha) return;
-                if (fecha.getFullYear() !== filterYear) return;
-                if (filterMonth && (fecha.getMonth() + 1) !== filterMonth) return;
 
-                const horas = parseFloat(p.horas) || 0;
-                if (horas === 0) return;
-
-                const tec = resolverTecPartes((p.trabajador || '').trim());
-                if (!tec) return;
-                const acr = tec.acronimo;
-                if (!tecHoras[acr]) tecHoras[acr] = { interno: 0, productivo: 0, label: tec.nombre_pila || acr };
-
-                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
-                const match = obs.match(/^(\d{3,6})/);
-                const numTrabajo = match ? match[1] : null;
-                const tipoExp = numTrabajo ? (tipoExpMap[numTrabajo] || '') : '';
-
-                if (tipoExp === 'INTERNO') {
-                    tecHoras[acr].interno += horas;
-                } else {
-                    tecHoras[acr].productivo += horas;
-                }
-            });
-
-            // Also ensure all tecnicos appear
+            // ══════════════════════════════════════
+            // CHART 1: Panel de carga y rendimiento
+            // ══════════════════════════════════════
+            // Per technician: facturado, por_facturar, pendiente (all in €)
+            const tecCarga = {};
             listaTecnicos.forEach(t => {
-                if (!tecHoras[t.acronimo]) tecHoras[t.acronimo] = { interno: 0, productivo: 0, label: t.nombre_pila || t.acronimo };
+                tecCarga[t.acronimo] = { label: t.nombre_pila || t.acronimo, facturado: 0, porFacturar: 0, totalAsignado: 0 };
             });
 
-            // Sort by productivo % descending
-            const tecKeys1 = Object.keys(tecHoras).sort((a, b) => {
-                const ta = tecHoras[a], tb = tecHoras[b];
-                const pctA = (ta.interno + ta.productivo) > 0 ? ta.productivo / (ta.interno + ta.productivo) : 0;
-                const pctB = (tb.interno + tb.productivo) > 0 ? tb.productivo / (tb.interno + tb.productivo) : 0;
-                return pctB - pctA;
-            });
-
-            const labels1 = tecKeys1.map(k => tecHoras[k].label);
-            const dataInterno = tecKeys1.map(k => {
-                const t = tecHoras[k]; const total = t.interno + t.productivo;
-                return total > 0 ? Math.round((t.interno / total) * 100) : 0;
-            });
-            const dataProductivo = tecKeys1.map(k => {
-                const t = tecHoras[k]; const total = t.interno + t.productivo;
-                return total > 0 ? Math.round((t.productivo / total) * 100) : 0;
-            });
-
-            if (_rendChartInterno) _rendChartInterno.destroy();
-            _rendChartInterno = new Chart(document.getElementById('chart-rend-interno'), {
-                type: 'bar',
-                data: {
-                    labels: labels1,
-                    datasets: [
-                        { label: 'Productivos', data: dataProductivo, backgroundColor: '#10b981', barPercentage: 0.85, categoryPercentage: 0.8 },
-                        { label: 'Interno', data: dataInterno, backgroundColor: '#ef4444', barPercentage: 0.85, categoryPercentage: 0.8 }
-                    ]
-                },
-                options: {
-                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                    scales: { x: { stacked: true, max: 100, ticks: { callback: v => v + '%' }, grid: { display: false } }, y: { stacked: true } },
-                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.raw + '%' } } }
-                }
-            });
-
-            // ── Chart 2: Rentabilidad (horas * costeHora) por técnico — ANUAL + PUNTUAL ──
-            const tecRent = {}; // acr -> { horas, coste, label }
-
-            partesData.forEach(p => {
-                const fecha = parseFechaRend(p.fecha);
-                if (!fecha) return;
-                if (fecha.getFullYear() !== filterYear) return;
-                if (filterMonth && (fecha.getMonth() + 1) !== filterMonth) return;
-
-                const horas = parseFloat(p.horas) || 0;
-                if (horas === 0) return;
-
-                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
-                const match = obs.match(/^(\d{3,6})/);
-                const numTrabajo = match ? match[1] : null;
-                const tipoExp = numTrabajo ? (tipoExpMap[numTrabajo] || '') : '';
-
+            // 1) Total asignado: sum presupuesto_m of all ANUAL+PUNTUAL works where tec is T1
+            datosProduccionMemoria.forEach(prod => {
+                const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                const presup = parseSpanishNum(prod.presupuesto_m) || 0;
+                if (presup === 0) return;
+                const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
+                const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
+                if (!tec || !tecCarga[tec.acronimo]) return;
+                tecCarga[tec.acronimo].totalAsignado += presup;
 
-                const tec = resolverTecPartes((p.trabajador || '').trim());
-                if (!tec) return;
-                const acr = tec.acronimo;
-                if (!tecRent[acr]) tecRent[acr] = { horas: 0, label: tec.nombre_pila || acr };
-                tecRent[acr].horas += horas;
-            });
-
-            listaTecnicos.forEach(t => {
-                if (!tecRent[t.acronimo]) tecRent[t.acronimo] = { horas: 0, label: t.nombre_pila || t.acronimo };
-            });
-
-            const tecKeys2 = Object.keys(tecRent).sort((a, b) => (tecRent[b].horas * costeHoraActual) - (tecRent[a].horas * costeHoraActual));
-            const labels2 = tecKeys2.map(k => tecRent[k].label);
-            const dataRent = tecKeys2.map(k => Math.round(tecRent[k].horas * costeHoraActual));
-
-            const fmtE2 = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-
-            if (_rendChartRent) _rendChartRent.destroy();
-            _rendChartRent = new Chart(document.getElementById('chart-rend-rentabilidad'), {
-                type: 'bar',
-                data: {
-                    labels: labels2,
-                    datasets: [{ label: 'Rentabilidad (horas x coste/h)', data: dataRent, backgroundColor: '#2176AC', barPercentage: 0.85, categoryPercentage: 0.8 }]
-                },
-                options: {
-                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                    scales: { x: { ticks: { callback: v => fmtE2.format(v) }, grid: { display: false } }, y: {} },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { callbacks: { label: ctx => ' ' + fmtE2.format(ctx.raw) + ' (' + tecRent[tecKeys2[ctx.dataIndex]].horas.toFixed(1) + 'h x ' + costeHoraActual + '€/h)' } }
+                // 2) Facturado: has fecha_ap and matches filter
+                const fechaAp = (prod.fecha_ap || '').trim();
+                if (fechaAp) {
+                    const fAp = parseFechaR(fechaAp);
+                    if (matchFilt(fAp)) {
+                        tecCarga[tec.acronimo].facturado += presup;
                     }
                 }
             });
+
+            // 3) Por facturar: hours worked (from partes) * costeHora on non-facturado ANUAL/PUNTUAL works
+            const horasPorTrabajoTec = {}; // "numTrabajo-acr" -> horas
+            partesData.forEach(p => {
+                const fecha = parseFechaR(p.fecha);
+                if (!matchFilt(fecha)) return;
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const m = obs.match(/^(\d{3,6})/);
+                const numT = m ? m[1] : null;
+                if (!numT) return;
+                const tipoExp = tipoExpMap[numT] || '';
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                const tec = resolverTecP((p.trabajador || '').trim());
+                if (!tec) return;
+                const key = numT + '-' + tec.acronimo;
+                horasPorTrabajoTec[key] = (horasPorTrabajoTec[key] || 0) + horas;
+            });
+
+            // For each trabajo-tec pair, if trabajo NOT facturado -> add to porFacturar
+            const facturadoTrabajos = new Set();
+            datosProduccionMemoria.forEach(prod => {
+                if ((prod.fecha_ap || '').trim()) facturadoTrabajos.add(String(prod.num_trabajo));
+            });
+
+            Object.keys(horasPorTrabajoTec).forEach(key => {
+                const [numT, acr] = key.split('-');
+                if (facturadoTrabajos.has(numT)) return; // already counted as facturado
+                if (!tecCarga[acr]) return;
+                tecCarga[acr].porFacturar += horasPorTrabajoTec[key] * costeHoraActual;
+            });
+
+            // Sort by totalAsignado descending, filter out zeros
+            const cargaKeys = Object.keys(tecCarga)
+                .filter(k => tecCarga[k].totalAsignado > 0 || tecCarga[k].porFacturar > 0 || tecCarga[k].facturado > 0)
+                .sort((a, b) => tecCarga[b].totalAsignado - tecCarga[a].totalAsignado);
+
+            // Render HTML bars
+            const container1 = document.getElementById('container-carga-rendimiento');
+            if (container1) {
+                let html = '<div style="display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap;font-size:13px;color:#64748b;">';
+                html += '<div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#10b981;"></div> Facturado</div>';
+                html += '<div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#3b82f6;"></div> Productivo por facturar</div>';
+                html += '<div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#e2e8f0;border:1px solid #cbd5e1;"></div> Pendiente asignado</div>';
+                html += '</div>';
+
+                const maxTotal = cargaKeys.reduce((mx, k) => Math.max(mx, tecCarga[k].totalAsignado), 1);
+
+                cargaKeys.forEach(k => {
+                    const d = tecCarga[k];
+                    const total = Math.max(d.totalAsignado, d.facturado + d.porFacturar);
+                    const pctFact = total > 0 ? (d.facturado / total * 100) : 0;
+                    const pctPorFact = total > 0 ? (d.porFacturar / total * 100) : 0;
+                    const pctPend = Math.max(0, 100 - pctFact - pctPorFact);
+                    const barWidth = total > 0 ? Math.max(10, (total / maxTotal * 100)) : 10;
+
+                    html += '<div style="margin-bottom:8px;">';
+                    html += '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:500;color:#1e293b;margin-bottom:3px;">';
+                    html += '<span>' + d.label + '</span>';
+                    html += '<span style="font-weight:400;font-size:12px;color:#64748b;">' + fmtE.format(Math.round(total)) + ' total asignado</span>';
+                    html += '</div>';
+                    html += '<div style="height:28px;border-radius:6px;background:#f1f5f9;overflow:hidden;display:flex;width:' + barWidth + '%;">';
+
+                    if (pctFact > 0) {
+                        const lbl = pctFact > 12 ? fmtE.format(Math.round(d.facturado)) : '';
+                        html += '<div style="height:100%;width:' + pctFact + '%;background:#10b981;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#fff;overflow:hidden;white-space:nowrap;min-width:0;">' + lbl + '</div>';
+                    }
+                    if (pctPorFact > 0) {
+                        const lbl = pctPorFact > 12 ? fmtE.format(Math.round(d.porFacturar)) : '';
+                        html += '<div style="height:100%;width:' + pctPorFact + '%;background:#3b82f6;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#fff;overflow:hidden;white-space:nowrap;min-width:0;">' + lbl + '</div>';
+                    }
+                    if (pctPend > 0) {
+                        const pendAmt = Math.max(0, total - d.facturado - d.porFacturar);
+                        const lbl = pctPend > 15 ? '<span style="color:#64748b;">' + fmtE.format(Math.round(pendAmt)) + '</span>' : '';
+                        html += '<div style="height:100%;width:' + pctPend + '%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;overflow:hidden;white-space:nowrap;min-width:0;">' + lbl + '</div>';
+                    }
+
+                    html += '</div></div>';
+                });
+
+                if (cargaKeys.length === 0) {
+                    html += '<p style="color:#64748b;font-size:13px;">No hay datos de carga para el periodo seleccionado.</p>';
+                }
+
+                container1.innerHTML = html;
+            }
+
+            // ══════════════════════════════════════
+            // CHART 2: Interno vs Productivo (HTML bars, same style)
+            // ══════════════════════════════════════
+            const tecHoras = {};
+            listaTecnicos.forEach(t => { tecHoras[t.acronimo] = { interno: 0, productivo: 0, label: t.nombre_pila || t.acronimo }; });
+
+            partesData.forEach(p => {
+                const fecha = parseFechaR(p.fecha);
+                if (!matchFilt(fecha)) return;
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+                const tec = resolverTecP((p.trabajador || '').trim());
+                if (!tec) return;
+                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const m2 = obs.match(/^(\d{3,6})/);
+                const numT = m2 ? m2[1] : null;
+                const tipoExp = numT ? (tipoExpMap[numT] || '') : '';
+                if (tipoExp === 'INTERNO') tecHoras[tec.acronimo].interno += horas;
+                else tecHoras[tec.acronimo].productivo += horas;
+            });
+
+            const tecKeys1 = Object.keys(tecHoras)
+                .filter(k => (tecHoras[k].interno + tecHoras[k].productivo) > 0)
+                .sort((a, b) => {
+                    const ta = tecHoras[a], tb = tecHoras[b];
+                    const pA = (ta.interno+ta.productivo) > 0 ? ta.productivo/(ta.interno+ta.productivo) : 0;
+                    const pB = (tb.interno+tb.productivo) > 0 ? tb.productivo/(tb.interno+tb.productivo) : 0;
+                    return pB - pA;
+                });
+
+            const container2 = document.getElementById('container-interno-productivo');
+            if (container2) {
+                let html = '<div style="display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap;font-size:13px;color:#64748b;">';
+                html += '<div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#10b981;"></div> Productivo</div>';
+                html += '<div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#ef4444;"></div> Interno</div>';
+                html += '</div>';
+
+                tecKeys1.forEach(k => {
+                    const d = tecHoras[k];
+                    const total = d.interno + d.productivo;
+                    const pctProd = total > 0 ? Math.round(d.productivo / total * 100) : 0;
+                    const pctInt = 100 - pctProd;
+
+                    html += '<div style="margin-bottom:8px;">';
+                    html += '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:500;color:#1e293b;margin-bottom:3px;">';
+                    html += '<span>' + d.label + '</span>';
+                    html += '<span style="font-weight:400;font-size:12px;color:#64748b;">' + total.toFixed(1) + 'h totales</span>';
+                    html += '</div>';
+                    html += '<div style="height:28px;border-radius:6px;background:#f1f5f9;overflow:hidden;display:flex;">';
+
+                    if (pctProd > 0) {
+                        const lbl = pctProd > 10 ? pctProd + '%' : '';
+                        html += '<div style="height:100%;width:' + pctProd + '%;background:#10b981;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#fff;overflow:hidden;white-space:nowrap;min-width:0;">' + lbl + '</div>';
+                    }
+                    if (pctInt > 0) {
+                        const lbl = pctInt > 10 ? pctInt + '%' : '';
+                        html += '<div style="height:100%;width:' + pctInt + '%;background:#ef4444;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#fff;overflow:hidden;white-space:nowrap;min-width:0;">' + lbl + '</div>';
+                    }
+
+                    html += '</div></div>';
+                });
+
+                if (tecKeys1.length === 0) {
+                    html += '<p style="color:#64748b;font-size:13px;">No hay datos para el periodo seleccionado.</p>';
+                }
+
+                container2.innerHTML = html;
+            }
         }
 
-        document.getElementById('btn-update-rend')?.addEventListener('click', () => cargarDashboardRendimiento());
+        document.getElementById('btn-update-productividad')?.addEventListener('click', () => cargarDashboardRendimiento());
 
 
         function cargarDashboard() {
@@ -6017,7 +6051,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.032</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.034</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -6199,7 +6233,7 @@
                         <button class="dash-tab active" id="tab-dash-produccion">Producción</button>
                         <button class="dash-tab" id="tab-dash-ofertas">Ofertas</button>
                         <button class="dash-tab" id="tab-dash-partes">Partes de Trabajo</button>
-                        <button class="dash-tab" id="tab-dash-rendimiento" style="display:none;">Rendimiento</button>
+                        <button class="dash-tab" id="tab-dash-rendimiento" style="display:none;">Productividad</button>
                     </div>
 
                     <div id="panel-dash-ofertas" style="display: none;">
@@ -6337,23 +6371,34 @@
 
                                         <div id="panel-dash-rendimiento" style="display: none;">
                         <div class="chart-box" style="margin-bottom: 24px;">
-                            <h3 class="chart-title">Distribución Interno vs Productivo por Técnico</h3>
-                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-rend-interno"></canvas></div>
-                        </div>
-                        <div class="chart-box">
-                            <h3 class="chart-title">Rentabilidad por Técnico (Anual + Puntual)</h3>
-                            <div style="display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
-                                <div class="filter-group"><label>Periodo</label>
-                                    <select id="filt-rend-periodo" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:220px;">
+                            <h3 class="chart-title">Panel de carga y rendimiento</h3>
+                            <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
+                                <div class="filter-group"><label>Año</label>
+                                    <select id="filt-prod-carga-year" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;"></select>
+                                </div>
+                                <div class="filter-group"><label>Mes</label>
+                                    <select id="filt-prod-carga-month" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;">
+                                        <option value="">Todos</option>
+                                        <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option>
+                                        <option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option>
+                                        <option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
                                     </select>
                                 </div>
-                                <button id="btn-update-rend" class="btn-primary" style="height: 38px;">Aplicar</button>
+                                <div class="filter-group"><label>Día</label>
+                                    <input type="number" id="filt-prod-carga-day" min="1" max="31" placeholder="Todos" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;width:70px;">
+                                </div>
+                                <button id="btn-update-productividad" class="btn-primary" style="height: 36px;">Aplicar</button>
                             </div>
-                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-rend-rentabilidad"></canvas></div>
+                            <div id="container-carga-rendimiento"></div>
+                        </div>
+
+                        <div class="chart-box">
+                            <h3 class="chart-title">Distribución interno vs productivo por técnico</h3>
+                            <div id="container-interno-productivo"></div>
                         </div>
                     </div>
 
-<div id="panel-dash-partes" style="display: none;">
+                    <div id="panel-dash-partes" style="display: none;">
                         <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label>
                                 <select id="filt-partes-year" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
