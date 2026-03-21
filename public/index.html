@@ -360,6 +360,8 @@
         });
 
         const tabDashboard = document.getElementById('tab-dashboard');
+                    const tabRendimiento = document.getElementById('tab-dash-rendimiento');
+                    if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
         const viewDashboard = document.getElementById('view-dashboard');
         tabDashboard.addEventListener('click', (e) => {
             e.preventDefault();
@@ -1796,6 +1798,8 @@
                     const tabOfertas = document.getElementById('tab-ofertas');
                     if (tabOfertas) tabOfertas.style.display = tienePermiso('ver_ofertas') ? 'flex' : 'none';
                     const tabDashboard = document.getElementById('tab-dashboard');
+                    const tabRendimiento = document.getElementById('tab-dash-rendimiento');
+                    if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
                     if (tabDashboard) tabDashboard.style.display = tienePermiso('ver_dashboard') ? 'flex' : 'none';
 
                     // Restringir panel de técnicos solo a admin
@@ -3643,12 +3647,219 @@
         }
 
 
+        // ═══ Dashboard Rendimiento ═══
+        let _rendChartInterno = null;
+        let _rendChartRent = null;
+
+        function cargarDashboardRendimiento() {
+            const curYear = new Date().getFullYear();
+
+            // Populate period filter
+            const periodoSel = document.getElementById('filt-rend-periodo');
+            if (periodoSel && periodoSel.options.length === 0) {
+                const mNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                // Year options
+                const years = new Set();
+                datosProduccionMemoria.forEach(p => {
+                    const info = extractDateInfo(p.fecha_inicio);
+                    if (info && info.y) years.add(parseInt(info.y));
+                });
+                if (years.size === 0) years.add(curYear);
+                [...years].sort().reverse().forEach(y => {
+                    periodoSel.innerHTML += '<option value="y-' + y + '"' + (y === curYear ? ' selected' : '') + '>' + y + ' (año completo)</option>';
+                    for (let m = 12; m >= 1; m--) {
+                        periodoSel.innerHTML += '<option value="m-' + y + '-' + m + '">' + mNames[m] + ' ' + y + '</option>';
+                    }
+                });
+            }
+
+            // Parse selected period
+            const selPeriodo = periodoSel ? periodoSel.value : 'y-' + curYear;
+            let filterYear = curYear, filterMonth = null;
+            if (selPeriodo.startsWith('y-')) {
+                filterYear = parseInt(selPeriodo.split('-')[1]);
+            } else if (selPeriodo.startsWith('m-')) {
+                const parts = selPeriodo.split('-');
+                filterYear = parseInt(parts[1]);
+                filterMonth = parseInt(parts[2]);
+            }
+
+            // ── Chart 1: Interno vs Productivo ──
+            const tecHoras = {}; // tecAcr -> { interno: hrs, productivo: hrs }
+            datosProduccionMemoria.forEach(prod => {
+                const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
+                const esInterno = tipoExp === 'INTERNO';
+                // Get all technicians assigned to this work
+                ['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an'].forEach(campo => {
+                    const val = (prod[campo] || '').trim();
+                    if (!val) return;
+                    const tec = listaTecnicos.find(t => t.acronimo === val || t.nombre_pila === val || t.nombre === val);
+                    if (!tec) return;
+                    const acr = tec.acronimo;
+                    if (!tecHoras[acr]) tecHoras[acr] = { interno: 0, productivo: 0, label: tec.nombre_pila || acr };
+                });
+            });
+
+            // Use partes_horas to count actual hours per technician per tipo_expediente
+            const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            function resolverTecPartes(trabajadorStr) {
+                const w = getWords(trabajadorStr);
+                let tec = null, mx = 0;
+                listaTecnicos.forEach(t => {
+                    const wc = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
+                    let m = 0; w.forEach(x => { if (wc.includes(x)) m++; });
+                    if (m > mx) { mx = m; tec = t; }
+                });
+                if (mx === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
+                return tec;
+            }
+
+            // Map num_trabajo -> tipo_expediente from produccion
+            const tipoExpMap = {};
+            datosProduccionMemoria.forEach(p => {
+                if (p.num_trabajo) tipoExpMap[String(p.num_trabajo)] = (p.tipo_expediente || '').trim().toUpperCase();
+            });
+
+            function parseFechaRend(raw) {
+                if (!raw) return null;
+                if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
+                const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
+            }
+
+            // Reset
+            Object.keys(tecHoras).forEach(k => { tecHoras[k].interno = 0; tecHoras[k].productivo = 0; });
+
+            const partesData = window._partesHorasData || [];
+            partesData.forEach(p => {
+                const fecha = parseFechaRend(p.fecha);
+                if (!fecha) return;
+                if (fecha.getFullYear() !== filterYear) return;
+                if (filterMonth && (fecha.getMonth() + 1) !== filterMonth) return;
+
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+
+                const tec = resolverTecPartes((p.trabajador || '').trim());
+                if (!tec) return;
+                const acr = tec.acronimo;
+                if (!tecHoras[acr]) tecHoras[acr] = { interno: 0, productivo: 0, label: tec.nombre_pila || acr };
+
+                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const match = obs.match(/^(\d{3,6})/);
+                const numTrabajo = match ? match[1] : null;
+                const tipoExp = numTrabajo ? (tipoExpMap[numTrabajo] || '') : '';
+
+                if (tipoExp === 'INTERNO') {
+                    tecHoras[acr].interno += horas;
+                } else {
+                    tecHoras[acr].productivo += horas;
+                }
+            });
+
+            // Also ensure all tecnicos appear
+            listaTecnicos.forEach(t => {
+                if (!tecHoras[t.acronimo]) tecHoras[t.acronimo] = { interno: 0, productivo: 0, label: t.nombre_pila || t.acronimo };
+            });
+
+            // Sort by productivo % descending
+            const tecKeys1 = Object.keys(tecHoras).sort((a, b) => {
+                const ta = tecHoras[a], tb = tecHoras[b];
+                const pctA = (ta.interno + ta.productivo) > 0 ? ta.productivo / (ta.interno + ta.productivo) : 0;
+                const pctB = (tb.interno + tb.productivo) > 0 ? tb.productivo / (tb.interno + tb.productivo) : 0;
+                return pctB - pctA;
+            });
+
+            const labels1 = tecKeys1.map(k => tecHoras[k].label);
+            const dataInterno = tecKeys1.map(k => {
+                const t = tecHoras[k]; const total = t.interno + t.productivo;
+                return total > 0 ? Math.round((t.interno / total) * 100) : 0;
+            });
+            const dataProductivo = tecKeys1.map(k => {
+                const t = tecHoras[k]; const total = t.interno + t.productivo;
+                return total > 0 ? Math.round((t.productivo / total) * 100) : 0;
+            });
+
+            if (_rendChartInterno) _rendChartInterno.destroy();
+            _rendChartInterno = new Chart(document.getElementById('chart-rend-interno'), {
+                type: 'bar',
+                data: {
+                    labels: labels1,
+                    datasets: [
+                        { label: 'Productivos', data: dataProductivo, backgroundColor: '#10b981', barPercentage: 0.85, categoryPercentage: 0.8 },
+                        { label: 'Interno', data: dataInterno, backgroundColor: '#ef4444', barPercentage: 0.85, categoryPercentage: 0.8 }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    scales: { x: { stacked: true, max: 100, ticks: { callback: v => v + '%' }, grid: { display: false } }, y: { stacked: true } },
+                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + ctx.raw + '%' } } }
+                }
+            });
+
+            // ── Chart 2: Rentabilidad (horas * costeHora) por técnico — ANUAL + PUNTUAL ──
+            const tecRent = {}; // acr -> { horas, coste, label }
+
+            partesData.forEach(p => {
+                const fecha = parseFechaRend(p.fecha);
+                if (!fecha) return;
+                if (fecha.getFullYear() !== filterYear) return;
+                if (filterMonth && (fecha.getMonth() + 1) !== filterMonth) return;
+
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+
+                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const match = obs.match(/^(\d{3,6})/);
+                const numTrabajo = match ? match[1] : null;
+                const tipoExp = numTrabajo ? (tipoExpMap[numTrabajo] || '') : '';
+
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+
+                const tec = resolverTecPartes((p.trabajador || '').trim());
+                if (!tec) return;
+                const acr = tec.acronimo;
+                if (!tecRent[acr]) tecRent[acr] = { horas: 0, label: tec.nombre_pila || acr };
+                tecRent[acr].horas += horas;
+            });
+
+            listaTecnicos.forEach(t => {
+                if (!tecRent[t.acronimo]) tecRent[t.acronimo] = { horas: 0, label: t.nombre_pila || t.acronimo };
+            });
+
+            const tecKeys2 = Object.keys(tecRent).sort((a, b) => (tecRent[b].horas * costeHoraActual) - (tecRent[a].horas * costeHoraActual));
+            const labels2 = tecKeys2.map(k => tecRent[k].label);
+            const dataRent = tecKeys2.map(k => Math.round(tecRent[k].horas * costeHoraActual));
+
+            const fmtE2 = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+
+            if (_rendChartRent) _rendChartRent.destroy();
+            _rendChartRent = new Chart(document.getElementById('chart-rend-rentabilidad'), {
+                type: 'bar',
+                data: {
+                    labels: labels2,
+                    datasets: [{ label: 'Rentabilidad (horas x coste/h)', data: dataRent, backgroundColor: '#2176AC', barPercentage: 0.85, categoryPercentage: 0.8 }]
+                },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    scales: { x: { ticks: { callback: v => fmtE2.format(v) }, grid: { display: false } }, y: {} },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: ctx => ' ' + fmtE2.format(ctx.raw) + ' (' + tecRent[tecKeys2[ctx.dataIndex]].horas.toFixed(1) + 'h x ' + costeHoraActual + '€/h)' } }
+                    }
+                }
+            });
+        }
+
+        document.getElementById('btn-update-rend')?.addEventListener('click', () => cargarDashboardRendimiento());
+
+
         function cargarDashboard() {
             initFiltrosDashboard();
             const isOfertas = document.getElementById('tab-dash-ofertas').classList.contains('active');
             const isPartes = document.getElementById('tab-dash-partes') && document.getElementById('tab-dash-partes').classList.contains('active');
+            const isRend = document.getElementById('tab-dash-rendimiento') && document.getElementById('tab-dash-rendimiento').classList.contains('active');
 
-            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes'];
+            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes','panel-dash-rendimiento'];
             panels.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 
             if (isOfertas) {
@@ -3657,6 +3868,9 @@
             } else if (isPartes) {
                 document.getElementById('panel-dash-partes').style.display = 'block';
                 cargarDashboardPartes();
+            } else if (isRend) {
+                document.getElementById('panel-dash-rendimiento').style.display = 'block';
+                cargarDashboardRendimiento();
             } else {
                 document.getElementById('panel-dash-produccion').style.display = 'block';
                 cargarDashboardProduccion();
@@ -3666,7 +3880,7 @@
 
         // Listeners Pestañas y Filtros
         const clearActiveTabs = () => {
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
         };
@@ -3683,10 +3897,17 @@
         });
         document.getElementById('tab-dash-partes')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-partes')?.classList.add('active');
             cargarDashboard();
         });
+        document.getElementById('tab-dash-rendimiento')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            document.getElementById('tab-dash-rendimiento')?.classList.add('active');
+            cargarDashboard();
+        });
+
 
 
 
@@ -5796,6 +6017,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.032</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -5977,6 +6199,7 @@
                         <button class="dash-tab active" id="tab-dash-produccion">Producción</button>
                         <button class="dash-tab" id="tab-dash-ofertas">Ofertas</button>
                         <button class="dash-tab" id="tab-dash-partes">Partes de Trabajo</button>
+                        <button class="dash-tab" id="tab-dash-rendimiento" style="display:none;">Rendimiento</button>
                     </div>
 
                     <div id="panel-dash-ofertas" style="display: none;">
@@ -6112,7 +6335,25 @@
                     </div>
 
 
-                    <div id="panel-dash-partes" style="display: none;">
+                                        <div id="panel-dash-rendimiento" style="display: none;">
+                        <div class="chart-box" style="margin-bottom: 24px;">
+                            <h3 class="chart-title">Distribución Interno vs Productivo por Técnico</h3>
+                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-rend-interno"></canvas></div>
+                        </div>
+                        <div class="chart-box">
+                            <h3 class="chart-title">Rentabilidad por Técnico (Anual + Puntual)</h3>
+                            <div style="display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
+                                <div class="filter-group"><label>Periodo</label>
+                                    <select id="filt-rend-periodo" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:220px;">
+                                    </select>
+                                </div>
+                                <button id="btn-update-rend" class="btn-primary" style="height: 38px;">Aplicar</button>
+                            </div>
+                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-rend-rentabilidad"></canvas></div>
+                        </div>
+                    </div>
+
+<div id="panel-dash-partes" style="display: none;">
                         <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label>
                                 <select id="filt-partes-year" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
