@@ -3665,6 +3665,16 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             const curYear = new Date().getFullYear();
             const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
+            // Ensure partes_horas data is loaded
+            if (!window._partesHorasData) {
+                getDocs(collection(db, 'partes_horas')).then(snap => {
+                    window._partesHorasData = [];
+                    snap.forEach(d => window._partesHorasData.push({ id: d.id, ...d.data() }));
+                    cargarDashboardRendimiento();
+                }).catch(err => console.error('Error cargando partes_horas:', err));
+                return;
+            }
+
             // Populate year filter
             const yearSel = document.getElementById('filt-prod-carga-year');
             if (yearSel && yearSel.options.length === 0) {
@@ -3910,6 +3920,16 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
             const curYear = new Date().getFullYear();
 
+            // Ensure partes_horas data is loaded
+            if (!window._partesHorasData) {
+                getDocs(collection(db, 'partes_horas')).then(snap => {
+                    window._partesHorasData = [];
+                    snap.forEach(d => window._partesHorasData.push({ id: d.id, ...d.data() }));
+                    cargarMensualFactChart();
+                }).catch(err => console.error('Error cargando partes_horas:', err));
+                return;
+            }
+
             // Populate tech filter
             const tecSel = document.getElementById('filt-mensual-tec');
             if (tecSel && tecSel.options.length === 0) {
@@ -3996,20 +4016,62 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 porFacturarMes[fecha.getMonth()] += horas * costeHoraActual;
             });
 
+            // Plugin to show total on top of stacked bars
+            const stackedTotalPlugin = {
+                id: 'stackedTotal',
+                afterDatasetsDraw(chart) {
+                    const { ctx } = chart;
+                    const meta0 = chart.getDatasetMeta(0);
+                    const meta1 = chart.getDatasetMeta(1);
+                    meta0.data.forEach((bar, j) => {
+                        const v0 = chart.data.datasets[0].data[j] || 0;
+                        const v1 = chart.data.datasets[1].data[j] || 0;
+                        const total = v0 + v1;
+                        if (total === 0) return;
+                        const topBar = meta1.data[j] || bar;
+                        const yPos = Math.min(bar.y, topBar.y) - 6;
+                        ctx.save();
+                        ctx.fillStyle = '#334155';
+                        ctx.font = '500 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        const label = total >= 1000 ? Math.round(total/1000) + 'k' : String(total);
+                        ctx.fillText(label, bar.x, yPos);
+                        ctx.restore();
+                    });
+                }
+            };
+
             if (_chartMensualFact) _chartMensualFact.destroy();
             _chartMensualFact = new Chart(document.getElementById('chart-mensual-fact'), {
                 type: 'bar',
+                plugins: [stackedTotalPlugin],
                 data: {
                     labels: mNames,
                     datasets: [
-                        { label: 'Facturado', data: facturadoMes.map(v => Math.round(v)), backgroundColor: '#10b981', borderRadius: 4 },
-                        { label: 'Por facturar', data: porFacturarMes.map(v => Math.round(v)), backgroundColor: '#3b82f6', borderRadius: 4 }
+                        { label: 'Facturado', data: facturadoMes.map(v => Math.round(v)), backgroundColor: '#10b981', borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 4, bottomRight: 4 } },
+                        { label: 'Por facturar', data: porFacturarMes.map(v => Math.round(v)), backgroundColor: '#3b82f6', borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 } }
                     ]
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    scales: { y: { ticks: { callback: v => fmtE.format(v) }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } },
-                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw) } } }
+                    scales: {
+                        y: { stacked: true, ticks: { callback: v => fmtE.format(v) }, grid: { color: '#f1f5f9' } },
+                        x: { stacked: true, grid: { display: false } }
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw),
+                                afterBody: function(items) {
+                                    const idx = items[0].dataIndex;
+                                    const total = (facturadoMes[idx] || 0) + (porFacturarMes[idx] || 0);
+                                    return ['Total: ' + fmtE.format(Math.round(total))];
+                                }
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -6187,7 +6249,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.034</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.035</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
