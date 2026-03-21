@@ -2530,24 +2530,15 @@
                             if (!tr.classList.contains('fila-vb-si')) {
                                 if ((newValue || '').trim() !== '') {
                                     tr.classList.add('fila-fecha-fin');
-                                    tr.style.backgroundColor = '';
-                                    tr.style.removeProperty('background-color');
-                                    Array.from(tr.children).forEach(cell => {
-                                        cell.style.removeProperty('background-color');
-                                        delete cell.dataset.forcedBg;
-                                        // Force blue on all cells except pct_uso
-                                        if (cell.dataset.field !== 'pct_uso') {
-                                            cell.style.setProperty('background-color', '#DBEAFE', 'important');
-                                            cell.style.setProperty('color', '#1e3a5f', 'important');
-                                        }
-                                    });
+                                    tr.removeAttribute('style');
+                                    for (let ci = 0; ci < tr.children.length; ci++) {
+                                        const cell = tr.children[ci];
+                                        if (cell.dataset && cell.dataset.field === 'pct_uso') continue;
+                                        cell.style.cssText = 'background-color: #DBEAFE !important; color: #1e3a5f !important;';
+                                    }
                                 } else {
                                     tr.classList.remove('fila-fecha-fin');
-                                    // Restore: remove forced colors
-                                    Array.from(tr.children).forEach(cell => {
-                                        cell.style.removeProperty('background-color');
-                                        cell.style.removeProperty('color');
-                                    });
+                                    cargarProduccion(); // Reload to restore original styles
                                 }
                             }
                         }
@@ -2839,7 +2830,11 @@
             const ofeYHtml = [...ofeYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
             const proYHtml = [...proYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
 
-            if (yOfe && yOfe.children.length === 0) yOfe.innerHTML = ofeYHtml;
+            if (yOfe && yOfe.children.length === 0) {
+                yOfe.innerHTML = ofeYHtml;
+                const cy = String(new Date().getFullYear());
+                Array.from(yOfe.options).forEach(o => { if (o.value === cy) o.selected = true; });
+            }
             if (yPro && yPro.children.length === 0) yPro.innerHTML = proYHtml;
 
             // 2. Opciones de técnicos y T1 por defecto
@@ -3188,7 +3183,11 @@
                     }
 
                     // Facturación pendiente por servicio
-                    const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
+                                    // Only include services from technicians present in the fact.pdte panel
+                const tecFieldSrv = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
+                const tecSrvMatch = listaTecnicos.find(t => t.acronimo === tecFieldSrv || t.nombre_pila === tecFieldSrv || t.nombre === tecFieldSrv);
+                if (!tecSrvMatch) return;
+const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     if (srv) srvFactPdte[srv] = (srvFactPdte[srv] || 0) + ppto;
                 }
 
@@ -3904,6 +3903,125 @@
         });
 
 
+        // ═══ Monthly Facturado/PorFacturar Chart ═══
+        let _chartMensualFact = null;
+
+        function cargarMensualFactChart() {
+            const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+            const curYear = new Date().getFullYear();
+
+            // Populate tech filter
+            const tecSel = document.getElementById('filt-mensual-tec');
+            if (tecSel && tecSel.options.length === 0) {
+                listaTecnicos.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.acronimo;
+                    opt.textContent = t.nombre_pila || t.acronimo;
+                    tecSel.appendChild(opt);
+                });
+            }
+
+            const selTecs = Array.from(tecSel?.selectedOptions || []).map(o => o.value);
+
+            // Read year filter from productividad
+            const selYears = Array.from(document.getElementById('filt-prod-carga-year')?.selectedOptions || []).map(o => parseInt(o.value));
+            const filtYears = selYears.length > 0 ? selYears : [curYear];
+            const targetYear = filtYears[0]; // Use first selected year for month labels
+
+            function parseFechaR(raw) {
+                if (!raw) return null;
+                if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
+                const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
+            }
+
+            const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            const facturadoMes = new Array(12).fill(0);
+            const porFacturarMes = new Array(12).fill(0);
+
+            // Facturado: production lines with fecha_ap, grouped by month of fecha_ap
+            datosProduccionMemoria.forEach(prod => {
+                const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                const fechaAp = parseFechaR((prod.fecha_ap || '').trim());
+                if (!fechaAp || !filtYears.includes(fechaAp.getFullYear())) return;
+                const presup = parseSpanishNum(prod.presupuesto_m) || 0;
+                if (presup === 0) return;
+                const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
+                const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
+                if (!tec) return;
+                if (selTecs.length > 0 && !selTecs.includes(tec.acronimo)) return;
+                facturadoMes[fechaAp.getMonth()] += presup;
+            });
+
+            // Por facturar: hours from partes_horas on non-VB, non-facturado ANUAL/PUNTUAL, grouped by month of parte
+            const vbMap = {};
+            const fApMap = {};
+            const tipoExpMap = {};
+            datosProduccionMemoria.forEach(p => {
+                const nt = String(p.num_trabajo);
+                vbMap[nt] = (p.visto_vb_cliente || '').trim().toLowerCase() === 'si';
+                fApMap[nt] = (p.fecha_ap || '').trim();
+                tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
+            });
+
+            const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            function resolverTecP(trabajadorStr) {
+                const w = getWords(trabajadorStr);
+                let tec = null, mx = 0;
+                listaTecnicos.forEach(t => {
+                    const wc = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
+                    let m = 0; w.forEach(x => { if (wc.includes(x)) m++; });
+                    if (m > mx) { mx = m; tec = t; }
+                });
+                if (mx === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
+                return tec;
+            }
+
+            (window._partesHorasData || []).forEach(p => {
+                const fecha = parseFechaR(p.fecha);
+                if (!fecha || !filtYears.includes(fecha.getFullYear())) return;
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const m = obs.match(/^(\d{3,6})/);
+                const numT = m ? m[1] : null;
+                if (!numT) return;
+                const tipoExp = tipoExpMap[numT] || '';
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                if (vbMap[numT]) return;
+                if (fApMap[numT]) return;
+                const tec = resolverTecP((p.trabajador || '').trim());
+                if (!tec) return;
+                if (selTecs.length > 0 && !selTecs.includes(tec.acronimo)) return;
+                porFacturarMes[fecha.getMonth()] += horas * costeHoraActual;
+            });
+
+            if (_chartMensualFact) _chartMensualFact.destroy();
+            _chartMensualFact = new Chart(document.getElementById('chart-mensual-fact'), {
+                type: 'bar',
+                data: {
+                    labels: mNames,
+                    datasets: [
+                        { label: 'Facturado', data: facturadoMes.map(v => Math.round(v)), backgroundColor: '#10b981', borderRadius: 4 },
+                        { label: 'Por facturar', data: porFacturarMes.map(v => Math.round(v)), backgroundColor: '#3b82f6', borderRadius: 4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { y: { ticks: { callback: v => fmtE.format(v) }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } },
+                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw) } } }
+                }
+            });
+        }
+
+        document.getElementById('btn-update-mensual')?.addEventListener('click', () => cargarMensualFactChart());
+        document.getElementById('btn-clear-mensual')?.addEventListener('click', () => {
+            const el = document.getElementById('filt-mensual-tec');
+            if (el) Array.from(el.options).forEach(o => o.selected = false);
+            cargarMensualFactChart();
+        });
+
+
         function cargarDashboard() {
             initFiltrosDashboard();
             const isOfertas = document.getElementById('tab-dash-ofertas').classList.contains('active');
@@ -3922,6 +4040,7 @@
             } else if (isRend) {
                 document.getElementById('panel-dash-rendimiento').style.display = 'block';
                 cargarDashboardRendimiento();
+                cargarMensualFactChart();
             } else {
                 document.getElementById('panel-dash-produccion').style.display = 'block';
                 cargarDashboardProduccion();
@@ -6404,6 +6523,18 @@
                                 <button id="btn-clear-productividad" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar filtros</button>
                             </div>
                             <div id="container-carga-rendimiento"></div>
+                        </div>
+
+                        <div class="chart-box" style="margin-bottom: 24px;">
+                            <h3 class="chart-title">Facturado y por facturar mensual</h3>
+                            <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
+                                <div class="filter-group"><label>Técnico</label>
+                                    <select id="filt-mensual-tec" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
+                                </div>
+                                <button id="btn-update-mensual" class="btn-primary" style="height: 36px;">Aplicar</button>
+                                <button id="btn-clear-mensual" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
+                            </div>
+                            <div style="width: 100%; height: 350px; position: relative;"><canvas id="chart-mensual-fact"></canvas></div>
                         </div>
 
                         <div class="chart-box">
