@@ -197,23 +197,9 @@
         let tableProd = null;
         let tableOfe = null;
 
-        // Motor de Registro de Historial
-        async function registrarCambio(coleccion, docId, campo, valorAnterior, valorNuevo) {
-            if (valorAnterior === valorNuevo) return;
-            try {
-                await addDoc(collection(db, "historial"), {
-                    coleccion: coleccion,
-                    docId: docId.toString(),
-                    campo: campo,
-                    valorAnterior: valorAnterior !== '' ? valorAnterior : '-',
-                    valorNuevo: valorNuevo !== '' ? valorNuevo : '-',
-                    fecha: new Date().toISOString(),
-                    usuario: auth.currentUser ? auth.currentUser.email : 'Desconocido'
-                });
-            } catch (e) {
-                console.error("Error al registrar historial: ", e);
-            }
-        }
+        // ── v0.037 Fase 2: registrarCambio() ELIMINADA ──
+        // La auditoría se gestiona ahora desde Cloud Functions (backend inmutable).
+        // El frontend envía _usuario_edicion en cada updateDoc para identificar al autor.
 
         // Cargar ajustes y listas globales desde Firestore
         async function cargarSettings() {
@@ -2176,8 +2162,7 @@
                                 };
 
                                 await setDoc(doc(db, "produccion", nuevoId.toString()), nuevoDoc);
-                                await registrarCambio("ofertas", docId, "estado", currentState, 'Aceptada');
-                                await updateDoc(doc(db, "ofertas", docId), { estado: 'Aceptada', timestamp_estado: new Date().toISOString() });
+                                await updateDoc(doc(db, "ofertas", docId), { estado: 'Aceptada', timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
 
                                 if (ofertaData) ofertaData.estado = 'Aceptada'; // update local mem
                                 td.firstElementChild.innerHTML = getEstadoIcon('Aceptada');
@@ -2203,8 +2188,7 @@
                                     return;
                                 }
 
-                                await registrarCambio("ofertas", docId, "estado", currentState, opt.label);
-                                await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString() });
+                                await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
                                 if (ofertaData) ofertaData.estado = opt.label;
                                 td.firstElementChild.innerHTML = getEstadoIcon(opt.label);
                                 menuEstado.style.display = 'none';
@@ -2213,7 +2197,7 @@
                                 const snapshot = await getDocs(q);
                                 if (!snapshot.empty) {
                                     snapshot.forEach(async (docP) => {
-                                        await updateDoc(docP.ref, { visible: false });
+                                        await updateDoc(docP.ref, { visible: false, _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
                                     });
                                     alert(`Oferta cambiada a ${opt.label} y trabajo ocultado en Producción.`);
                                     cargarProduccion();
@@ -2223,8 +2207,7 @@
 
                             } else {
                                 // Simple update
-                                await registrarCambio("ofertas", docId, "estado", currentState, opt.label);
-                                await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString() });
+                                await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
                                 if (ofertaData) ofertaData.estado = opt.label;
                                 td.firstElementChild.innerHTML = getEstadoIcon(opt.label);
                                 menuEstado.style.display = 'none';
@@ -2433,13 +2416,13 @@
                 if (fieldName === 'num_trabajo') return;
                 if (fieldName === 'total_horas_historico') return;
 
-                // Campos financieros redefinidos: fecha_ap, fecha_ar, observaciones, num_at, mes_facturacion
-                const camposFinancieros = ['fecha_ap', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
+                // Campos financieros redefinidos: fecha_ap, visto_vb_cliente, fecha_ar, observaciones, num_at, mes_facturacion, fecha_fin
+                const camposFinancieros = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
                 if (camposFinancieros.includes(fieldName)) {
                     if (!tienePermiso('editar_campos_financieros')) return;
                 } else if (fieldName === 'fecha_fin') {
-                    // Solo admin o técnico responsable pueden editar fecha_fin
-                    if (!tienePermiso('editar_fecha_fin')) {
+                    // Admin, financiero, o técnico responsable pueden editar fecha_fin
+                    if (!tienePermiso('editar_fecha_fin') && !tienePermiso('editar_campos_financieros')) {
                         // Comprobar si es el técnico responsable de esta fila
                         const tdResp = tr.querySelector('td[data-field="responsable_g"]');
                         const respVal = tdResp ? tdResp.textContent.trim() : '';
@@ -2520,18 +2503,20 @@
                     }
 
                     try {
-                        await registrarCambio("produccion", docId, fieldName, currentValue, newValue);
+                        const _usuario = auth.currentUser ? auth.currentUser.email : 'Desconocido';
 
                         // Si se edita fecha_fin, guardar también fecha_fin_confirmada
                         if (fieldName === 'fecha_fin') {
                             const confirmada = (newValue || '').trim() !== '';
                             await updateDoc(doc(db, "produccion", docId), {
                                 [fieldName]: newValue,
-                                fecha_fin_confirmada: confirmada
+                                fecha_fin_confirmada: confirmada,
+                                _usuario_edicion: _usuario
                             });
                         } else {
                             await updateDoc(doc(db, "produccion", docId), {
-                                [fieldName]: newValue
+                                [fieldName]: newValue,
+                                _usuario_edicion: _usuario
                             });
                         }
 
@@ -2720,9 +2705,9 @@
 
                     try {
                         const parsedValue = camposMoneda.includes(fieldName) && newValue !== '' ? parseFloat(newValue) : newValue;
-                        await registrarCambio("ofertas", docId, fieldName, currentValue, parsedValue);
                         await updateDoc(doc(db, "ofertas", docId), {
-                            [fieldName]: parsedValue
+                            [fieldName]: parsedValue,
+                            _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
                         });
 
                         // Ofertas mem sync
@@ -4747,10 +4732,12 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                         if (confirm(`¿Restaurar el campo '${data.campo}' al valor anterior ('${data.valorAnterior}')?`)) {
                             try {
                                 await updateDoc(doc(db, data.coleccion, data.docId), {
-                                    [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior
+                                    [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior,
+                                    _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
                                 });
-                                await deleteDoc(doc(db, "historial", docSnap.id));
-                                alert("Valor restaurado con éxito.");
+                                // No borramos el registro del historial: la Cloud Function registrará
+                                // la reversión automáticamente, manteniendo la traza completa (ISO 27001)
+                                alert("Valor restaurado con éxito. La reversión quedará registrada en el historial.");
                                 cargarHistorial();
                                 if (data.coleccion === 'produccion') cargarProduccion();
                                 if (data.coleccion === 'ofertas') cargarOfertas();
@@ -4787,13 +4774,14 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
 
                         if (confirm(`¿Deshacer la última acción?\\n\\nColección: ${data.coleccion}\\nCampo: ${data.campo}\\nValor actual: ${data.valorNuevo}\\nSe restaurará a: ${data.valorAnterior}`)) {
                             await updateDoc(doc(db, data.coleccion, data.docId), {
-                                [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior
+                                [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior,
+                                _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
                             });
 
-                            // Eliminar del historial para no entrar en bucle
-                            await deleteDoc(doc(db, "historial", ultimoRegistroDoc.id));
+                            // No borramos el registro del historial: la Cloud Function registrará
+                            // la reversión automáticamente (trazabilidad ISO 27001)
 
-                            alert("Deshecho correctamente.");
+                            alert("Deshecho correctamente. La reversión quedará registrada en el historial.");
                             if (data.coleccion === 'produccion') cargarProduccion();
                             if (data.coleccion === 'ofertas') cargarOfertas();
                             cargarHistorial(); // Refrescar pestaña si estuviese abierta
