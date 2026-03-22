@@ -1755,11 +1755,23 @@
                 if (user) {
                     try {
                         // 1. Intentar obtener rol por Email (Sincronizado desde tabla de técnicos)
-                        let userDoc = user.email ? await getDoc(doc(db, "usuarios", user.email)) : null;
+                        let userDoc = null;
+                        
+                        if (user.email) {
+                            try {
+                                userDoc = await getDoc(doc(db, "usuarios", user.email));
+                            } catch (emailErr) {
+                                console.warn("No se pudo leer usuarios por email:", emailErr.code || emailErr);
+                            }
+                        }
                         
                         // 2. Respaldo: Intentar por UID (Legacy o si no hay email)
                         if (!userDoc || !userDoc.exists()) {
-                            userDoc = await getDoc(doc(db, "usuarios", user.uid));
+                            try {
+                                userDoc = await getDoc(doc(db, "usuarios", user.uid));
+                            } catch (uidErr) {
+                                console.warn("No se pudo leer usuarios por UID:", uidErr.code || uidErr);
+                            }
                         }
 
                         if (userDoc && userDoc.exists()) {
