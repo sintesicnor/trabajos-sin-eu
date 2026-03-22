@@ -20,6 +20,7 @@
         import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
+        import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -36,6 +37,19 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
         const functions = getFunctions(app);
+
+        // ── v0.037: Firebase App Check con reCAPTCHA v3 ──
+        // En localhost usamos debug token para no bloquear el desarrollo local
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            // Debug token: permite pasar App Check en emulador/localhost
+            // Copia el token que aparece en consola y regístralo en Firebase Console > App Check > Apps > Manage debug tokens
+            self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+        }
+        const appCheck = initializeAppCheck(app, {
+            provider: new ReCaptchaV3Provider('6LerapMsAAAAAHwZCMvaK1rvynis6OttjUlId0mO'),
+            isTokenAutoRefreshEnabled: true // Renueva el token automáticamente
+        });
+        console.log("🛡️ Firebase App Check inicializado con reCAPTCHA v3");
 
         // Conectar a emulador de Autenticación si estamos en localhost
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
