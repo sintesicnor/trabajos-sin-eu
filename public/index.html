@@ -74,6 +74,16 @@
             if (!currentUserRole || !permisosRoles[currentUserRole]) return false;
             return !!permisosRoles[currentUserRole][permiso];
         }
+
+        // ── v0.036: Manejo centralizado de errores de Firebase ──
+        function manejarErrorFirebase(err, mensajeFallback) {
+            if (err && err.code === 'permission-denied') {
+                alert("🔒 Acceso denegado: Tu rol actual no tiene permisos para realizar esta operación en la base de datos.");
+            } else {
+                alert("❌ " + (mensajeFallback || "Error de conexión al guardar el cambio."));
+            }
+            console.error(mensajeFallback || "Error Firebase:", err);
+        }
         
         // Configuración de Proveedor de Microsoft
         const microsoftProvider = new OAuthProvider('microsoft.com');
@@ -1181,8 +1191,7 @@
                                 headersConfig[origKey] = finalVal;
 
                             } catch (err) {
-                                console.error("Error al guardar encabezado:", err);
-                                alert("Error al guardar el nuevo nombre del encabezado.");
+                                manejarErrorFirebase(err, "Error al guardar el nuevo nombre del encabezado.");
                                 contentSpan.innerHTML = currentVal; // revertir
                             }
                         };
@@ -1362,7 +1371,7 @@
                 try {
                     await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), prefs, { merge: true });
                 } catch (e) {
-                    console.error("Error guardando preferencias:", e);
+                    manejarErrorFirebase(e, "Error guardando preferencias de vista.");
                 }
             }, 1000);
         }
@@ -2180,7 +2189,7 @@
                                 menuEstado.style.display = 'none';
                             }
                         } catch (err) {
-                            console.error("Error al actualizar estado:", err);
+                            manejarErrorFirebase(err, "Error al actualizar el estado de la oferta.");
                         }
                     }
                 });
@@ -2251,8 +2260,7 @@
                             if (tableOfer) updateDynamicStickyColumns(tableOfer);
                         }
                     } catch (e) {
-                        console.error("Error guardando global settings:", e);
-                        alert("Error guardando la configuración.");
+                        manejarErrorFirebase(e, "Error guardando la configuración.");
                     }
                 });
             }
@@ -2306,8 +2314,7 @@
                         alert(`Nuevo trabajo creado con el Nº ${nuevoId} (${tipoExp}). Doble clic en 'Responsable (G)' para asignar al técnico.`);
                         cargarProduccion();
                     } catch (e) {
-                        console.error("Error creando trabajo libre:", e);
-                        alert("Error creando el trabajo.");
+                        manejarErrorFirebase(e, "Error creando el trabajo.");
                     }
                 });
             }
@@ -2346,8 +2353,7 @@
                     alert(`Oferta ${numOfe} creada correctamente.`);
                     cargarOfertas();
                 } catch (e) {
-                    console.error("Error creando oferta:", e);
-                    alert("Error creando la oferta.");
+                    manejarErrorFirebase(e, "Error creando la oferta.");
                 }
             });
 
@@ -2551,8 +2557,7 @@
                             td.innerHTML = finalValue;
                         }
                     } catch (err) {
-                        console.error("Error actualizando campo:", err);
-                        alert("Error guardando el cambio en Firebase.");
+                        manejarErrorFirebase(err, "Error guardando el cambio en Producción.");
                         td.innerHTML = currentValue; // Revertir
                     }
                 };
@@ -2689,8 +2694,7 @@
 
                         td.innerHTML = finalValue;
                     } catch (err) {
-                        console.error("Error actualizando oferta:", err);
-                        alert("Error guardando el cambio en Firebase.");
+                        manejarErrorFirebase(err, "Error guardando el cambio en Ofertas.");
                         if (camposMoneda.includes(fieldName) && currentValue !== '' && currentValue != 0) {
                             const num = parseSpanishNum(currentValue);
                             currentValue = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: (num % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(num);
@@ -2730,7 +2734,7 @@
                         status.style.color = '#10b981';
                         if (typeof cargarProduccion === 'function') cargarProduccion();
                     } catch (error) {
-                        console.error("Error en sincronización SQL:", error);
+                        manejarErrorFirebase(error, "Error al conectar con SQL.");
                         status.textContent = 'Error al conectar con SQL. Revisa la consola.';
                         status.style.color = '#ef4444';
                     } finally {
@@ -4239,7 +4243,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     grupos: conteoGrupos
                 });
             } catch (error) {
-                console.error("Error actualizando contadores de nombres: ", error);
+                manejarErrorFirebase(error, "Error actualizando contadores de nombres.");
             }
         }
 
@@ -4298,8 +4302,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                             cargarProduccion();
                             cargarOfertas();
                         } catch (err) {
-                            console.error("Error en fusión de nombres", err);
-                            alert("Ha ocurrido un error al intentar fusionar.");
+                            manejarErrorFirebase(err, "Error al intentar fusionar nombres.");
                             tdNombre.textContent = nombreAntiguo;
                         }
                     };
@@ -4529,7 +4532,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                     await setDoc(doc(db, "usuarios", newId), { rol: newRol }, { merge: true });
                                     await setDoc(doc(db, "usuarios_activos", newId), { activo: true, nombre: newNom, acronimo: newAcr }, { merge: true });
                                 } catch (errSync) {
-                                    console.error("Error sincronizando rol en usuarios:", errSync);
+                                    manejarErrorFirebase(errSync, "Error sincronizando rol del técnico.");
                                 }
                             }
                         } else {
@@ -4585,8 +4588,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                 await setDoc(doc(db, "usuarios_activos", emailId), { activo: true }, { merge: true });
                             }
                         } catch (errRol) {
-                            console.error("Error guardando rol:", errRol);
-                            alert("No se pudo guardar el rol. Inténtalo de nuevo.");
+                            manejarErrorFirebase(errRol, "Error guardando el rol del técnico.");
                         }
                         tdRol.innerHTML = `<span>${escapeHTML(nuevoRol)}</span>`;
                     };
@@ -4659,7 +4661,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                         await setDoc(doc(db, "settings", "global"), { display_tecnicos: preferenciaTecnicos }, { merge: true });
                         location.reload(); // Recarga para aplicar formato al instante
                     } catch (err) {
-                        console.error(err);
+                        manejarErrorFirebase(err, "Error guardando preferencia de formato de técnicos.");
                     }
                 });
             }
@@ -4723,8 +4725,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                 if (data.coleccion === 'produccion') cargarProduccion();
                                 if (data.coleccion === 'ofertas') cargarOfertas();
                             } catch (err) {
-                                console.error("Error restaurando: ", err);
-                                alert("Error al restaurar.");
+                                manejarErrorFirebase(err, "Error al restaurar el valor.");
                             }
                         }
                     });
@@ -4768,8 +4769,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                             cargarHistorial(); // Refrescar pestaña si estuviese abierta
                         }
                     } catch (e) {
-                        console.error("Error al deshacer: ", e);
-                        alert("Ocurrió un error al intentar deshacer la acción.");
+                        manejarErrorFirebase(e, "Error al intentar deshacer la acción.");
                     }
                 });
             }
@@ -4838,8 +4838,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                         try {
                             await setDoc(doc(db, "configuracion", "permisos_roles"), permisosRoles, { merge: true });
                         } catch (err) {
-                            console.error("Error guardando permisos:", err);
-                            alert("Error al guardar permisos. Inténtalo de nuevo.");
+                            manejarErrorFirebase(err, "Error al guardar permisos.");
                         }
                     });
                 });
@@ -4979,7 +4978,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                 }, 2000);
 
                             } catch (error) {
-                                console.error("Error al procesar BBDD:", error);
+                                manejarErrorFirebase(error, "Error al procesar la importación de Producción.");
                                 progressText.textContent = 'Ocurrió un error. Revisa la consola.';
                                 btnUpload.disabled = false;
                             }
@@ -5121,7 +5120,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                 }, 2000);
 
                             } catch (error) {
-                                console.error("Error al procesar Ofertas:", error);
+                                manejarErrorFirebase(error, "Error al procesar la importación de Ofertas.");
                                 progressText.textContent = 'Ocurrió un error. Revisa la consola.';
                                 btnUploadOfertas.disabled = false;
                             }
@@ -5274,7 +5273,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                 }, 3000);
 
                             } catch (error) {
-                                console.error("Error al procesar Horas:", error);
+                                manejarErrorFirebase(error, "Error al procesar la importación de Horas.");
                                 progressText.textContent = 'Ocurrió un error. Revisa la consola.';
                                 btnUploadHoras.disabled = false;
                             }
@@ -5301,7 +5300,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                         alert("Trabajo archivado correctamente.");
                         cargarProduccion();
                     } catch (err) {
-                        console.error("Error archivando:", err);
+                        manejarErrorFirebase(err, "Error archivando el trabajo.");
                     }
                 }
             });
@@ -6249,7 +6248,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.035</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.036</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
