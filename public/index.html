@@ -82,10 +82,10 @@
 
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
         let permisosRoles = {
-            admin: { ver_tab_configuracion: true, crear_trabajo: true, editar_campos_generales: true, editar_campos_financieros: true, editar_fecha_fin: true, ver_importes: true, ver_columnas_horas: true, ver_todas_columnas_tec: true, historial_global: true, exportar_excel: true, ver_ofertas: true, editar_ofertas: true, ver_dashboard: true },
-            edicion: { ver_tab_configuracion: false, crear_trabajo: true, editar_campos_generales: true, editar_campos_financieros: false, editar_fecha_fin: false, ver_importes: true, ver_columnas_horas: true, ver_todas_columnas_tec: true, historial_global: true, exportar_excel: true, ver_ofertas: true, editar_ofertas: true, ver_dashboard: true },
-            lectura: { ver_tab_configuracion: false, crear_trabajo: false, editar_campos_generales: false, editar_campos_financieros: false, editar_fecha_fin: false, ver_importes: false, ver_columnas_horas: true, ver_todas_columnas_tec: false, historial_global: false, exportar_excel: false, ver_ofertas: true, editar_ofertas: false, ver_dashboard: true },
-            financiero: { ver_tab_configuracion: false, crear_trabajo: false, editar_campos_generales: false, editar_campos_financieros: true, editar_fecha_fin: false, ver_importes: true, ver_columnas_horas: false, ver_todas_columnas_tec: false, historial_global: true, exportar_excel: false, ver_ofertas: false, editar_ofertas: false, ver_dashboard: false }
+            admin:      { ver_tab_configuracion:true, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            lectura:    { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
+            financiero: { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
         };
 
         function tienePermiso(permiso) {
@@ -102,12 +102,12 @@
             }
             console.error(mensajeFallback || "Error Firebase:", err);
         }
-
+        
         // Configuración de Proveedor de Microsoft
         const microsoftProvider = new OAuthProvider('microsoft.com');
         microsoftProvider.setCustomParameters({
             prompt: 'select_account',
-            tenant: 'd868a344-c055-4faf-89fa-d5ed7155158e'
+            tenant: 'common'
         });
 
         async function hacerLoginMicrosoft() {
@@ -137,12 +137,12 @@
 
             } catch (error) {
                 console.error("Error en autenticación Microsoft:", error);
-
+                
                 // Cerrar sesión si falló la validación para limpiar el estado de Firebase
                 await signOut(auth);
 
                 const mensajeAlerta = 'Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com';
-
+                
                 if (error.message === "DOMINIO_NO_VALIDO" || error.message === "USUARIO_NO_ACTIVO") {
                     alert(mensajeAlerta);
                     if (loginError) {
@@ -385,8 +385,8 @@
         });
 
         const tabDashboard = document.getElementById('tab-dashboard');
-        const tabRendimiento = document.getElementById('tab-dash-rendimiento');
-        if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
+                    const tabRendimiento = document.getElementById('tab-dash-rendimiento');
+                    if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
         const viewDashboard = document.getElementById('view-dashboard');
         tabDashboard.addEventListener('click', (e) => {
             e.preventDefault();
@@ -670,9 +670,9 @@
 
                 tbody.appendChild(fragment);
 
-                if (tableProd) {
-                    applyTableFilters(tableProd);
-                    applyColumnOrder(tableProd);
+                if (tableProd) { 
+                    applyTableFilters(tableProd); 
+                    applyColumnOrder(tableProd); 
                     actualizarIconosFiltroDeTabla(tableProd);
                     aplicarVisibilidadColumnas(tableProd);
                     updateDynamicStickyColumns(tableProd);
@@ -842,7 +842,7 @@
                 inputT1.value = '';
                 // Default dates to today
                 const hoy = new Date();
-                const hoyStr = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+                const hoyStr = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
                 inputFechaInicio.value = hoyStr;
                 inputFechaFin.value = '';
                 modal.style.display = 'flex';
@@ -1338,7 +1338,7 @@
                         const t = td ? td.textContent.trim() : '';
                         if (!t || !t.includes('/')) return 0;
                         const p = t.split('/');
-                        return p.length === 3 ? new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])).getTime() : 0;
+                        return p.length === 3 ? new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0])).getTime() : 0;
                     };
                     const tdA = a.querySelector('td[data-field="fecha_oferta"]');
                     const tdB = b.querySelector('td[data-field="fecha_oferta"]');
@@ -1427,7 +1427,7 @@
                     pinned_cols_prod: pinnedColsProd,
                     pinned_cols_ofer: pinnedColsOfer
                 }, { merge: true });
-            } catch (e) { console.error("Error guardando pinned cols:", e); }
+            } catch(e) { console.error("Error guardando pinned cols:", e); }
         }
 
         function actualizarIconosFiltroDeTabla(table) {
@@ -1585,7 +1585,7 @@
                         arr.splice(pos, 1);
                     } else {
                         arr.push(colIdx);
-                        arr.sort((a, b) => a - b);
+                        arr.sort((a,b) => a - b);
                     }
                     guardarPinnedCols();
                     updateDynamicStickyColumns(table);
@@ -1606,7 +1606,7 @@
             }
 
             // 3. Apply sticky to pinned columns only (sorted by index, left to right)
-            const sortedPinned = [...pinnedArr].sort((a, b) => a - b);
+            const sortedPinned = [...pinnedArr].sort((a,b) => a - b);
             let currentLeftOffset = 0;
 
             sortedPinned.forEach((colIdx, pIdx) => {
@@ -1760,7 +1760,7 @@
                     try {
                         // 1. Intentar obtener rol por Email (Sincronizado desde tabla de técnicos)
                         let userDoc = null;
-
+                        
                         if (user.email) {
                             try {
                                 userDoc = await getDoc(doc(db, "usuarios", user.email));
@@ -1768,7 +1768,7 @@
                                 console.warn("No se pudo leer usuarios por email:", emailErr.code || emailErr);
                             }
                         }
-
+                        
                         // 2. Respaldo: Intentar por UID (Legacy o si no hay email)
                         if (!userDoc || !userDoc.exists()) {
                             try {
@@ -1794,11 +1794,11 @@
                             const permDoc = await getDoc(doc(db, "configuracion", "permisos_roles"));
                             if (permDoc && permDoc.exists()) {
                                 const saved = permDoc.data();
-                                ['admin', 'edicion', 'lectura', 'financiero'].forEach(rol => {
+                                ['admin','edicion','lectura','financiero'].forEach(rol => {
                                     if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
                                 });
                             }
-                        } catch (ep) { console.error("Error cargando permisos:", ep); }
+                        } catch(ep) { console.error("Error cargando permisos:", ep); }
                     } catch (e) {
                         console.error("Error obteniendo rol", e);
                         currentUserRole = 'lectura';
@@ -2467,7 +2467,7 @@
                     }
                     if (!dateVal) {
                         const hoy = new Date();
-                        dateVal = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+                        dateVal = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
                     }
                     td.innerHTML = `<input type="date" class="inline-edit-input" value="${dateVal}" />`;
                 } else {
@@ -2664,7 +2664,7 @@
                     }
                     if (!dateVal) {
                         const hoy = new Date();
-                        dateVal = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+                        dateVal = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
                     }
                     td.innerHTML = `<input type="date" class="inline-edit-input" value="${dateVal}" />`;
                 } else {
@@ -2879,7 +2879,7 @@
 
             const srvOpts = listaTiposServicio.map(s => `<option value="${s}">${s}</option>`).join('');
             if (srv && srv.children.length === 0) srv.innerHTML = srvOpts;
-        }
+}
 
         function cargarDashboardOfertas() {
             const yFil = getMulti('filt-ofe-year'); const mFil = getMulti('filt-ofe-month');
@@ -2908,7 +2908,7 @@
                 const info = extractDateInfo(of.fecha_oferta);
 
                 if (info && info.y && info.m) {
-                    const key = `${info.y}-${String(info.m).padStart(2, '0')}`;
+                    const key = `${info.y}-${String(info.m).padStart(2,'0')}`;
                     if (!mensualDataAll[key]) mensualDataAll[key] = { acep: 0, curso: 0, rech: 0, pptoAcep: 0, pptoCurso: 0, pptoRech: 0 };
                     if (estLower === 'aceptada' || estLower === 'aceptado') { mensualDataAll[key].acep++; mensualDataAll[key].pptoAcep += ppto; }
                     else if (estLower === 'rechazada' || estLower === 'rechazado') { mensualDataAll[key].rech++; mensualDataAll[key].pptoRech += ppto; }
@@ -2985,14 +2985,14 @@
                                 const x1 = bar.x;
                                 const segW = Math.abs(x1 - x0);
                                 if (segW < 28) { ctx.restore(); return; }
-                                const label = val >= 1000 ? Math.round(val / 1000) + 'k' : String(val);
+                                const label = val >= 1000 ? Math.round(val/1000) + 'k' : String(val);
                                 ctx.fillText(label, Math.min(x0, x1) + segW / 2, bar.y);
                             } else {
                                 const y0 = bar.base;
                                 const y1 = bar.y;
                                 const segH = Math.abs(y1 - y0);
                                 if (segH < 16) { ctx.restore(); return; }
-                                const label = val >= 1000 ? Math.round(val / 1000) + 'k' : String(val);
+                                const label = val >= 1000 ? Math.round(val/1000) + 'k' : String(val);
                                 ctx.fillText(label, bar.x, Math.min(y0, y1) + segH / 2);
                             }
                             ctx.restore();
@@ -3001,8 +3001,8 @@
                 }
             };
 
-            const agLabels = Object.keys(agentesData).sort((a, b) =>
-                (agentesData[b].acep + agentesData[b].curso + agentesData[b].rech) - (agentesData[a].acep + agentesData[a].curso + agentesData[a].rech)
+            const agLabels = Object.keys(agentesData).sort((a,b) =>
+                (agentesData[b].acep+agentesData[b].curso+agentesData[b].rech) - (agentesData[a].acep+agentesData[a].curso+agentesData[a].rech)
             );
 
             // Agent count chart
@@ -3024,15 +3024,11 @@
                     scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { crossAlign: 'center' } } },
                     plugins: {
                         legend: { position: 'top' },
-                        tooltip: {
-                            callbacks: {
-                                afterBody: (items) => {
-                                    const ag = agLabels[items[0].dataIndex];
-                                    const d = agentesData[ag];
-                                    return ['Importe total: ' + fmtE.format(d.pptoAcep + d.pptoCurso + d.pptoRech)];
-                                }
-                            }
-                        }
+                        tooltip: { callbacks: { afterBody: (items) => {
+                            const ag = agLabels[items[0].dataIndex];
+                            const d = agentesData[ag];
+                            return ['Importe total: ' + fmtE.format(d.pptoAcep + d.pptoCurso + d.pptoRech)];
+                        }}}
                     }
                 }
             });
@@ -3058,7 +3054,7 @@
             });
 
             // Monthly evolution - NOT affected by filters, uses year selector
-            const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+            const monthNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
             const allYears = [...new Set(Object.keys(mensualDataAll).map(k => k.split('-')[0]))].sort();
 
             // Populate year selector
@@ -3077,13 +3073,13 @@
                 evolKeys = [];
                 for (let i = 11; i >= 0; i--) {
                     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                    evolKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+                    evolKeys.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
                 }
             } else {
                 evolKeys = [];
-                for (let m = 1; m <= 12; m++) evolKeys.push(`${selYear}-${String(m).padStart(2, '0')}`);
+                for (let m = 1; m <= 12; m++) evolKeys.push(`${selYear}-${String(m).padStart(2,'0')}`);
             }
-            const evolLabels = evolKeys.map(k => { const p = k.split('-'); return monthNames[parseInt(p[1]) - 1] + ' ' + p[0].slice(2); });
+            const evolLabels = evolKeys.map(k => { const p = k.split('-'); return monthNames[parseInt(p[1])-1] + ' ' + p[0].slice(2); });
 
             if (chartsObj.ofeMensual) chartsObj.ofeMensual.destroy();
             chartsObj.ofeMensual = new Chart(document.getElementById('chart-ofe-mensual'), {
@@ -3096,7 +3092,7 @@
                             chart.getDatasetMeta(i).data.forEach((bar, j) => {
                                 const val = ds.data[j];
                                 if (!val) return;
-                                const { x, y, width, height, base } = bar.getProps(['x', 'y', 'width', 'height', 'base'], true);
+                                const { x, y, width, height, base } = bar.getProps(['x','y','width','height','base'], true);
                                 const barH = Math.abs(base - y);
                                 if (barH < 16) return;
                                 ctx.save();
@@ -3104,7 +3100,7 @@
                                 ctx.font = 'bold 10px sans-serif';
                                 ctx.textAlign = 'center';
                                 ctx.textBaseline = 'middle';
-                                ctx.fillText(val, x, y + barH / 2);
+                                ctx.fillText(val, x, y + barH/2);
                                 ctx.restore();
                             });
                         });
@@ -3160,7 +3156,7 @@
                                 afterBody: (items) => {
                                     const y = anualYears[items[0].dataIndex];
                                     const d = anualData[y];
-                                    return ['Total: ' + (d.acep + d.curso + d.rech), 'Importe: ' + fmtE.format(d.pptoAcep + d.pptoCurso + d.pptoRech)];
+                                    return ['Total: ' + (d.acep+d.curso+d.rech), 'Importe: ' + fmtE.format(d.pptoAcep+d.pptoCurso+d.pptoRech)];
                                 }
                             }
                         }
@@ -3173,7 +3169,7 @@
             const yFil = getMulti('filt-pro-year'); const mFil = getMulti('filt-pro-month');
             const rbleFil = getMulti('filt-pro-rble'); const t1Fil = getMulti('filt-pro-t1');
             const t2Fil = getMulti('filt-pro-t2'); const t3Fil = getMulti('filt-pro-t3');
-            const srvFil = getMulti('filt-pro-srv');
+            const srvFil = getMulti('filt-pro-srv'); 
 
             let factPdte = 0; let hrsPdte = 0;
             const tecHorasPdte = {};
@@ -3217,11 +3213,11 @@
                     }
 
                     // Facturación pendiente por servicio
-                    // Only include services from technicians present in the fact.pdte panel
-                    const tecFieldSrv = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
-                    const tecSrvMatch = listaTecnicos.find(t => t.acronimo === tecFieldSrv || t.nombre_pila === tecFieldSrv || t.nombre === tecFieldSrv);
-                    if (!tecSrvMatch) return;
-                    const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
+                                    // Only include services from technicians present in the fact.pdte panel
+                const tecFieldSrv = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
+                const tecSrvMatch = listaTecnicos.find(t => t.acronimo === tecFieldSrv || t.nombre_pila === tecFieldSrv || t.nombre === tecFieldSrv);
+                if (!tecSrvMatch) return;
+const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     if (srv) srvFactPdte[srv] = (srvFactPdte[srv] || 0) + ppto;
                 }
 
@@ -3359,7 +3355,7 @@
                     meta0.data.forEach((bar, j) => {
                         const m = ganttMeta[j];
                         if (!m || m.pctUso === 0) return;
-                        const props = bar.getProps(['x', 'y', 'width', 'height', 'base'], true);
+                        const props = bar.getProps(['x','y','width','height','base'], true);
                         const barW = Math.abs(props.x - props.base);
                         if (barW < 30) return;
                         ctx.save();
@@ -3410,10 +3406,10 @@
                         legend: { display: false },
                         tooltip: {
                             callbacks: {
-                                title: function (items) {
+                                title: function(items) {
                                     return ganttLabels[items[0].dataIndex] || '';
                                 },
-                                label: function (ctx) {
+                                label: function(ctx) {
                                     const meta = ganttMeta[ctx.dataIndex];
                                     if (!meta) return ctx.dataset.label;
                                     const lines = [];
@@ -3424,7 +3420,7 @@
                                     }
                                     return lines;
                                 },
-                                afterBody: function (items) {
+                                afterBody: function(items) {
                                     const meta = ganttMeta[items[0].dataIndex];
                                     if (!meta) return [];
                                     const lines = [];
@@ -3529,7 +3525,7 @@
 
             const yearsAvail = new Set();
             const errores = [];
-            const mNames = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+            const mNames = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
             const tecMap = {};
             const allMonths = new Set();
             const daysPerMonth = {};
@@ -3988,7 +3984,7 @@
                 const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
             }
 
-            const mNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+            const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
             const facturadoMes = new Array(12).fill(0);
             const porFacturarMes = new Array(12).fill(0);
 
@@ -4069,7 +4065,7 @@
                         ctx.font = '500 11px sans-serif';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'bottom';
-                        const label = total >= 1000 ? Math.round(total / 1000) + 'k' : String(total);
+                        const label = total >= 1000 ? Math.round(total/1000) + 'k' : String(total);
                         ctx.fillText(label, bar.x, yPos);
                         ctx.restore();
                     });
@@ -4098,7 +4094,7 @@
                         tooltip: {
                             callbacks: {
                                 label: ctx => ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw),
-                                afterBody: function (items) {
+                                afterBody: function(items) {
                                     const idx = items[0].dataIndex;
                                     const total = (facturadoMes[idx] || 0) + (porFacturarMes[idx] || 0);
                                     return ['Total: ' + fmtE.format(Math.round(total))];
@@ -4124,7 +4120,7 @@
             const isPartes = document.getElementById('tab-dash-partes') && document.getElementById('tab-dash-partes').classList.contains('active');
             const isRend = document.getElementById('tab-dash-rendimiento') && document.getElementById('tab-dash-rendimiento').classList.contains('active');
 
-            const panels = ['panel-dash-ofertas', 'panel-dash-produccion', 'panel-dash-partes', 'panel-dash-rendimiento'];
+            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes','panel-dash-rendimiento'];
             panels.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 
             if (isOfertas) {
@@ -4584,9 +4580,9 @@
                     const rolActual = t.rol || 'lectura';
                     tdRol.innerHTML = `
                         <select class="inline-edit-input" style="width: 100%; border: 1px solid #2176AC; border-radius: 4px; padding: 2px 4px; font-size: 13px; outline: none;">
-                            <option value="admin"      ${rolActual === 'admin' ? 'selected' : ''}>admin</option>
-                            <option value="edicion"    ${rolActual === 'edicion' ? 'selected' : ''}>edicion</option>
-                            <option value="lectura"    ${rolActual === 'lectura' ? 'selected' : ''}>lectura</option>
+                            <option value="admin"      ${rolActual === 'admin'      ? 'selected' : ''}>admin</option>
+                            <option value="edicion"    ${rolActual === 'edicion'    ? 'selected' : ''}>edicion</option>
+                            <option value="lectura"    ${rolActual === 'lectura'    ? 'selected' : ''}>lectura</option>
                             <option value="financiero" ${rolActual === 'financiero' ? 'selected' : ''}>financiero</option>
                         </select>
                     `;
@@ -5411,7 +5407,6 @@
             --tesicnor-text: #1e293b;
             --tesicnor-text-muted: #64748b;
         }
-
         :root {
             --tesicnor-blue: #2e6ca4;
             --tesicnor-orange: #e5841b;
@@ -5882,11 +5877,9 @@
             width: 16px;
             height: 16px;
         }
-
         .pin-icon:hover {
             color: #3b82f6;
         }
-
         .pin-icon.pinned {
             color: #2563eb;
             transform: rotate(-45deg);
@@ -6136,7 +6129,7 @@
             background: white;
             border: 1px solid #e2e8f0;
             border-radius: 16px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
             transition: box-shadow 0.2s, transform 0.2s;
             padding: 20px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
@@ -6146,7 +6139,7 @@
         }
 
         .kpi-card:hover {
-            box-shadow: 0 4px 12px rgba(33, 118, 172, 0.12);
+            box-shadow: 0 4px 12px rgba(33,118,172,0.12);
             transform: translateY(-1px);
         }
 
@@ -6169,7 +6162,7 @@
             background: white;
             border: 1px solid #e2e8f0;
             border-radius: 16px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
             padding: 20px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
@@ -6207,22 +6200,14 @@
                 <input type="password" id="login-password" class="login-input" placeholder="Contraseña" required>
                 <button type="submit" class="login-btn">Entrar</button>
             </form>
-            <a href="#" id="btn-forgot-password"
-                style="display:block;text-align:center;margin-top:12px;font-size:13px;color:#2176AC;text-decoration:none;">¿Has
-                olvidado tu contraseña?</a>
+            <a href="#" id="btn-forgot-password" style="display:block;text-align:center;margin-top:12px;font-size:13px;color:#2176AC;text-decoration:none;">¿Has olvidado tu contraseña?</a>
             <div style="margin: 16px 0; display: flex; align-items: center; justify-content: center;">
                 <div style="flex: 1; height: 1px; background-color: #e2e8f0;"></div>
                 <span style="margin: 0 10px; font-size: 12px; color: #94a3b8; font-weight: 500;">O</span>
                 <div style="flex: 1; height: 1px; background-color: #e2e8f0;"></div>
             </div>
-            <button id="btn-login-microsoft" class="login-btn"
-                style="background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; gap: 10px;">
-                <svg width="20" height="20" viewBox="0 0 21 21">
-                    <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                    <rect x="11" y="1" width="9" height="9" fill="#7fbb00" />
-                    <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                    <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                </svg>
+            <button id="btn-login-microsoft" class="login-btn" style="background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; gap: 10px;">
+                <svg width="20" height="20" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fbb00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
                 Iniciar sesión con Microsoft
             </button>
             <p id="login-error" style="color: #ef4444; font-size: 14px; margin-top: 12px; display: none;"></p>
@@ -6280,12 +6265,9 @@
                 </svg>
                 <span>Configuración</span>
             </a>
-            <div id="user-info-container"
-                style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
+            <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
                 <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.037</p>
-                <p id="user-display-email"
-                    style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                </p>
+                <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -6472,47 +6454,18 @@
                     <div id="panel-dash-ofertas" style="display: none;">
                         <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año</label>
-                                <div class="filter-wrap"><select id="filt-ofe-year" class="multi-select"
-                                        multiple></select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-ofe-year').selectedIndex=-1;">✕</button>
-                                </div>
+                            <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-ofe-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-year').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Mes</label><div class="filter-wrap">
+                                <select id="filt-ofe-month" class="multi-select" multiple>
+                                    <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
+                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-month').selectedIndex=-1;">✕</button></div>
                             </div>
-                            <div class="filter-group"><label>Mes</label>
-                                <div class="filter-wrap">
-                                    <select id="filt-ofe-month" class="multi-select" multiple>
-                                        <option value="1">Ene</option>
-                                        <option value="2">Feb</option>
-                                        <option value="3">Mar</option>
-                                        <option value="4">Abr</option>
-                                        <option value="5">May</option>
-                                        <option value="6">Jun</option>
-                                        <option value="7">Jul</option>
-                                        <option value="8">Ago</option>
-                                        <option value="9">Sep</option>
-                                        <option value="10">Oct</option>
-                                        <option value="11">Nov</option>
-                                        <option value="12">Dic</option>
-                                    </select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-ofe-month').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
-                            <div class="filter-group"><label>Es Licitación</label>
-                                <div class="filter-wrap"><select id="filt-ofe-es-lic" class="multi-select" multiple>
-                                        <option value="Si">Si</option>
-                                        <option value="No">No</option>
-                                    </select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-ofe-es-lic').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
-                            <div class="filter-group"><label>Pertenece a Lic.</label>
-                                <div class="filter-wrap"><select id="filt-ofe-pert-lic" class="multi-select" multiple>
-                                        <option value="Si">Si</option>
-                                        <option value="No">No</option>
-                                    </select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-ofe-pert-lic').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
+                            <div class="filter-group"><label>Es Licitación</label><div class="filter-wrap"><select id="filt-ofe-es-lic" class="multi-select" multiple>
+                                    <option value="Si">Si</option><option value="No">No</option>
+                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-es-lic').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Pertenece a Lic.</label><div class="filter-wrap"><select id="filt-ofe-pert-lic" class="multi-select" multiple>
+                                    <option value="Si">Si</option><option value="No">No</option>
+                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-pert-lic').selectedIndex=-1;">✕</button></div></div>
                             <div style="display: flex; gap: 8px; margin-bottom: 2px;">
                                 <button id="btn-update-dash-ofe" class="btn-primary" style="height: 38px;">Aplicar
                                     Filtros</button>
@@ -6522,25 +6475,21 @@
                             </div>
                         </div>
 
-                        <div
-                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 24px;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
                                 <div class="kpi-title">En Curso</div>
                                 <div class="kpi-value" id="kpi-ofe-vivas" style="color: #2176AC;">0</div>
-                                <div class="kpi-sub" id="kpi-ofe-ppto-curso"
-                                    style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
+                                <div class="kpi-sub" id="kpi-ofe-ppto-curso" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Aceptadas</div>
                                 <div class="kpi-value" id="kpi-ofe-acep-count" style="color: #10b981;">0</div>
-                                <div class="kpi-sub" id="kpi-ofe-ppto-acep"
-                                    style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
+                                <div class="kpi-sub" id="kpi-ofe-ppto-acep" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Rechazadas</div>
                                 <div class="kpi-value" id="kpi-ofe-rech-count" style="color: #ef4444;">0</div>
-                                <div class="kpi-sub" id="kpi-ofe-ppto-rech"
-                                    style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
+                                <div class="kpi-sub" id="kpi-ofe-ppto-rech" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">% Licitación</div>
@@ -6551,90 +6500,39 @@
                         <div style="display:none"><canvas id="chart-ofe-donut"></canvas></div>
                         <div class="chart-box" style="margin-bottom: 20px;">
                             <h3 class="chart-title">Nº de Ofertas por Agente Comercial</h3>
-                            <div style="width: 100%; height: 450px; position: relative;"><canvas
-                                    id="chart-ofe-agentes"></canvas></div>
+                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-ofe-agentes"></canvas></div>
                         </div>
                         <div class="chart-box" style="margin-bottom: 20px;">
                             <h3 class="chart-title">Importe por Agente Comercial (€)</h3>
-                            <div style="width: 100%; height: 450px; position: relative;"><canvas
-                                    id="chart-ofe-agentes-importe"></canvas></div>
+                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-ofe-agentes-importe"></canvas></div>
                         </div>
                         <div class="chart-box" style="margin-bottom: 20px;">
-                            <div
-                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <h3 class="chart-title" style="margin-bottom: 0; border: none; padding: 0;">Evolución
-                                    Mensual de Ofertas</h3>
-                                <select id="filt-ofe-evol-year"
-                                    style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;"></select>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <h3 class="chart-title" style="margin-bottom: 0; border: none; padding: 0;">Evolución Mensual de Ofertas</h3>
+                                <select id="filt-ofe-evol-year" style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;"></select>
                             </div>
-                            <div style="width: 100%; height: 360px; position: relative;"><canvas
-                                    id="chart-ofe-mensual"></canvas></div>
+                            <div style="width: 100%; height: 360px; position: relative;"><canvas id="chart-ofe-mensual"></canvas></div>
                         </div>
                         <div class="chart-box">
                             <h3 class="chart-title">Resumen Anual de Ofertas</h3>
-                            <div style="width: 100%; height: 300px; position: relative;"><canvas
-                                    id="chart-ofe-anual"></canvas></div>
+                            <div style="width: 100%; height: 300px; position: relative;"><canvas id="chart-ofe-anual"></canvas></div>
                         </div>
                     </div>
 
                     <div id="panel-dash-produccion" style="display: block;">
                         <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año</label>
-                                <div class="filter-wrap"><select id="filt-pro-year" class="multi-select"
-                                        multiple></select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-pro-year').selectedIndex=-1;">✕</button>
-                                </div>
+                            <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-pro-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-year').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Mes</label><div class="filter-wrap">
+                                <select id="filt-pro-month" class="multi-select" multiple>
+                                    <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
+                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-month').selectedIndex=-1;">✕</button></div>
                             </div>
-                            <div class="filter-group"><label>Mes</label>
-                                <div class="filter-wrap">
-                                    <select id="filt-pro-month" class="multi-select" multiple>
-                                        <option value="1">Ene</option>
-                                        <option value="2">Feb</option>
-                                        <option value="3">Mar</option>
-                                        <option value="4">Abr</option>
-                                        <option value="5">May</option>
-                                        <option value="6">Jun</option>
-                                        <option value="7">Jul</option>
-                                        <option value="8">Ago</option>
-                                        <option value="9">Sep</option>
-                                        <option value="10">Oct</option>
-                                        <option value="11">Nov</option>
-                                        <option value="12">Dic</option>
-                                    </select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-pro-month').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
-                            <div class="filter-group"><label>Téc. Rble.</label>
-                                <div class="filter-wrap"><select id="filt-pro-rble" class="multi-select"
-                                        multiple></select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-pro-rble').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
-                            <div class="filter-group"><label>Ejecutor (T1)</label>
-                                <div class="filter-wrap"><select id="filt-pro-t1" class="multi-select"
-                                        multiple></select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-pro-t1').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
-                            <div class="filter-group"><label>T2 (Apoyo AM)</label>
-                                <div class="filter-wrap"><select id="filt-pro-t2" class="multi-select"
-                                        multiple></select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-pro-t2').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
-                            <div class="filter-group"><label>T3 (Apoyo AN)</label>
-                                <div class="filter-wrap"><select id="filt-pro-t3" class="multi-select"
-                                        multiple></select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-pro-t3').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
-                            <div class="filter-group"><label>Servicio</label>
-                                <div class="filter-wrap"><select id="filt-pro-srv" class="multi-select"
-                                        multiple></select><button class="btn-clear-filter" title="Limpiar"
-                                        onclick="document.getElementById('filt-pro-srv').selectedIndex=-1;">✕</button>
-                                </div>
-                            </div>
+                            <div class="filter-group"><label>Téc. Rble.</label><div class="filter-wrap"><select id="filt-pro-rble" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-rble').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Ejecutor (T1)</label><div class="filter-wrap"><select id="filt-pro-t1" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t1').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>T2 (Apoyo AM)</label><div class="filter-wrap"><select id="filt-pro-t2" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t2').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>T3 (Apoyo AN)</label><div class="filter-wrap"><select id="filt-pro-t3" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t3').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Servicio</label><div class="filter-wrap"><select id="filt-pro-srv" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-srv').selectedIndex=-1;">✕</button></div></div>
                             <div style="display: flex; gap: 8px; margin-bottom: 2px;">
                                 <button id="btn-update-dash-pro" class="btn-primary"
                                     style="height: 38px;">Aplicar</button>
@@ -6643,8 +6541,7 @@
                             </div>
                         </div>
 
-                        <div
-                            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
                                 <div class="kpi-title">Facturación Pendiente (sin VB)</div>
                                 <div class="kpi-value" id="kpi-pro-fact" style="color: #2176AC;">0 €</div>
@@ -6655,31 +6552,22 @@
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Horas Pdtes. por Técnico</div>
-                                <div id="kpi-pro-lista-tec"
-                                    style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;">
-                                </div>
+                                <div id="kpi-pro-lista-tec" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Fact. Pdte. por Técnico</div>
-                                <div id="kpi-pro-fact-tec"
-                                    style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;">
-                                </div>
+                                <div id="kpi-pro-fact-tec" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Fact. Pdte. por Servicio</div>
-                                <div id="kpi-pro-fact-srv"
-                                    style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;">
-                                </div>
+                                <div id="kpi-pro-fact-srv" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
                             </div>
                         </div>
 
                         <div class="chart-box" style="margin-bottom: 24px;">
                             <h3 class="chart-title">Diagrama de Gantt (Progreso Real)</h3>
-                            <div id="gantt-wrapper"
-                                style="width: 100%; height: 500px; border: 1px solid #f1f5f9; border-radius: 4px; position: relative; overflow: hidden;">
-                                <div id="gantt-sticky-header"
-                                    style="position: sticky; top: 0; z-index: 3; background: #fff; min-width: 1000px; height: 32px; border-bottom: 1px solid #e2e8f0;">
-                                </div>
+                            <div id="gantt-wrapper" style="width: 100%; height: 500px; border: 1px solid #f1f5f9; border-radius: 4px; position: relative; overflow: hidden;">
+                                <div id="gantt-sticky-header" style="position: sticky; top: 0; z-index: 3; background: #fff; min-width: 1000px; height: 32px; border-bottom: 1px solid #e2e8f0;"></div>
                                 <div style="overflow: auto; height: calc(100% - 32px); width: 100%;">
                                     <div id="gantt-scroll-container" style="min-width: 1000px; position: relative;">
                                         <canvas id="chart-pro-gantt"></canvas>
@@ -6696,56 +6584,36 @@
                     </div>
 
 
-                    <div id="panel-dash-rendimiento" style="display: none;">
+                                        <div id="panel-dash-rendimiento" style="display: none;">
                         <div class="chart-box" style="margin-bottom: 24px;">
                             <h3 class="chart-title">Productividad por técnico</h3>
-                            <div
-                                style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
+                            <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
                                 <div class="filter-group"><label>Año</label>
-                                    <select id="filt-prod-carga-year" class="multi-select" multiple
-                                        style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;min-height:36px;"></select>
+                                    <select id="filt-prod-carga-year" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;min-height:36px;"></select>
                                 </div>
                                 <div class="filter-group"><label>Mes</label>
-                                    <select id="filt-prod-carga-month" class="multi-select" multiple
-                                        style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;min-height:36px;">
-                                        <option value="1">Ene</option>
-                                        <option value="2">Feb</option>
-                                        <option value="3">Mar</option>
-                                        <option value="4">Abr</option>
-                                        <option value="5">May</option>
-                                        <option value="6">Jun</option>
-                                        <option value="7">Jul</option>
-                                        <option value="8">Ago</option>
-                                        <option value="9">Sep</option>
-                                        <option value="10">Oct</option>
-                                        <option value="11">Nov</option>
-                                        <option value="12">Dic</option>
+                                    <select id="filt-prod-carga-month" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;min-height:36px;">
+                                        <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option>
+                                        <option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option>
+                                        <option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
                                     </select>
                                 </div>
-                                <button id="btn-update-productividad" class="btn-primary"
-                                    style="height: 36px;">Aplicar</button>
-                                <button id="btn-clear-productividad" class="btn-secondary"
-                                    style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar
-                                    filtros</button>
+                                <button id="btn-update-productividad" class="btn-primary" style="height: 36px;">Aplicar</button>
+                                <button id="btn-clear-productividad" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar filtros</button>
                             </div>
                             <div id="container-carga-rendimiento"></div>
                         </div>
 
                         <div class="chart-box" style="margin-bottom: 24px;">
                             <h3 class="chart-title">Facturado y por facturar mensual</h3>
-                            <div
-                                style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
+                            <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
                                 <div class="filter-group"><label>Técnico</label>
-                                    <select id="filt-mensual-tec" class="multi-select" multiple
-                                        style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
+                                    <select id="filt-mensual-tec" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
                                 </div>
-                                <button id="btn-update-mensual" class="btn-primary"
-                                    style="height: 36px;">Aplicar</button>
-                                <button id="btn-clear-mensual" class="btn-secondary"
-                                    style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
+                                <button id="btn-update-mensual" class="btn-primary" style="height: 36px;">Aplicar</button>
+                                <button id="btn-clear-mensual" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
                             </div>
-                            <div style="width: 100%; height: 350px; position: relative;"><canvas
-                                    id="chart-mensual-fact"></canvas></div>
+                            <div style="width: 100%; height: 350px; position: relative;"><canvas id="chart-mensual-fact"></canvas></div>
                         </div>
 
                         <div class="chart-box">
@@ -6755,31 +6623,24 @@
                     </div>
 
                     <div id="panel-dash-partes" style="display: none;">
-                        <div
-                            style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
+                        <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label>
-                                <select id="filt-partes-year"
-                                    style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
+                                <select id="filt-partes-year" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
                                     <option value="2026" selected>2026</option>
                                 </select>
                             </div>
-                            <button id="btn-update-dash-partes" class="btn-primary"
-                                style="height: 38px;">Aplicar</button>
+                            <button id="btn-update-dash-partes" class="btn-primary" style="height: 38px;">Aplicar</button>
                         </div>
-                        <div id="partes-tabla-container"
-                            style="overflow-x: auto; max-height: calc(100vh - 300px); overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
-                        </div>
+                        <div id="partes-tabla-container" style="overflow-x: auto; max-height: calc(100vh - 300px); overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;"></div>
 
                         <div id="partes-errores-container" style="margin-top: 32px;">
-                            <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">
-                                Registros sin código de trabajo</h3>
-                            <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Líneas en las que los
-                                técnicos no han indicado un código numérico al inicio de las observaciones.</p>
+                            <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">Registros sin código de trabajo</h3>
+                            <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Líneas en las que los técnicos no han indicado un código numérico al inicio de las observaciones.</p>
                             <div id="partes-errores-tabla" style="overflow-x: auto;"></div>
                         </div>
                     </div>
 
-                </div>
+                    </div>
 
                 <!-- Vista: Configuración -->
                 <div id="view-configuracion" class="app-view"
@@ -6805,8 +6666,7 @@
 
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label for="input-cols-prod"
-                                    style="font-size: 14px; font-weight: 500; color: #334155;">Columnas con icono
-                                    fijador
+                                    style="font-size: 14px; font-weight: 500; color: #334155;">Columnas con icono fijador
                                     (Producción)</label>
                                 <input type="number" id="input-cols-prod" min="0" max="5"
                                     style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; outline: none; width: 200px;">
@@ -6814,8 +6674,7 @@
 
                             <div style="display: flex; flex-direction: column; gap: 8px;">
                                 <label for="input-cols-ofer"
-                                    style="font-size: 14px; font-weight: 500; color: #334155;">Columnas con icono
-                                    fijador
+                                    style="font-size: 14px; font-weight: 500; color: #334155;">Columnas con icono fijador
                                     (Ofertas)</label>
                                 <input type="number" id="input-cols-ofer" min="0" max="5"
                                     style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; outline: none; width: 200px;">
@@ -7008,70 +6867,69 @@
                         <!-- Lista: Técnicos (Solo Admin) — Ancho completo debajo de las listas -->
                         <div id="panel-tecnicos"
                             style="margin-top: 24px; width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
-                            <div
-                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                                <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin: 0;">Técnicos
-                                </h3>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <label for="preferencia-tecnicos"
-                                        style="font-size: 13px; font-weight: 500; color: #334155;">Mostrar en
-                                        tablas:</label>
-                                    <select id="preferencia-tecnicos"
-                                        style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; outline: none; background-color: white;">
-                                        <option value="acronimo">Acrónimo</option>
-                                        <option value="nombre_pila">Nombre de Pila</option>
-                                    </select>
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                    <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin: 0;">Técnicos
+                                    </h3>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <label for="preferencia-tecnicos"
+                                            style="font-size: 13px; font-weight: 500; color: #334155;">Mostrar en
+                                            tablas:</label>
+                                        <select id="preferencia-tecnicos"
+                                            style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; outline: none; background-color: white;">
+                                            <option value="acronimo">Acrónimo</option>
+                                            <option value="nombre_pila">Nombre de Pila</option>
+                                        </select>
+                                    </div>
                                 </div>
-                            </div>
-                            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                                <input type="text" id="input-tec-nom" placeholder="Nombre completo"
-                                    style="flex: 2; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
-                                <input type="text" id="input-tec-acr" placeholder="Acrónimo"
-                                    style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
-                                <input type="text" id="input-tec-id" placeholder="Nº Téc."
-                                    style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
-                                <input type="color" id="input-tec-color" value="#ffffff"
-                                    style="width: 36px; height: 32px; padding: 0; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;"
-                                    title="Color asignado">
-                                <select id="input-tec-rol"
-                                    style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
-                                    <option value="lectura">lectura</option>
-                                    <option value="edicion">edicion</option>
-                                    <option value="admin">admin</option>
-                                </select>
-                                <button id="btn-add-tecnico" class="btn-primary"
-                                    style="padding: 6px 12px; font-size: 13px;">Añadir</button>
-                            </div>
-                            <div
-                                style="overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
-                                <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                                    <thead style="background: #f1f5f9; position: sticky; top: 0;">
-                                        <tr>
-                                            <th
-                                                style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b;">
-                                                Nombre</th>
-                                            <th
-                                                style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
-                                                Acrónimo</th>
-                                            <th
-                                                style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
-                                                Nombre Pila</th>
-                                            <th
-                                                style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
-                                                Nº Téc.</th>
-                                            <th
-                                                style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
-                                                Rol</th>
-                                            <th
-                                                style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 50px;">
-                                                Color</th>
-                                            <th style="padding: 6px 12px; width: 60px;"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tbody-tecnicos">
-                                    </tbody>
-                                </table>
-                            </div>
+                                <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                                    <input type="text" id="input-tec-nom" placeholder="Nombre completo"
+                                        style="flex: 2; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                    <input type="text" id="input-tec-acr" placeholder="Acrónimo"
+                                        style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                    <input type="text" id="input-tec-id" placeholder="Nº Téc."
+                                        style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                    <input type="color" id="input-tec-color" value="#ffffff"
+                                        style="width: 36px; height: 32px; padding: 0; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;"
+                                        title="Color asignado">
+                                    <select id="input-tec-rol" style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                        <option value="lectura">lectura</option>
+                                        <option value="edicion">edicion</option>
+                                        <option value="admin">admin</option>
+                                    </select>
+                                    <button id="btn-add-tecnico" class="btn-primary"
+                                        style="padding: 6px 12px; font-size: 13px;">Añadir</button>
+                                </div>
+                                <div
+                                    style="overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
+                                    <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                                        <thead style="background: #f1f5f9; position: sticky; top: 0;">
+                                            <tr>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b;">
+                                                    Nombre</th>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
+                                                    Acrónimo</th>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
+                                                    Nombre Pila</th>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
+                                                    Nº Téc.</th>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
+                                                    Rol</th>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 50px;">
+                                                    Color</th>
+                                                <th style="padding: 6px 12px; width: 60px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="tbody-tecnicos">
+                                        </tbody>
+                                    </table>
+                                </div>
                         </div>
                     </div>
 
@@ -7079,29 +6937,17 @@
                     <div id="panel-permisos" class="config-panel" style="margin-top: 30px;">
                         <h2 class="config-section-title">Permisos por Rol</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 16px;">
-                            Haz clic en cualquier celda para cambiar el permiso entre <strong>Permitido</strong> y
-                            <strong>Bloqueado</strong>. Los cambios se guardan automáticamente.
+                            Haz clic en cualquier celda para cambiar el permiso entre <strong>Permitido</strong> y <strong>Bloqueado</strong>. Los cambios se guardan automáticamente.
                         </p>
                         <div style="overflow-x: auto;">
-                            <table id="tabla-permisos"
-                                style="width: 100%; border-collapse: collapse; font-size: 13px; background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
+                            <table id="tabla-permisos" style="width: 100%; border-collapse: collapse; font-size: 13px; background: white; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0;">
                                 <thead>
                                     <tr style="background: #f1f5f9;">
-                                        <th
-                                            style="padding: 10px 12px; text-align: left; font-weight: 600; color: #334155; border-bottom: 2px solid #e2e8f0; min-width: 200px;">
-                                            Permiso</th>
-                                        <th
-                                            style="padding: 10px 12px; text-align: center; font-weight: 600; color: #6d28d9; border-bottom: 2px solid #e2e8f0; width: 100px;">
-                                            Admin</th>
-                                        <th
-                                            style="padding: 10px 12px; text-align: center; font-weight: 600; color: #0f766e; border-bottom: 2px solid #e2e8f0; width: 100px;">
-                                            Edición</th>
-                                        <th
-                                            style="padding: 10px 12px; text-align: center; font-weight: 600; color: #1d4ed8; border-bottom: 2px solid #e2e8f0; width: 100px;">
-                                            Lectura</th>
-                                        <th
-                                            style="padding: 10px 12px; text-align: center; font-weight: 600; color: #b45309; border-bottom: 2px solid #e2e8f0; width: 100px;">
-                                            Financiero</th>
+                                        <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #334155; border-bottom: 2px solid #e2e8f0; min-width: 200px;">Permiso</th>
+                                        <th style="padding: 10px 12px; text-align: center; font-weight: 600; color: #6d28d9; border-bottom: 2px solid #e2e8f0; width: 100px;">Admin</th>
+                                        <th style="padding: 10px 12px; text-align: center; font-weight: 600; color: #0f766e; border-bottom: 2px solid #e2e8f0; width: 100px;">Edición</th>
+                                        <th style="padding: 10px 12px; text-align: center; font-weight: 600; color: #1d4ed8; border-bottom: 2px solid #e2e8f0; width: 100px;">Lectura</th>
+                                        <th style="padding: 10px 12px; text-align: center; font-weight: 600; color: #b45309; border-bottom: 2px solid #e2e8f0; width: 100px;">Financiero</th>
                                     </tr>
                                 </thead>
                                 <tbody id="tbody-permisos"></tbody>
@@ -7245,9 +7091,7 @@
             </h2>
             <button id="btn-refrescar-historial" class="btn-secondary"
                 style="padding: 6px 12px; margin-right: 8px;">Refrescar</button>
-            <button id="btn-close-history"
-                style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;"
-                title="Cerrar historial">&#9650;</button>
+            <button id="btn-close-history" style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;" title="Cerrar historial">&#9650;</button>
         </div>
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
             <table class="data-table" style="min-width: 100%; border-collapse: collapse;">
@@ -7299,16 +7143,12 @@
 
             <div style="display: flex; gap: 12px; margin-bottom: 24px;">
                 <div style="flex: 1;">
-                    <label
-                        style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Fecha
-                        Inicio</label>
+                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Fecha Inicio</label>
                     <input type="date" id="modal-input-fecha-inicio"
                         style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
                 </div>
                 <div style="flex: 1;">
-                    <label
-                        style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Fecha
-                        Fin</label>
+                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Fecha Fin</label>
                     <input type="date" id="modal-input-fecha-fin"
                         style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
                 </div>
