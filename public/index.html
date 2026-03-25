@@ -5363,7 +5363,8 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     if (term.length > 0 && term.length < 3) return; // Exigir 3 caracteres
 
                     // Detectar qué vista está activa (Producción u Ofertas)
-                    const activeView = document.querySelector('.app-view[style*="display: block"]');
+                    const activeView = Array.from(document.querySelectorAll('.app-view'))
+                        .find(el => getComputedStyle(el).display !== 'none');
                     if (!activeView) return;
 
                     const tbody = activeView.querySelector('tbody');
