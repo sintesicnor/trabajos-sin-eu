@@ -130,7 +130,38 @@
                 // 4. Consultar colección usuarios_activos en Firestore
                 const userActiveSnap = await getDoc(doc(db, "usuarios_activos", user.email));
                 if (!userActiveSnap.exists()) {
-                    throw new Error("USUARIO_NO_ACTIVO");
+                    // Fallback: comprobar si el email está en la tabla de técnicos
+                    let tecSnap = null;
+                    try {
+                        tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
+                    } catch (tecErr) {
+                        console.warn("No se pudo consultar lista de técnicos:", tecErr);
+                    }
+                    
+                    let encontradoEnTecnicos = false;
+                    if (tecSnap && tecSnap.exists()) {
+                        const items = tecSnap.data().items || [];
+                        encontradoEnTecnicos = items.some(t => 
+                            (t.email || '').toLowerCase() === user.email.toLowerCase() ||
+                            (t.id_tec || '').toLowerCase() === user.email.toLowerCase()
+                        );
+                    }
+
+                    if (!encontradoEnTecnicos) {
+                        throw new Error("USUARIO_NO_ACTIVO");
+                    }
+
+                    // Si está en técnicos pero no en usuarios_activos, lo damos de alta automáticamente
+                    const tecData = (tecSnap.data().items || []).find(t => 
+                        (t.email || '').toLowerCase() === user.email.toLowerCase() ||
+                        (t.id_tec || '').toLowerCase() === user.email.toLowerCase()
+                    );
+                    await setDoc(doc(db, "usuarios_activos", user.email), {
+                        activo: true,
+                        nombre: tecData ? tecData.nombre : user.displayName || '',
+                        acronimo: tecData ? tecData.acronimo : ''
+                    });
+                    console.log("✅ Usuario dado de alta automáticamente en usuarios_activos desde tabla de técnicos");
                 }
 
                 console.log("✅ Acceso autorizado para:", user.email);
