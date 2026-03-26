@@ -1786,7 +1786,7 @@
 
                         // Resolver acrónimo del usuario logueado
                         const userEmail = user.email || '';
-                        const tecMatch = listaTecnicos.find(t => (t.id_tec || '').toLowerCase() === userEmail.toLowerCase());
+                        const tecMatch = listaTecnicos.find(t => (t.email || '').toLowerCase() === userEmail.toLowerCase() || (t.id_tec || '').toLowerCase() === userEmail.toLowerCase());
                         currentUserAcronym = tecMatch ? tecMatch.acronimo : null;
 
                         // Cargar permisos personalizados desde Firestore (si existen)
@@ -4477,6 +4477,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     <td class="tec-acronimo" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.acronimo)}</span></td>
                     <td class="tec-pila" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.nombre_pila || '')}</span></td>
                     <td class="tec-id" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.id_tec || '')}</span></td>
+                    <td class="tec-email" style="padding: 6px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.email || '')}</span></td>
                     <td class="tec-rol" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center; cursor: pointer;" title="Doble clic para cambiar rol"><span>${escapeHTML(t.rol || 'lectura')}</span></td>
                     <td class="tec-color" style="padding: 6px 12px; border-bottom: 1px solid #f1f5f9; text-align: center;">
                         <div style="width: 20px; height: 20px; background-color: ${c}; border: 1px solid #cbd5e1; border-radius: 4px; display: inline-block;"></div>
@@ -4497,6 +4498,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     const tdAcr = tr.querySelector('.tec-acronimo');
                     const tdPila = tr.querySelector('.tec-pila');
                     const tdId = tr.querySelector('.tec-id');
+                    const tdEmail = tr.querySelector('.tec-email');
                     const tdRol = tr.querySelector('.tec-rol');
                     const tdColor = tr.querySelector('.tec-color');
 
@@ -4506,6 +4508,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     tdAcr.innerHTML = `<input type="text" class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;" value="${escapeHTML(t.acronimo || '')}" />`;
                     tdPila.innerHTML = `<input type="text" class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;" value="${escapeHTML(t.nombre_pila || '')}" />`;
                     tdId.innerHTML = `<input type="text" class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;" value="${escapeHTML(t.id_tec || '')}" />`;
+                    tdEmail.innerHTML = `<input type="email" class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;" value="${escapeHTML(t.email || '')}" placeholder="email@tesicnor.com" />`;
                     tdRol.innerHTML = `
                         <select class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;">
                             <option value="lectura" ${t.rol === 'lectura' ? 'selected' : ''}>lectura</option>
@@ -4530,22 +4533,24 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                         const newNom = inputs[0].value.trim();
                         const newAcr = inputs[1].value.trim();
                         const newId = inputs[3].value.trim();
-                        const newRol = inputs[4].value;
+                        const newEmail = inputs[4].value.trim();
+                        const newRol = inputs[5].value;
 
                         if (newNom && newAcr) {
                             t.nombre = newNom;
                             t.acronimo = newAcr;
                             t.nombre_pila = inputs[2].value.trim();
                             t.id_tec = newId;
+                            t.email = newEmail;
                             t.rol = newRol;
-                            t.color = inputs[5].value;
+                            t.color = inputs[6].value;
                             await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
 
                             // Sincronizar con usuarios/{email} y usuarios_activos
-                            if (newId && newId.includes('@')) {
+                            if (newEmail && newEmail.includes('@')) {
                                 try {
-                                    await setDoc(doc(db, "usuarios", newId), { rol: newRol }, { merge: true });
-                                    await setDoc(doc(db, "usuarios_activos", newId), { activo: true, nombre: newNom, acronimo: newAcr }, { merge: true });
+                                    await setDoc(doc(db, "usuarios", newEmail), { rol: newRol }, { merge: true });
+                                    await setDoc(doc(db, "usuarios_activos", newEmail), { activo: true, nombre: newNom, acronimo: newAcr }, { merge: true });
                                 } catch (errSync) {
                                     manejarErrorFirebase(errSync, "Error sincronizando rol del técnico.");
                                 }
@@ -4597,7 +4602,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                         t.rol = nuevoRol;
                         try {
                             await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
-                            const emailId = t.id_tec || '';
+                            const emailId = t.email || t.id_tec || '';
                             if (emailId.includes('@')) {
                                 await setDoc(doc(db, "usuarios", emailId), { rol: nuevoRol }, { merge: true });
                                 await setDoc(doc(db, "usuarios_activos", emailId), { activo: true }, { merge: true });
@@ -4645,20 +4650,22 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     const nombre = document.getElementById('input-tec-nom').value.trim();
                     const acronimo = document.getElementById('input-tec-acr').value.trim();
                     const id_tec = document.getElementById('input-tec-id').value.trim();
+                    const email = document.getElementById('input-tec-email').value.trim();
                     const rol = document.getElementById('input-tec-rol').value;
                     const color = document.getElementById('input-tec-color').value;
 
                     if (nombre && acronimo) {
-                        listaTecnicos.push({ nombre, acronimo, id_tec, color, rol });
+                        listaTecnicos.push({ nombre, acronimo, id_tec, email, color, rol });
                         await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
                         // Sincronizar con usuarios/{email} y usuarios_activos si hay email
-                        if (id_tec && id_tec.includes('@')) {
-                            await setDoc(doc(db, "usuarios", id_tec), { rol: rol }, { merge: true });
-                            await setDoc(doc(db, "usuarios_activos", id_tec), { activo: true, nombre: nombre, acronimo: acronimo }, { merge: true });
+                        if (email && email.includes('@')) {
+                            await setDoc(doc(db, "usuarios", email), { rol: rol }, { merge: true });
+                            await setDoc(doc(db, "usuarios_activos", email), { activo: true, nombre: nombre, acronimo: acronimo }, { merge: true });
                         }
                         document.getElementById('input-tec-nom').value = '';
                         document.getElementById('input-tec-acr').value = '';
                         document.getElementById('input-tec-id').value = '';
+                        document.getElementById('input-tec-email').value = '';
                         document.getElementById('input-tec-color').value = '#ffffff';
                         renderListaTecnicos();
                     } else {
@@ -6888,8 +6895,10 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                         style="flex: 2; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <input type="text" id="input-tec-acr" placeholder="Acrónimo"
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
-                                    <input type="text" id="input-tec-id" placeholder="Nº Téc."
-                                        style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                    <input type="text" id="input-tec-id" placeholder="Nº Téc. (ERP)"
+                                        style="flex: 0.7; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                    <input type="email" id="input-tec-email" placeholder="Email"
+                                        style="flex: 1.5; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <input type="color" id="input-tec-color" value="#ffffff"
                                         style="width: 36px; height: 32px; padding: 0; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;"
                                         title="Color asignado">
@@ -6918,6 +6927,9 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
                                                     Nº Téc.</th>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 180px;">
+                                                    Email</th>
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
                                                     Rol</th>
