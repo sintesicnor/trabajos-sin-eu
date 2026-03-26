@@ -1758,36 +1758,52 @@
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
-                        // 1. Intentar obtener rol por Email (Sincronizado desde tabla de técnicos)
-                        let userDoc = null;
-                        
-                        if (user.email) {
-                            try {
-                                userDoc = await getDoc(doc(db, "usuarios", user.email));
-                            } catch (emailErr) {
-                                console.warn("No se pudo leer usuarios por email:", emailErr.code || emailErr);
+                        // 0. Asegurar que listaTecnicos está actualizada desde Firestore
+                        try {
+                            const tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
+                            if (tecSnap.exists()) {
+                                listaTecnicos = tecSnap.data().items || listaTecnicos;
                             }
-                        }
-                        
-                        // 2. Respaldo: Intentar por UID (Legacy o si no hay email)
-                        if (!userDoc || !userDoc.exists()) {
-                            try {
-                                userDoc = await getDoc(doc(db, "usuarios", user.uid));
-                            } catch (uidErr) {
-                                console.warn("No se pudo leer usuarios por UID:", uidErr.code || uidErr);
-                            }
+                        } catch (tecErr) {
+                            console.warn("No se pudo precargar lista de técnicos:", tecErr);
                         }
 
-                        if (userDoc && userDoc.exists()) {
-                            currentUserRole = userDoc.data().rol || 'lectura';
-                        } else {
-                            currentUserRole = 'lectura';
-                        }
-
-                        // Resolver acrónimo del usuario logueado
+                        // 1. Resolver técnico y rol desde la tabla de técnicos (fuente principal)
                         const userEmail = user.email || '';
                         const tecMatch = listaTecnicos.find(t => (t.email || '').toLowerCase() === userEmail.toLowerCase() || (t.id_tec || '').toLowerCase() === userEmail.toLowerCase());
                         currentUserAcronym = tecMatch ? tecMatch.acronimo : null;
+
+                        if (tecMatch && tecMatch.rol) {
+                            // Rol encontrado en la tabla de técnicos
+                            currentUserRole = tecMatch.rol;
+                            console.log("🔑 Rol asignado desde tabla de técnicos:", currentUserRole, "para", userEmail);
+                        } else {
+                            // 2. Fallback: buscar en colección usuarios/{email} o usuarios/{uid}
+                            let userDoc = null;
+                            
+                            if (user.email) {
+                                try {
+                                    userDoc = await getDoc(doc(db, "usuarios", user.email));
+                                } catch (emailErr) {
+                                    console.warn("No se pudo leer usuarios por email:", emailErr.code || emailErr);
+                                }
+                            }
+                            
+                            if (!userDoc || !userDoc.exists()) {
+                                try {
+                                    userDoc = await getDoc(doc(db, "usuarios", user.uid));
+                                } catch (uidErr) {
+                                    console.warn("No se pudo leer usuarios por UID:", uidErr.code || uidErr);
+                                }
+                            }
+
+                            if (userDoc && userDoc.exists()) {
+                                currentUserRole = userDoc.data().rol || 'lectura';
+                            } else {
+                                currentUserRole = 'lectura';
+                            }
+                            console.log("🔑 Rol asignado desde colección usuarios:", currentUserRole, "para", userEmail);
+                        }
 
                         // Cargar permisos personalizados desde Firestore (si existen)
                         try {
@@ -6274,7 +6290,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.037</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.48</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
