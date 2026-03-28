@@ -39,21 +39,23 @@
         const functions = getFunctions(app);
 
         // ── v0.037: Firebase App Check con reCAPTCHA Enterprise ──
+        // ⚠️ TEMPORALMENTE DESACTIVADO para diagnosticar problema de login Microsoft
         // En localhost usamos debug token para no bloquear el desarrollo local
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-            // Debug token: permite pasar App Check en emulador/localhost
-            // Copia el token que aparece en consola y regístralo en Firebase Console > App Check > Apps > Manage debug tokens
             self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
         }
+        /*
         try {
             const appCheck = initializeAppCheck(app, {
                 provider: new ReCaptchaEnterpriseProvider('6Ld-3ZIsAAAAACeVzehqoWHcTT8DLmY35LWg55Xl'),
-                isTokenAutoRefreshEnabled: true // Renueva el token automáticamente
+                isTokenAutoRefreshEnabled: true
             });
             console.log("🛡️ Firebase App Check inicializado con reCAPTCHA Enterprise");
         } catch (appCheckErr) {
-            console.warn("⚠️ App Check no se pudo inicializar. La app seguirá funcionando sin protección reCAPTCHA:", appCheckErr);
+            console.warn("⚠️ App Check no se pudo inicializar:", appCheckErr);
         }
+        */
+        console.log("⚠️ App Check DESACTIVADO temporalmente para diagnóstico");
 
         // Conectar a emulador de Autenticación si estamos en localhost
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
@@ -114,14 +116,83 @@
             const loginError = document.getElementById('login-error');
             if (loginError) loginError.style.display = 'none';
 
+            console.log("🚀 Iniciando login Microsoft con popup...");
+
+            let result;
             try {
-                // Marcar que estamos iniciando login con Microsoft
-                sessionStorage.setItem('microsoft_login_pending', 'true');
-                await signInWithRedirect(auth, microsoftProvider);
-            } catch (error) {
-                console.error("Error iniciando redirect Microsoft:", error);
-                sessionStorage.removeItem('microsoft_login_pending');
-                alert("Error al iniciar sesión con Microsoft. Inténtalo de nuevo.");
+                result = await signInWithPopup(auth, microsoftProvider);
+            } catch (popupError) {
+                // El popup falló — logueamos TODO antes de hacer nada
+                console.error("❌ signInWithPopup FALLÓ");
+                console.error("❌ error.code:", popupError.code);
+                console.error("❌ error.message:", popupError.message);
+                console.error("❌ error completo:", popupError);
+                
+                if (popupError.code === 'auth/popup-closed-by-user' || popupError.code === 'auth/cancelled-popup-request') {
+                    console.log("ℹ️ Popup cerrado por el usuario");
+                    return;
+                }
+
+                if (popupError.code === 'auth/popup-blocked') {
+                    alert("El popup fue bloqueado por el navegador. Permite popups para este sitio.");
+                    return;
+                }
+
+                alert("Error de autenticación Microsoft: " + (popupError.code || popupError.message));
+                return;
+            }
+
+            // Si llegamos aquí, el popup devolvió resultado
+            const user = result.user;
+            console.log("✅ signInWithPopup EXITOSO");
+            console.log("🔍 user.email:", user.email);
+            console.log("🔍 user.uid:", user.uid);
+            console.log("🔍 user.providerData:", JSON.stringify(user.providerData));
+
+            const msProvider = user.providerData.find(p => p.providerId === 'microsoft.com');
+            const emailFinal = user.email || (msProvider ? msProvider.email : null);
+            console.log("🔍 Email final:", emailFinal);
+
+            if (!emailFinal || !emailFinal.endsWith("@tesicnor.com")) {
+                console.error("❌ DOMINIO_NO_VALIDO. Email:", emailFinal);
+                await signOut(auth);
+                alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
+                return;
+            }
+
+            // Validar usuario activo
+            try {
+                const userActiveSnap = await getDoc(doc(db, "usuarios_activos", emailFinal));
+                if (!userActiveSnap.exists()) {
+                    let tecSnap = null;
+                    try { tecSnap = await getDoc(doc(db, "listas_config", "tecnicos")); } catch(e) {}
+                    
+                    let encontrado = false;
+                    let tecData = null;
+                    if (tecSnap && tecSnap.exists()) {
+                        tecData = (tecSnap.data().items || []).find(t =>
+                            (t.email || '').toLowerCase() === emailFinal.toLowerCase() ||
+                            (t.id_tec || '').toLowerCase() === emailFinal.toLowerCase()
+                        );
+                        encontrado = !!tecData;
+                    }
+
+                    if (!encontrado) {
+                        await signOut(auth);
+                        alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
+                        return;
+                    }
+
+                    await setDoc(doc(db, "usuarios_activos", emailFinal), {
+                        activo: true,
+                        nombre: tecData.nombre || user.displayName || '',
+                        acronimo: tecData.acronimo || ''
+                    });
+                }
+                console.log("✅ Acceso autorizado para:", emailFinal);
+            } catch (firestoreErr) {
+                console.error("❌ Error Firestore post-login:", firestoreErr);
+                // No bloquear el login — onAuthStateChanged lo gestionará
             }
         }
 
@@ -1727,68 +1798,11 @@
 
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
-                    // ── DEBUG: ver TODO lo que Firebase sabe del usuario ──
-                    console.log("🔍 === DEBUG AUTH (onAuthStateChanged) ===");
+                    // ── DEBUG ──
+                    console.log("🔍 === onAuthStateChanged: usuario detectado ===");
                     console.log("🔍 user.email:", user.email);
                     console.log("🔍 user.uid:", user.uid);
-                    console.log("🔍 user.displayName:", user.displayName);
                     console.log("🔍 user.providerData:", JSON.stringify(user.providerData));
-                    console.log("🔍 === FIN DEBUG ===");
-
-                    // ── Validación de dominio para Microsoft ──
-                    const esMicrosoft = user.providerData.some(p => p.providerId === 'microsoft.com');
-                    if (esMicrosoft) {
-                        const email = user.email || '';
-                        if (!email.endsWith("@tesicnor.com")) {
-                            console.error("❌ DOMINIO_NO_VALIDO:", email);
-                            sessionStorage.removeItem('microsoft_login_pending');
-                            await signOut(auth);
-                            alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
-                            return;
-                        }
-
-                        // Validar usuario activo
-                        let usuarioPermitido = false;
-                        try {
-                            const uaSnap = await getDoc(doc(db, "usuarios_activos", email));
-                            usuarioPermitido = uaSnap.exists();
-                        } catch (e) {
-                            console.warn("⚠️ Error leyendo usuarios_activos:", e);
-                        }
-
-                        if (!usuarioPermitido) {
-                            try {
-                                const tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
-                                if (tecSnap && tecSnap.exists()) {
-                                    const tecData = (tecSnap.data().items || []).find(t =>
-                                        (t.email || '').toLowerCase() === email.toLowerCase() ||
-                                        (t.id_tec || '').toLowerCase() === email.toLowerCase()
-                                    );
-                                    if (tecData) {
-                                        usuarioPermitido = true;
-                                        await setDoc(doc(db, "usuarios_activos", email), {
-                                            activo: true,
-                                            nombre: tecData.nombre || user.displayName || '',
-                                            acronimo: tecData.acronimo || ''
-                                        });
-                                    }
-                                }
-                            } catch (e) {
-                                console.warn("⚠️ Error leyendo técnicos:", e);
-                            }
-                        }
-
-                        if (!usuarioPermitido) {
-                            console.error("❌ USUARIO_NO_ACTIVO:", email);
-                            sessionStorage.removeItem('microsoft_login_pending');
-                            await signOut(auth);
-                            alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
-                            return;
-                        }
-
-                        console.log("✅ Acceso Microsoft autorizado para:", email);
-                        sessionStorage.removeItem('microsoft_login_pending');
-                    }
 
                     try {
                         // 0. Asegurar que listaTecnicos está actualizada desde Firestore
