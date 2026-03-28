@@ -25,7 +25,7 @@
         // Your web app's Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyBo7VF6741bof4RvlOwQc-WB7TRTfmZXQA",
-            authDomain: "trabajos-sin-eu.firebaseapp.com",
+            authDomain: "trabajos-sin-eu.web.app",
             projectId: "trabajos-sin-eu",
             storageBucket: "trabajos-sin-eu.firebasestorage.app",
             messagingSenderId: "544783672214",
@@ -115,10 +115,74 @@
             if (loginError) loginError.style.display = 'none';
 
             try {
-                await signInWithRedirect(auth, microsoftProvider);
+                // Usar popup con authDomain = web.app para evitar COOP
+                const result = await signInWithPopup(auth, microsoftProvider);
+                const user = result.user;
+
+                console.log("🔍 === DEBUG AUTH (popup) ===");
+                console.log("🔍 user.email:", user.email);
+                console.log("🔍 user.uid:", user.uid);
+                console.log("🔍 user.providerData:", JSON.stringify(user.providerData));
+
+                // Validar dominio @tesicnor.com
+                if (!user.email || !user.email.endsWith("@tesicnor.com")) {
+                    throw new Error("DOMINIO_NO_VALIDO");
+                }
+
+                // Consultar colección usuarios_activos en Firestore
+                const userActiveSnap = await getDoc(doc(db, "usuarios_activos", user.email));
+                if (!userActiveSnap.exists()) {
+                    let tecSnap = null;
+                    try {
+                        tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
+                    } catch (tecErr) {
+                        console.warn("No se pudo consultar lista de técnicos:", tecErr);
+                    }
+                    
+                    let encontradoEnTecnicos = false;
+                    if (tecSnap && tecSnap.exists()) {
+                        const items = tecSnap.data().items || [];
+                        encontradoEnTecnicos = items.some(t => 
+                            (t.email || '').toLowerCase() === user.email.toLowerCase() ||
+                            (t.id_tec || '').toLowerCase() === user.email.toLowerCase()
+                        );
+                    }
+
+                    if (!encontradoEnTecnicos) {
+                        throw new Error("USUARIO_NO_ACTIVO");
+                    }
+
+                    const tecData = (tecSnap.data().items || []).find(t => 
+                        (t.email || '').toLowerCase() === user.email.toLowerCase() ||
+                        (t.id_tec || '').toLowerCase() === user.email.toLowerCase()
+                    );
+                    await setDoc(doc(db, "usuarios_activos", user.email), {
+                        activo: true,
+                        nombre: tecData ? tecData.nombre : user.displayName || '',
+                        acronimo: tecData ? tecData.acronimo : ''
+                    });
+                    console.log("✅ Usuario dado de alta automáticamente");
+                }
+
+                console.log("✅ Acceso autorizado para:", user.email);
+
             } catch (error) {
-                console.error("Error iniciando redirect Microsoft:", error);
-                alert("Error al iniciar sesión con Microsoft. Inténtalo de nuevo.");
+                console.error("❌ Error en autenticación Microsoft:", error);
+                
+                await signOut(auth);
+
+                const mensajeAlerta = 'Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com';
+                
+                if (error.message === "DOMINIO_NO_VALIDO" || error.message === "USUARIO_NO_ACTIVO") {
+                    alert(mensajeAlerta);
+                    if (loginError) {
+                        loginError.textContent = mensajeAlerta;
+                        loginError.style.display = 'block';
+                    }
+                } else if (error.code !== 'auth/popup-closed-by-user') {
+                    console.error("❌ Error completo:", error.code, error.message);
+                    alert("Error al iniciar sesión con Microsoft: " + (error.code || error.message));
+                }
             }
         }
 
@@ -1740,77 +1804,6 @@
                         console.warn("🔍 Error obteniendo token:", tokErr);
                     }
                     console.log("🔍 === FIN DEBUG ===");
-
-                    // ── Validación de dominio y usuario activo (antes de cargar la app) ──
-                    const userEmail = user.email || '';
-                    console.log("🔍 onAuthStateChanged disparado. Email:", userEmail);
-                    console.log("🔍 Provider:", user.providerData.map(p => p.providerId).join(', '));
-
-                    // Solo validar dominio para usuarios de Microsoft (no para email/password locales)
-                    const esMicrosoft = user.providerData.some(p => p.providerId === 'microsoft.com');
-                    
-                    if (esMicrosoft) {
-                        // Validar dominio @tesicnor.com
-                        if (!userEmail || !userEmail.endsWith("@tesicnor.com")) {
-                            console.error("❌ DOMINIO_NO_VALIDO:", userEmail);
-                            await signOut(auth);
-                            alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
-                            return;
-                        }
-
-                        // Validar usuario activo
-                        let usuarioPermitido = false;
-                        try {
-                            const userActiveSnap = await getDoc(doc(db, "usuarios_activos", userEmail));
-                            if (userActiveSnap.exists()) {
-                                usuarioPermitido = true;
-                                console.log("✅ Usuario encontrado en usuarios_activos");
-                            }
-                        } catch (uaErr) {
-                            console.warn("⚠️ Error leyendo usuarios_activos:", uaErr);
-                        }
-
-                        if (!usuarioPermitido) {
-                            // Fallback: comprobar en tabla de técnicos
-                            let tecSnap = null;
-                            try {
-                                tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
-                            } catch (tecErr) {
-                                console.warn("⚠️ Error leyendo técnicos:", tecErr);
-                            }
-
-                            if (tecSnap && tecSnap.exists()) {
-                                const items = tecSnap.data().items || [];
-                                const tecData = items.find(t =>
-                                    (t.email || '').toLowerCase() === userEmail.toLowerCase() ||
-                                    (t.id_tec || '').toLowerCase() === userEmail.toLowerCase()
-                                );
-                                if (tecData) {
-                                    usuarioPermitido = true;
-                                    // Dar de alta automáticamente en usuarios_activos
-                                    try {
-                                        await setDoc(doc(db, "usuarios_activos", userEmail), {
-                                            activo: true,
-                                            nombre: tecData.nombre || user.displayName || '',
-                                            acronimo: tecData.acronimo || ''
-                                        });
-                                        console.log("✅ Usuario dado de alta automáticamente desde tabla de técnicos");
-                                    } catch (setErr) {
-                                        console.warn("⚠️ No se pudo crear usuarios_activos:", setErr);
-                                    }
-                                }
-                            }
-                        }
-
-                        if (!usuarioPermitido) {
-                            console.error("❌ USUARIO_NO_ACTIVO:", userEmail);
-                            await signOut(auth);
-                            alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
-                            return;
-                        }
-
-                        console.log("✅ Acceso autorizado para:", userEmail);
-                    }
 
                     try {
                         // 0. Asegurar que listaTecnicos está actualizada desde Firestore
