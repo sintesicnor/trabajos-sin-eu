@@ -126,22 +126,40 @@
             }
         }
 
+        // ── Flag para controlar la carrera entre getRedirectResult y onAuthStateChanged ──
+        let redirectValidationPending = true;
+        let redirectValidationPassed = false;
+
         // ── Capturar resultado del redirect de Microsoft al cargar la página ──
         getRedirectResult(auth).then(async (result) => {
-            if (!result) return; // No hay redirect pendiente
+            if (!result) {
+                // No hay redirect pendiente, permitir que onAuthStateChanged funcione normal
+                redirectValidationPending = false;
+                return;
+            }
 
             const user = result.user;
             const loginError = document.getElementById('login-error');
 
             try {
+                console.log("🔍 Redirect result recibido. Email:", user.email);
+                console.log("🔍 Email termina en @tesicnor.com:", user.email ? user.email.endsWith("@tesicnor.com") : false);
+
                 // Validar dominio @tesicnor.com
                 if (!user.email || !user.email.endsWith("@tesicnor.com")) {
                     throw new Error("DOMINIO_NO_VALIDO");
                 }
 
                 // Consultar colección usuarios_activos en Firestore
-                const userActiveSnap = await getDoc(doc(db, "usuarios_activos", user.email));
-                if (!userActiveSnap.exists()) {
+                let userActiveSnap = null;
+                try {
+                    userActiveSnap = await getDoc(doc(db, "usuarios_activos", user.email));
+                    console.log("🔍 usuarios_activos existe:", userActiveSnap.exists());
+                } catch (uaErr) {
+                    console.warn("🔍 Error leyendo usuarios_activos:", uaErr);
+                }
+
+                if (!userActiveSnap || !userActiveSnap.exists()) {
                     // Fallback: comprobar si el email está en la tabla de técnicos
                     let tecSnap = null;
                     try {
@@ -158,6 +176,7 @@
                             (t.id_tec || '').toLowerCase() === user.email.toLowerCase()
                         );
                     }
+                    console.log("🔍 Encontrado en técnicos:", encontradoEnTecnicos);
 
                     if (!encontradoEnTecnicos) {
                         throw new Error("USUARIO_NO_ACTIVO");
@@ -177,11 +196,15 @@
                 }
 
                 console.log("✅ Acceso autorizado para:", user.email);
-                // onAuthStateChanged se disparará automáticamente y cargará la app
+                redirectValidationPassed = true;
+                redirectValidationPending = false;
 
             } catch (error) {
-                console.error("Error en autenticación Microsoft:", error);
+                console.error("❌ Error en validación post-redirect:", error.message, error);
                 
+                redirectValidationPassed = false;
+                redirectValidationPending = false;
+
                 // Cerrar sesión si falló la validación
                 await signOut(auth);
 
@@ -197,6 +220,7 @@
             }
         }).catch((error) => {
             console.error("Error procesando redirect de Microsoft:", error);
+            redirectValidationPending = false;
         });
 
         // Datos en memoria para Dashboard (Fase 8)
@@ -1801,6 +1825,25 @@
 
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
+                    // ── Esperar a que la validación del redirect termine ──
+                    if (redirectValidationPending) {
+                        console.log("⏳ onAuthStateChanged: esperando validación redirect...");
+                        // Esperar hasta que redirectValidationPending sea false
+                        await new Promise(resolve => {
+                            const check = setInterval(() => {
+                                if (!redirectValidationPending) {
+                                    clearInterval(check);
+                                    resolve();
+                                }
+                            }, 100);
+                        });
+                        // Si la validación falló, no continuar (signOut ya se habrá ejecutado)
+                        if (!redirectValidationPassed && !auth.currentUser) {
+                            console.log("🚫 onAuthStateChanged: validación redirect falló, abortando carga");
+                            return;
+                        }
+                    }
+
                     try {
                         // 0. Asegurar que listaTecnicos está actualizada desde Firestore
                         try {
