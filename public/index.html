@@ -1724,6 +1724,23 @@
 
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
+                    // ── DEBUG: ver TODO lo que Firebase sabe del usuario ──
+                    console.log("🔍 === DEBUG AUTH ===");
+                    console.log("🔍 user.email:", user.email);
+                    console.log("🔍 user.uid:", user.uid);
+                    console.log("🔍 user.displayName:", user.displayName);
+                    console.log("🔍 user.providerData:", JSON.stringify(user.providerData));
+                    console.log("🔍 user.emailVerified:", user.emailVerified);
+                    // Obtener el token para ver los claims
+                    try {
+                        const token = await user.getIdTokenResult();
+                        console.log("🔍 token.claims.email:", token.claims.email);
+                        console.log("🔍 token.signInProvider:", token.signInProvider);
+                    } catch(tokErr) {
+                        console.warn("🔍 Error obteniendo token:", tokErr);
+                    }
+                    console.log("🔍 === FIN DEBUG ===");
+
                     // ── Validación de dominio y usuario activo (antes de cargar la app) ──
                     const userEmail = user.email || '';
                     console.log("🔍 onAuthStateChanged disparado. Email:", userEmail);
