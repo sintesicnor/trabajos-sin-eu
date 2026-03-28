@@ -18,7 +18,7 @@
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
 
@@ -115,19 +115,31 @@
             if (loginError) loginError.style.display = 'none';
 
             try {
-                // 1. Asegurar persistencia de sesión
-                await setPersistence(auth, browserSessionPersistence);
+                // Usar redirect en vez de popup para evitar problemas COOP
+                await signInWithRedirect(auth, microsoftProvider);
+                // La página se recargará tras el redirect; el resultado se captura abajo
+            } catch (error) {
+                console.error("Error iniciando redirect Microsoft:", error);
+                if (error.code !== 'auth/popup-closed-by-user') {
+                    alert("Error al iniciar sesión con Microsoft. Inténtalo de nuevo.");
+                }
+            }
+        }
 
-                // 2. Ejecutar login con Microsoft
-                const result = await signInWithPopup(auth, microsoftProvider);
-                const user = result.user;
+        // ── Capturar resultado del redirect de Microsoft al cargar la página ──
+        getRedirectResult(auth).then(async (result) => {
+            if (!result) return; // No hay redirect pendiente
 
-                // 3. Validar dominio @tesicnor.com
+            const user = result.user;
+            const loginError = document.getElementById('login-error');
+
+            try {
+                // Validar dominio @tesicnor.com
                 if (!user.email || !user.email.endsWith("@tesicnor.com")) {
                     throw new Error("DOMINIO_NO_VALIDO");
                 }
 
-                // 4. Consultar colección usuarios_activos en Firestore
+                // Consultar colección usuarios_activos en Firestore
                 const userActiveSnap = await getDoc(doc(db, "usuarios_activos", user.email));
                 if (!userActiveSnap.exists()) {
                     // Fallback: comprobar si el email está en la tabla de técnicos
@@ -165,11 +177,12 @@
                 }
 
                 console.log("✅ Acceso autorizado para:", user.email);
+                // onAuthStateChanged se disparará automáticamente y cargará la app
 
             } catch (error) {
                 console.error("Error en autenticación Microsoft:", error);
                 
-                // Cerrar sesión si falló la validación para limpiar el estado de Firebase
+                // Cerrar sesión si falló la validación
                 await signOut(auth);
 
                 const mensajeAlerta = 'Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com';
@@ -180,11 +193,11 @@
                         loginError.textContent = mensajeAlerta;
                         loginError.style.display = 'block';
                     }
-                } else if (error.code !== 'auth/popup-closed-by-user') {
-                    alert("Error al iniciar sesión con Microsoft. Inténtalo de nuevo.");
                 }
             }
-        }
+        }).catch((error) => {
+            console.error("Error procesando redirect de Microsoft:", error);
+        });
 
         // Datos en memoria para Dashboard (Fase 8)
         const datosProduccionMemoria = [];
