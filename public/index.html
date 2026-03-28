@@ -39,12 +39,9 @@
         const functions = getFunctions(app);
 
         // ── v0.037: Firebase App Check con reCAPTCHA Enterprise ──
-        // ⚠️ TEMPORALMENTE DESACTIVADO para diagnosticar problema de login Microsoft
-        // En localhost usamos debug token para no bloquear el desarrollo local
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
             self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
         }
-        /*
         try {
             const appCheck = initializeAppCheck(app, {
                 provider: new ReCaptchaEnterpriseProvider('6Ld-3ZIsAAAAACeVzehqoWHcTT8DLmY35LWg55Xl'),
@@ -54,8 +51,6 @@
         } catch (appCheckErr) {
             console.warn("⚠️ App Check no se pudo inicializar:", appCheckErr);
         }
-        */
-        console.log("⚠️ App Check DESACTIVADO temporalmente para diagnóstico");
 
         // Conectar a emulador de Autenticación si estamos en localhost
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
@@ -116,47 +111,35 @@
             const loginError = document.getElementById('login-error');
             if (loginError) loginError.style.display = 'none';
 
-            console.log("🚀 Iniciando login Microsoft con popup...");
-
             let result;
             try {
                 result = await signInWithPopup(auth, microsoftProvider);
             } catch (popupError) {
-                // El popup falló — logueamos TODO antes de hacer nada
-                console.error("❌ signInWithPopup FALLÓ");
-                console.error("❌ error.code:", popupError.code);
-                console.error("❌ error.message:", popupError.message);
-                console.error("❌ error completo:", popupError);
-                
                 if (popupError.code === 'auth/popup-closed-by-user' || popupError.code === 'auth/cancelled-popup-request') {
-                    console.log("ℹ️ Popup cerrado por el usuario");
                     return;
                 }
-
                 if (popupError.code === 'auth/popup-blocked') {
                     alert("El popup fue bloqueado por el navegador. Permite popups para este sitio.");
                     return;
                 }
-
+                console.error("Error en popup Microsoft:", popupError);
                 alert("Error de autenticación Microsoft: " + (popupError.code || popupError.message));
                 return;
             }
 
-            // Si llegamos aquí, el popup devolvió resultado
             const user = result.user;
-            console.log("✅ signInWithPopup EXITOSO");
-            console.log("🔍 user.email:", user.email);
-            console.log("🔍 user.uid:", user.uid);
-            console.log("🔍 user.providerData:", JSON.stringify(user.providerData));
 
+            // user.email puede ser null con Microsoft — obtener del providerData
             const msProvider = user.providerData.find(p => p.providerId === 'microsoft.com');
             const emailFinal = user.email || (msProvider ? msProvider.email : null);
-            console.log("🔍 Email final:", emailFinal);
 
             if (!emailFinal || !emailFinal.endsWith("@tesicnor.com")) {
-                console.error("❌ DOMINIO_NO_VALIDO. Email:", emailFinal);
                 await signOut(auth);
                 alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
+                if (loginError) {
+                    loginError.textContent = 'Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com';
+                    loginError.style.display = 'block';
+                }
                 return;
             }
 
@@ -167,17 +150,15 @@
                     let tecSnap = null;
                     try { tecSnap = await getDoc(doc(db, "listas_config", "tecnicos")); } catch(e) {}
                     
-                    let encontrado = false;
                     let tecData = null;
                     if (tecSnap && tecSnap.exists()) {
                         tecData = (tecSnap.data().items || []).find(t =>
                             (t.email || '').toLowerCase() === emailFinal.toLowerCase() ||
                             (t.id_tec || '').toLowerCase() === emailFinal.toLowerCase()
                         );
-                        encontrado = !!tecData;
                     }
 
-                    if (!encontrado) {
+                    if (!tecData) {
                         await signOut(auth);
                         alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
                         return;
@@ -191,8 +172,7 @@
                 }
                 console.log("✅ Acceso autorizado para:", emailFinal);
             } catch (firestoreErr) {
-                console.error("❌ Error Firestore post-login:", firestoreErr);
-                // No bloquear el login — onAuthStateChanged lo gestionará
+                console.error("Error Firestore post-login:", firestoreErr);
             }
         }
 
@@ -1798,12 +1778,6 @@
 
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
-                    // ── DEBUG ──
-                    console.log("🔍 === onAuthStateChanged: usuario detectado ===");
-                    console.log("🔍 user.email:", user.email);
-                    console.log("🔍 user.uid:", user.uid);
-                    console.log("🔍 user.providerData:", JSON.stringify(user.providerData));
-
                     try {
                         // 0. Asegurar que listaTecnicos está actualizada desde Firestore
                         try {
@@ -1816,7 +1790,9 @@
                         }
 
                         // 1. Resolver técnico y rol desde la tabla de técnicos (fuente principal)
-                        const userEmail = user.email || '';
+                        // user.email puede ser null con Microsoft — fallback a providerData
+                        const msProviderData = user.providerData.find(p => p.providerId === 'microsoft.com');
+                        const userEmail = user.email || (msProviderData ? msProviderData.email : '') || '';
                         const tecMatch = listaTecnicos.find(t => (t.email || '').toLowerCase() === userEmail.toLowerCase() || (t.id_tec || '').toLowerCase() === userEmail.toLowerCase());
                         currentUserAcronym = tecMatch ? tecMatch.acronimo : null;
 
