@@ -115,98 +115,13 @@
             if (loginError) loginError.style.display = 'none';
 
             try {
-                const result = await signInWithPopup(auth, microsoftProvider);
-                const user = result.user;
-
-                // ── DIAGNÓSTICO COMPLETO ──
-                console.log("🔍 === DIAGNÓSTICO MICROSOFT LOGIN ===");
-                console.log("🔍 user.email:", JSON.stringify(user.email));
-                console.log("🔍 user.uid:", user.uid);
-                console.log("🔍 user.displayName:", user.displayName);
-                console.log("🔍 user.emailVerified:", user.emailVerified);
-                console.log("🔍 user.providerData:", JSON.stringify(user.providerData, null, 2));
-                
-                // Verificar el email del proveedor Microsoft directamente
-                const msProvider = user.providerData.find(p => p.providerId === 'microsoft.com');
-                console.log("🔍 Microsoft provider email:", msProvider ? msProvider.email : 'NO ENCONTRADO');
-                
-                // Verificar token claims
-                try {
-                    const tokenResult = await user.getIdTokenResult();
-                    console.log("🔍 token.claims.email:", tokenResult.claims.email);
-                    console.log("🔍 token.claims.email_verified:", tokenResult.claims.email_verified);
-                    console.log("🔍 token.signInProvider:", tokenResult.signInProvider);
-                } catch (tokErr) {
-                    console.warn("🔍 Error obteniendo token:", tokErr);
-                }
-
-                // Obtener el email más fiable
-                const emailFinal = user.email || (msProvider ? msProvider.email : null);
-                console.log("🔍 Email final a usar:", emailFinal);
-                console.log("🔍 Termina en @tesicnor.com:", emailFinal ? emailFinal.endsWith("@tesicnor.com") : false);
-                console.log("🔍 === FIN DIAGNÓSTICO ===");
-
-                // Validar dominio @tesicnor.com (usando email del proveedor como fallback)
-                if (!emailFinal || !emailFinal.endsWith("@tesicnor.com")) {
-                    throw new Error("DOMINIO_NO_VALIDO");
-                }
-
-                // Consultar colección usuarios_activos en Firestore
-                const userActiveSnap = await getDoc(doc(db, "usuarios_activos", emailFinal));
-                if (!userActiveSnap.exists()) {
-                    let tecSnap = null;
-                    try {
-                        tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
-                    } catch (tecErr) {
-                        console.warn("No se pudo consultar lista de técnicos:", tecErr);
-                    }
-                    
-                    let encontradoEnTecnicos = false;
-                    if (tecSnap && tecSnap.exists()) {
-                        const items = tecSnap.data().items || [];
-                        encontradoEnTecnicos = items.some(t => 
-                            (t.email || '').toLowerCase() === emailFinal.toLowerCase() ||
-                            (t.id_tec || '').toLowerCase() === emailFinal.toLowerCase()
-                        );
-                    }
-
-                    if (!encontradoEnTecnicos) {
-                        throw new Error("USUARIO_NO_ACTIVO");
-                    }
-
-                    const tecData = (tecSnap.data().items || []).find(t => 
-                        (t.email || '').toLowerCase() === emailFinal.toLowerCase() ||
-                        (t.id_tec || '').toLowerCase() === emailFinal.toLowerCase()
-                    );
-                    await setDoc(doc(db, "usuarios_activos", emailFinal), {
-                        activo: true,
-                        nombre: tecData ? tecData.nombre : user.displayName || '',
-                        acronimo: tecData ? tecData.acronimo : ''
-                    });
-                    console.log("✅ Usuario dado de alta automáticamente");
-                }
-
-                console.log("✅ Acceso autorizado para:", emailFinal);
-
+                // Marcar que estamos iniciando login con Microsoft
+                sessionStorage.setItem('microsoft_login_pending', 'true');
+                await signInWithRedirect(auth, microsoftProvider);
             } catch (error) {
-                console.error("❌ Error en autenticación Microsoft:", error);
-                console.error("❌ error.code:", error.code);
-                console.error("❌ error.message:", error.message);
-                
-                // Solo hacer signOut si no es error de popup cerrado
-                if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
-                    try { await signOut(auth); } catch(e) {}
-                }
-
-                if (error.message === "DOMINIO_NO_VALIDO" || error.message === "USUARIO_NO_ACTIVO") {
-                    alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
-                    if (loginError) {
-                        loginError.textContent = 'Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com';
-                        loginError.style.display = 'block';
-                    }
-                } else if (error.code !== 'auth/popup-closed-by-user' && error.code !== 'auth/cancelled-popup-request') {
-                    alert("Error al iniciar sesión con Microsoft: " + (error.message || error.code));
-                }
+                console.error("Error iniciando redirect Microsoft:", error);
+                sessionStorage.removeItem('microsoft_login_pending');
+                alert("Error al iniciar sesión con Microsoft. Inténtalo de nuevo.");
             }
         }
 
@@ -1813,21 +1728,67 @@
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     // ── DEBUG: ver TODO lo que Firebase sabe del usuario ──
-                    console.log("🔍 === DEBUG AUTH ===");
+                    console.log("🔍 === DEBUG AUTH (onAuthStateChanged) ===");
                     console.log("🔍 user.email:", user.email);
                     console.log("🔍 user.uid:", user.uid);
                     console.log("🔍 user.displayName:", user.displayName);
                     console.log("🔍 user.providerData:", JSON.stringify(user.providerData));
-                    console.log("🔍 user.emailVerified:", user.emailVerified);
-                    // Obtener el token para ver los claims
-                    try {
-                        const token = await user.getIdTokenResult();
-                        console.log("🔍 token.claims.email:", token.claims.email);
-                        console.log("🔍 token.signInProvider:", token.signInProvider);
-                    } catch(tokErr) {
-                        console.warn("🔍 Error obteniendo token:", tokErr);
-                    }
                     console.log("🔍 === FIN DEBUG ===");
+
+                    // ── Validación de dominio para Microsoft ──
+                    const esMicrosoft = user.providerData.some(p => p.providerId === 'microsoft.com');
+                    if (esMicrosoft) {
+                        const email = user.email || '';
+                        if (!email.endsWith("@tesicnor.com")) {
+                            console.error("❌ DOMINIO_NO_VALIDO:", email);
+                            sessionStorage.removeItem('microsoft_login_pending');
+                            await signOut(auth);
+                            alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
+                            return;
+                        }
+
+                        // Validar usuario activo
+                        let usuarioPermitido = false;
+                        try {
+                            const uaSnap = await getDoc(doc(db, "usuarios_activos", email));
+                            usuarioPermitido = uaSnap.exists();
+                        } catch (e) {
+                            console.warn("⚠️ Error leyendo usuarios_activos:", e);
+                        }
+
+                        if (!usuarioPermitido) {
+                            try {
+                                const tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
+                                if (tecSnap && tecSnap.exists()) {
+                                    const tecData = (tecSnap.data().items || []).find(t =>
+                                        (t.email || '').toLowerCase() === email.toLowerCase() ||
+                                        (t.id_tec || '').toLowerCase() === email.toLowerCase()
+                                    );
+                                    if (tecData) {
+                                        usuarioPermitido = true;
+                                        await setDoc(doc(db, "usuarios_activos", email), {
+                                            activo: true,
+                                            nombre: tecData.nombre || user.displayName || '',
+                                            acronimo: tecData.acronimo || ''
+                                        });
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("⚠️ Error leyendo técnicos:", e);
+                            }
+                        }
+
+                        if (!usuarioPermitido) {
+                            console.error("❌ USUARIO_NO_ACTIVO:", email);
+                            sessionStorage.removeItem('microsoft_login_pending');
+                            await signOut(auth);
+                            alert('Acceso no autorizado. Por favor, solicita el alta a atoledo@tesicnor.com');
+                            return;
+                        }
+
+                        console.log("✅ Acceso Microsoft autorizado para:", email);
+                        sessionStorage.removeItem('microsoft_login_pending');
+                    }
 
                     try {
                         // 0. Asegurar que listaTecnicos está actualizada desde Firestore
