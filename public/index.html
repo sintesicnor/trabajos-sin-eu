@@ -339,6 +339,27 @@
             return isNaN(d.getTime()) ? null : d;
         }
 
+        // ── v0.068: Formatear fecha para visualización ──
+        // Si es serial Excel lo convierte a dd/mm/yyyy, si ya es texto lo deja igual
+        function formatearFechaDisplay(raw) {
+            if (!raw) return '';
+            const s = String(raw).trim();
+            if (!s) return '';
+            // Si ya tiene formato dd/mm/yyyy o similar con /, devolver tal cual
+            if (s.includes('/')) return s;
+            // Si es serial Excel, convertir a dd/mm/yyyy
+            if (/^\d{4,5}$/.test(s)) {
+                const d = excelSerialToDate(s);
+                if (d) {
+                    const dd = String(d.getDate()).padStart(2, '0');
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    const yyyy = d.getFullYear();
+                    return `${dd}/${mm}/${yyyy}`;
+                }
+            }
+            return s;
+        }
+
         // ── Resolución de técnico por id_tec (número del ERP) ──
         // El campo "trabajador" en partes_horas es un número (ej: "375")
         // que se cruza con el campo "id_tec" de cada técnico en listas_config/tecnicos
@@ -719,8 +740,8 @@
                         <td data-field="oferta_gestiona">${escapeHTML(data['oferta_gestiona'] || '')}</td>
                         <td data-field="exp_gestiona">${escapeHTML(data['exp_gestiona'] || '')}</td>
                         <td data-field="tipo_expediente">${escapeHTML(data['tipo_expediente'] || '')}</td>
-                        <td data-field="fecha_inicio">${escapeHTML(data['fecha_inicio'] || '')}</td>
-                        <td data-field="fecha_fin">${escapeHTML(data['fecha_fin'] || '')}</td>
+                        <td data-field="fecha_inicio">${escapeHTML(formatearFechaDisplay(data['fecha_inicio']))}</td>
+                        <td data-field="fecha_fin">${escapeHTML(formatearFechaDisplay(data['fecha_fin']))}</td>
                         <td data-field="responsable_g" style="background-color: ${getTecColorObj(respObj)}">${escapeHTML(respgLabel)}</td>
                         <td data-field="ejecutor_t1" style="background-color: ${getTecColorObj(t1Obj)}">${escapeHTML(t1Label)}</td>
                         <td data-field="apoyo_am" style="background-color: ${getTecColorObj(amObj)}">${escapeHTML(amLabel)}</td>
@@ -736,9 +757,9 @@
                         <td data-field="total_horas_calc" style="font-weight: 600; text-align: center;">${totalHoras > 0 ? formatHours(totalHoras) : ''}</td>
                         <td data-field="pct_uso" style="background-color: ${pctColor}; color: ${pctTextColor}; text-align: center; font-weight: 600; text-shadow: 0 1px 1px rgba(0,0,0,0.1);">${pctText}</td>
                         ${techHtml}
-                        <td data-field="fecha_ap" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['fecha_ap'] || '')}</td>
+                        <td data-field="fecha_ap" style="background-color: #fce7f3; color: #334155;">${escapeHTML(formatearFechaDisplay(data['fecha_ap']))}</td>
                         <td data-field="visto_vb_cliente" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['visto_vb_cliente'] || '')}</td>
-                        <td data-field="fecha_ar" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['fecha_ar'] || '')}</td>
+                        <td data-field="fecha_ar" style="background-color: #fce7f3; color: #334155;">${escapeHTML(formatearFechaDisplay(data['fecha_ar']))}</td>
                         <td data-field="observaciones" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['observaciones'] || '')}</td>
                         <td data-field="num_at" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['num_at'] || '')}</td>
                         <td data-field="mes_facturacion" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['mes_facturacion'] || '')}</td>
@@ -1406,7 +1427,7 @@
                         <td data-field="num_gestiona">${escapeHTML(data.num_gestiona || docId)}</td>
                         <td data-field="pertenece_a_licitacion">${escapeHTML(data.pertenece_a_licitacion || '')}</td>
                         <td data-field="es_licitacion">${escapeHTML(data.es_licitacion || '')}</td>
-                        <td data-field="fecha_oferta">${escapeHTML(data.fecha_oferta || '')}</td>
+                        <td data-field="fecha_oferta">${escapeHTML(formatearFechaDisplay(data.fecha_oferta))}</td>
                         <td data-field="agente_comercial">${escapeHTML(data.agente_comercial || '')}</td>
                         <td data-field="oficina">${escapeHTML(data.oficina || '')}</td>
                         <td data-field="grupo">${escapeHTML(data.grupo || '')}</td>
