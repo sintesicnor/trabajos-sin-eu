@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.068</title>
+    <title>Gestor de Proyectos y Ofertas v0.069</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -3408,9 +3408,11 @@
             const yFil = getMulti('filt-pro-year'); const mFil = getMulti('filt-pro-month');
             const rbleFil = getMulti('filt-pro-rble'); const t1Fil = getMulti('filt-pro-t1');
             const t2Fil = getMulti('filt-pro-t2'); const t3Fil = getMulti('filt-pro-t3');
-            const srvFil = getMulti('filt-pro-srv'); 
+            const srvFil = getMulti('filt-pro-srv');
+            const vbFil = (document.getElementById('filt-pro-vb')?.value || '').trim().toLowerCase();
 
             let factPdte = 0; let hrsPdte = 0;
+            let factRealizada = 0;
             const tecHorasPdte = {};
             const tecFactPdte = {};
             const srvFactPdte = {};
@@ -3431,14 +3433,22 @@
                 if (!checkDateMatch(prod.fecha_inicio, yFil, mFil)) return;
                 if (!matchTec(prod.responsable_g, rbleFil)) return;
                 if (!matchTec(prod.ejecutor_t1, t1Fil)) return;
-                if (!matchTec(prod.apoyo_am, t2Fil)) return; // Mapeado T2 a AM
-                if (!matchTec(prod.apoyo_an, t3Fil)) return; // Mapeado T3 a AN
+                if (!matchTec(prod.apoyo_am, t2Fil)) return;
+                if (!matchTec(prod.apoyo_an, t3Fil)) return;
                 if (srvFil.length > 0 && !srvFil.includes((prod.tipo_servicio || '').trim())) return;
-                // VB filter removed
+
+                const vbCliente = (prod.visto_vb_cliente || '').trim().toLowerCase();
+                // Filtro VB Cliente
+                if (vbFil === 'si' && vbCliente !== 'si') return;
+                if (vbFil === 'no' && vbCliente === 'si') return;
 
                 const ppto = parseSpanishNum(prod.presupuesto_m) || 0;
                 const gast = parseSpanishNum(prod.gastos_n) || 0;
-                const vbCliente = (prod.visto_vb_cliente || '').trim().toLowerCase();
+                // Facturación realizada: VB Cliente = "Si" y tiene fecha_ap
+                const fechaApStr = (prod.fecha_ap || '').trim();
+                if (vbCliente === 'si' && fechaApStr) {
+                    factRealizada += ppto;
+                }
                 // Facturación pendiente: solo presupuesto_m donde VB cliente NO es "Si"
                 if (vbCliente !== 'si') {
                     factPdte += ppto;
@@ -3493,11 +3503,10 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
 
                 // Gantt logic
                 if (prod.fecha_inicio && prod.fecha_fin) {
-                    const pStart = prod.fecha_inicio.split('/');
-                    const pEnd = prod.fecha_fin.split('/');
-                    if (pStart.length === 3 && pEnd.length === 3) {
-                        let dStart = new Date(`${pStart[2]}-${pStart[1]}-${pStart[0]}T00:00:00`);
-                        let dEnd = new Date(`${pEnd[2]}-${pEnd[1]}-${pEnd[0]}T23:59:59`);
+                    let dStart = parseFechaUniversal(prod.fecha_inicio);
+                    let dEnd = parseFechaUniversal(prod.fecha_fin);
+                    if (dStart && dEnd) {
+                        dEnd = new Date(dEnd.getTime() + 86399000); // Set to end of day
                         if (dEnd > dStart) {
                             ganttLabels.push(`${prod.num_trabajo} - ${(prod.servicio || '').substring(0, 15)}`);
                             ganttBase.push([dStart.getTime(), dEnd.getTime()]);
@@ -3544,6 +3553,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
             const fmtN = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 });
             document.getElementById('kpi-pro-fact').textContent = fmtE.format(factPdte);
+            document.getElementById('kpi-pro-fact-realizada').textContent = fmtE.format(factRealizada);
             document.getElementById('kpi-pro-hrs').textContent = fmtN.format(Math.round(hrsPdte)) + ' h';
 
             const boxTec = document.getElementById('kpi-pro-lista-tec');
@@ -3807,7 +3817,10 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             listaTecnicos.forEach(t => {
                 if (!tecMap[t.acronimo]) tecMap[t.acronimo] = { label: t.nombre_pila || t.acronimo, byMonth: {}, bySrv: {}, byDay: {} };
             });
-            const tecKeys = Object.keys(tecMap).sort((a, b) => tecMap[a].label.localeCompare(tecMap[b].label));
+            // Ocultar técnicos sin horas
+            const tecKeys = Object.keys(tecMap)
+                .filter(k => { const td = tecMap[k]; return months.reduce((s, m) => s + (td.byMonth[String(m)] || 0), 0) > 0; })
+                .sort((a, b) => tecMap[a].label.localeCompare(tecMap[b].label));
 
             // Column structure: month (visible) + day cols (hidden) per month
             const colDefs = [];
@@ -3830,6 +3843,62 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             hdrCells += '<th style="padding:6px 8px;font-size:12px;font-weight:700;background:#cbd5e1;color:#0f172a;text-align:center;min-width:60px;">Total</th>';
 
             const fmtV = v => v ? (v % 1 === 0 ? String(v) : v.toFixed(1)) : '';
+            const fmtE2 = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+
+            // Lookup de datos de producción para % Uso y tooltip
+            const prodLookup = {};
+            datosProduccionMemoria.forEach(prod => {
+                const nt = String(prod.num_trabajo);
+                const ppto = parseSpanishNum(prod.presupuesto_m) || 0;
+                const gast = parseSpanishNum(prod.gastos_n) || 0;
+                let hrsDisp = 0;
+                if (ppto > 0 && costeHoraActual > 0) hrsDisp = (ppto - gast) / costeHoraActual;
+                const hHist = parseSpanishNum(prod.total_horas_historico) || 0;
+                const trDom = document.querySelector('#table-body tr[data-id="' + nt + '"]');
+                let hTotalCalc = hHist;
+                if (trDom) {
+                    const tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
+                    if (tdCalc) hTotalCalc = parseFloat(tdCalc.textContent) || hHist;
+                }
+                let pctUso = 0, pctColor = '#e2e8f0', pctTextColor = '#334155';
+                if (hrsDisp > 0) {
+                    pctUso = (hTotalCalc / hrsDisp) * 100;
+                    if (pctUso <= 50) { pctColor = '#10b981'; pctTextColor = '#fff'; }
+                    else if (pctUso <= 75) { pctColor = '#facc15'; pctTextColor = '#1e293b'; }
+                    else if (pctUso <= 95) { pctColor = '#f97316'; pctTextColor = '#fff'; }
+                    else { pctColor = '#ef4444'; pctTextColor = '#fff'; }
+                } else if (hTotalCalc > 0) {
+                    pctUso = Infinity;
+                    pctColor = '#ef4444'; pctTextColor = '#fff';
+                }
+                const getAcr = (val) => {
+                    if (!val) return '';
+                    const check = typeof val === 'string' ? val.trim() : val;
+                    const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
+                    return obj ? (obj.nombre_pila || obj.acronimo) : check;
+                };
+                const hrsRestantes = Math.max(0, hrsDisp - hTotalCalc);
+                prodLookup[nt] = {
+                    pctUso, pctColor, pctTextColor,
+                    fInicio: formatearFechaDisplay(prod.fecha_inicio || ''),
+                    fFin: formatearFechaDisplay(prod.fecha_fin || ''),
+                    rble: getAcr(prod.responsable_g),
+                    t1: getAcr(prod.ejecutor_t1),
+                    t2: getAcr(prod.apoyo_am),
+                    t3: getAcr(prod.apoyo_an),
+                    tipoServicio: prod.tipo_servicio || '',
+                    grupo: prod.grupo || '',
+                    presupuesto: ppto,
+                    hrsRestantes: hrsRestantes
+                };
+            });
+
+            // Helper para extraer num_trabajo del label del servicio
+            function extractNumTrabajo(srvLabel) {
+                const m = srvLabel.match(/^(\d{3,6})/);
+                return m ? m[1] : null;
+            }
+
             let bodyRows = '';
 
             tecKeys.forEach(tecKey => {
@@ -3854,7 +3923,29 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     const sData = td.bySrv[srv];
                     const sTotal = months.reduce((s, m) => s + (sData[String(m)] || 0), 0);
                     if (sTotal === 0) return;
-                    let sCells = '<td style="padding:4px 12px 4px 32px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:350px;position:sticky;left:0;background:white;z-index:2;" title="' + srv.replace(/"/g, '&quot;') + '">' + srv + '</td>';
+
+                    // Badge % Uso
+                    const numT = extractNumTrabajo(srv);
+                    const pInfo = numT ? prodLookup[numT] : null;
+                    let pctBadge = '';
+                    if (pInfo) {
+                        const pctLabel = pInfo.pctUso === Infinity ? '∞%' : pInfo.pctUso.toFixed(0) + '%';
+                        let tooltipLines = [];
+                        if (pInfo.fInicio) tooltipLines.push('F.Inicio: ' + pInfo.fInicio);
+                        if (pInfo.fFin) tooltipLines.push('F.Fin: ' + pInfo.fFin);
+                        if (pInfo.rble) tooltipLines.push('Rble: ' + pInfo.rble);
+                        if (pInfo.t1) tooltipLines.push('T1: ' + pInfo.t1);
+                        if (pInfo.t2) tooltipLines.push('T2: ' + pInfo.t2);
+                        if (pInfo.t3) tooltipLines.push('T3: ' + pInfo.t3);
+                        if (pInfo.tipoServicio) tooltipLines.push('Servicio: ' + pInfo.tipoServicio);
+                        if (pInfo.grupo) tooltipLines.push('Grupo: ' + pInfo.grupo);
+                        tooltipLines.push('Presupuesto: ' + fmtE2.format(pInfo.presupuesto));
+                        tooltipLines.push('Hrs restantes: ' + pInfo.hrsRestantes.toFixed(1) + 'h');
+                        const tooltipText = tooltipLines.join('&#10;');
+                        pctBadge = ' <span title="' + tooltipText + '" style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;background:' + pInfo.pctColor + ';color:' + pInfo.pctTextColor + ';cursor:help;vertical-align:middle;margin-left:4px;">' + pctLabel + '</span>';
+                    }
+
+                    let sCells = '<td style="padding:4px 12px 4px 32px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px;position:sticky;left:0;background:white;z-index:2;" title="' + srv.replace(/"/g, '&quot;') + '">' + srv + pctBadge + '</td>';
                     colDefs.forEach(cd => {
                         if (cd.type === 'month') {
                             sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:#475569;padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
@@ -4408,11 +4499,13 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
         });
 
         document.getElementById('btn-clear-dash-pro')?.addEventListener('click', () => {
-            ['filt-pro-year', 'filt-pro-month', 'filt-pro-rble', 'filt-pro-t2', 'filt-pro-t3', 'filt-pro-srv', 'filt-pro-vb'].forEach(id => {
+            ['filt-pro-year', 'filt-pro-month', 'filt-pro-rble', 'filt-pro-t2', 'filt-pro-t3', 'filt-pro-srv'].forEach(id => {
                 const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
             });
+            const vbSel = document.getElementById('filt-pro-vb');
+            if (vbSel) vbSel.value = '';
             const t1 = document.getElementById('filt-pro-t1');
-            if (t1) Array.from(t1.options).forEach(o => o.selected = true); // Restaurar todos los T1
+            if (t1) Array.from(t1.options).forEach(o => o.selected = true);
             cargarDashboard();
         });
 
@@ -6542,7 +6635,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.068</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.069</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -6809,6 +6902,9 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                             <div class="filter-group"><label>T2 (Apoyo AM)</label><div class="filter-wrap"><select id="filt-pro-t2" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t2').selectedIndex=-1;">✕</button></div></div>
                             <div class="filter-group"><label>T3 (Apoyo AN)</label><div class="filter-wrap"><select id="filt-pro-t3" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t3').selectedIndex=-1;">✕</button></div></div>
                             <div class="filter-group"><label>Servicio</label><div class="filter-wrap"><select id="filt-pro-srv" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-srv').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>VB Cliente</label><div class="filter-wrap"><select id="filt-pro-vb" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;">
+                                <option value="">Todos</option><option value="si">Si (Terminados)</option><option value="no">No</option>
+                            </select></div></div>
                             <div style="display: flex; gap: 8px; margin-bottom: 2px;">
                                 <button id="btn-update-dash-pro" class="btn-primary"
                                     style="height: 38px;">Aplicar</button>
@@ -6821,6 +6917,10 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                             <div class="kpi-card">
                                 <div class="kpi-title">Facturación Pendiente (sin VB)</div>
                                 <div class="kpi-value" id="kpi-pro-fact" style="color: #2176AC;">0 €</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-title">Facturación Realizada</div>
+                                <div class="kpi-value" id="kpi-pro-fact-realizada" style="color: #10b981;">0 €</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Total Horas Pendientes</div>
