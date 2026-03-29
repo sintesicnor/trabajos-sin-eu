@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.066</title>
+    <title>Gestor de Proyectos y Ofertas v0.068</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -374,6 +374,11 @@
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.app-view').forEach(el => el.style.display = 'none');
 
+            // Limpiar sub-items activos si no vamos a Informes
+            if (activeViewId !== 'view-dashboard') {
+                document.querySelectorAll('.nav-sub-item').forEach(el => el.classList.remove('active'));
+            }
+
             // Activar tab y vista seleccionada
             document.getElementById(activeTabId).classList.add('active');
             document.getElementById(activeViewId).style.display = 'block';
@@ -422,7 +427,47 @@
         tabDashboard.addEventListener('click', (e) => {
             e.preventDefault();
             switchView('tab-dashboard', 'view-dashboard');
+            // Activar la sub-sección que esté marcada, o producción por defecto
             cargarDashboard();
+        });
+
+        // Helper: navegar a Informes y activar una sección concreta
+        function navegarInformesSeccion(seccionTabId) {
+            switchView('tab-dashboard', 'view-dashboard');
+            // Limpiar tabs internos del dashboard
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => {
+                document.getElementById(id)?.classList.remove('active');
+            });
+            document.getElementById(seccionTabId)?.classList.add('active');
+            // Limpiar sub-items activos en sidebar
+            document.querySelectorAll('.nav-sub-item').forEach(el => el.classList.remove('active'));
+            // Mapear tab interno a sidebar sub-item
+            const mapTabToSidebar = {
+                'tab-dash-produccion': 'sidebar-dash-produccion',
+                'tab-dash-ofertas': 'sidebar-dash-ofertas',
+                'tab-dash-partes': 'sidebar-dash-partes',
+                'tab-dash-rendimiento': 'sidebar-dash-rendimiento'
+            };
+            document.getElementById(mapTabToSidebar[seccionTabId])?.classList.add('active');
+            cargarDashboard();
+        }
+
+        // Eventos de sub-items de Informes en sidebar
+        document.getElementById('sidebar-dash-produccion')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            navegarInformesSeccion('tab-dash-produccion');
+        });
+        document.getElementById('sidebar-dash-ofertas')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            navegarInformesSeccion('tab-dash-ofertas');
+        });
+        document.getElementById('sidebar-dash-partes')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            navegarInformesSeccion('tab-dash-partes');
+        });
+        document.getElementById('sidebar-dash-rendimiento')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            navegarInformesSeccion('tab-dash-rendimiento');
         });
 
         // Eventos filtros Dashboard
@@ -1879,6 +1924,15 @@
                     const tabRendimiento = document.getElementById('tab-dash-rendimiento');
                     if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
                     if (tabDashboard) tabDashboard.style.display = tienePermiso('ver_dashboard') ? 'flex' : 'none';
+
+                    // Controlar visibilidad de sub-items de Informes en sidebar
+                    const showDash = tienePermiso('ver_dashboard');
+                    ['sidebar-dash-produccion','sidebar-dash-ofertas','sidebar-dash-partes'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.style.display = showDash ? 'flex' : 'none';
+                    });
+                    const sidebarRendimiento = document.getElementById('sidebar-dash-rendimiento');
+                    if (sidebarRendimiento) sidebarRendimiento.style.display = (showDash && (currentUserRole === 'admin' || currentUserRole === 'edicion')) ? 'flex' : 'none';
 
                     // Restringir panel de técnicos solo a admin
                     const panelTecnicos = document.getElementById('panel-tecnicos');
@@ -4245,27 +4299,42 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 document.getElementById(id)?.classList.remove('active');
             });
         };
+        // Helper para sincronizar sub-items de sidebar con tab interno activo
+        function syncSidebarSubItems(activeTabId) {
+            document.querySelectorAll('.nav-sub-item').forEach(el => el.classList.remove('active'));
+            const map = {
+                'tab-dash-produccion': 'sidebar-dash-produccion',
+                'tab-dash-ofertas': 'sidebar-dash-ofertas',
+                'tab-dash-partes': 'sidebar-dash-partes',
+                'tab-dash-rendimiento': 'sidebar-dash-rendimiento'
+            };
+            document.getElementById(map[activeTabId])?.classList.add('active');
+        }
 
         document.getElementById('tab-dash-ofertas')?.addEventListener('click', (e) => {
             clearActiveTabs();
             e.target.classList.add('active');
+            syncSidebarSubItems('tab-dash-ofertas');
             cargarDashboard();
         });
         document.getElementById('tab-dash-produccion')?.addEventListener('click', (e) => {
             clearActiveTabs();
             e.target.classList.add('active');
+            syncSidebarSubItems('tab-dash-produccion');
             cargarDashboard();
         });
         document.getElementById('tab-dash-partes')?.addEventListener('click', (e) => {
             e.preventDefault();
             ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-partes')?.classList.add('active');
+            syncSidebarSubItems('tab-dash-partes');
             cargarDashboard();
         });
         document.getElementById('tab-dash-rendimiento')?.addEventListener('click', (e) => {
             e.preventDefault();
             ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-rendimiento')?.classList.add('active');
+            syncSidebarSubItems('tab-dash-rendimiento');
             cargarDashboard();
         });
 
@@ -4922,7 +4991,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 exportar_excel: 'Exportar a Excel',
                 ver_ofertas: 'Ver pestaña Ofertas',
                 editar_ofertas: 'Editar ofertas',
-                ver_dashboard: 'Ver pestaña Dashboard'
+                ver_dashboard: 'Ver pestaña Informes'
             };
 
             function renderTablaPermisos() {
@@ -5714,6 +5783,36 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             flex-shrink: 0;
         }
 
+        .nav-sub-item {
+            display: flex;
+            align-items: center;
+            padding: 5px 12px 5px 44px;
+            color: #7a8ba3;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 400;
+            transition: background-color 0.2s, color 0.2s;
+            white-space: nowrap;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        .nav-sub-item:hover {
+            background-color: #1a2332;
+            color: #f8fafc;
+        }
+        .nav-sub-item.active {
+            color: #38bdf8;
+            font-weight: 500;
+        }
+        .sidebar.collapsed .nav-sub-item span {
+            opacity: 0;
+            width: 0;
+        }
+        .sidebar.collapsed .nav-sub-item {
+            padding-left: 12px;
+        }
+
 
         /* --- Main Content Area Styles --- */
         .app-container {
@@ -6363,7 +6462,19 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                 </svg>
-                <span>Dashboard</span>
+                <span>Informes</span>
+            </a>
+            <a href="#" class="nav-sub-item" id="sidebar-dash-produccion">
+                <span>Producción</span>
+            </a>
+            <a href="#" class="nav-sub-item" id="sidebar-dash-ofertas">
+                <span>Ofertas</span>
+            </a>
+            <a href="#" class="nav-sub-item" id="sidebar-dash-partes">
+                <span>Partes de Trabajo</span>
+            </a>
+            <a href="#" class="nav-sub-item" id="sidebar-dash-rendimiento" style="display:none;">
+                <span>Productividad</span>
             </a>
             <a href="#" class="nav-item" id="tab-configuracion">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -6375,7 +6486,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.066</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.068</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -6550,7 +6661,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
 
                     <div
                         style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
-                        <h1 style="margin: 0; color: #1e293b; font-size: 24px;">Dashboard de Análisis</h1>
+                        <h1 style="margin: 0; color: #1e293b; font-size: 24px;">Informes</h1>
                     </div>
 
                     <div class="dash-tabs">
