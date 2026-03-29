@@ -4201,6 +4201,7 @@
                 prodLookup[nt] = {
                     pctUso, pctColor, pctTextColor,
                     vbCliente: (prod.visto_vb_cliente || '').trim().toLowerCase() === 'si',
+                    tieneFechaAp: !!(prod.fecha_ap || '').trim(),
                     fInicio: formatearFechaDisplay(prod.fecha_inicio || ''),
                     fFin: formatearFechaDisplay(prod.fecha_fin || ''),
                     rble: getAcr(prod.responsable_g),
@@ -4263,21 +4264,28 @@
                     }
 
                     const isVbSi = pInfo && pInfo.vbCliente;
-                    const srvCellBg = isVbSi ? '#dbeafe' : 'white';
-                    let sCells = '<td style="padding:4px 12px 4px 28px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px;position:sticky;left:0;background:' + srvCellBg + ';z-index:2;" title="' + rowTooltip + '"><div style="display:flex;align-items:center;gap:5px;overflow:hidden;">' + pctBadge + '<span style="overflow:hidden;text-overflow:ellipsis;">' + srv + '</span></div></td>';
+                    const isFechaAp = pInfo && pInfo.tieneFechaAp && !isVbSi;
+                    // Colores: VB Si = azul oscuro, fecha_ap = azul claro, normal = blanco
+                    let srvCellBg = 'white', srvTextColor = '#475569', srvRowBg = '', srvBorder = '#f1f5f9';
+                    if (isVbSi) {
+                        srvCellBg = '#0066FF'; srvTextColor = '#ffffff'; srvRowBg = 'background:#0066FF;'; srvBorder = '#005ce6';
+                    } else if (isFechaAp) {
+                        srvCellBg = '#DBEAFE'; srvTextColor = '#1e3a5f'; srvRowBg = 'background:#DBEAFE;'; srvBorder = '#bfdbfe';
+                    }
+                    let sCells = '<td style="padding:4px 12px 4px 28px;font-size:13px;color:' + srvTextColor + ';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px;position:sticky;left:0;background:' + srvCellBg + ';z-index:2;" title="' + rowTooltip + '"><div style="display:flex;align-items:center;gap:5px;overflow:hidden;">' + pctBadge + '<span style="overflow:hidden;text-overflow:ellipsis;">' + srv + '</span></div></td>';
                     colDefs.forEach(cd => {
                         if (cd.type === 'month') {
-                            sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:#475569;padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
+                            sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:' + srvTextColor + ';padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
                         } else {
                             let dayHrs = 0;
                             if (td.byDay[cd.month] && td.byDay[cd.month][cd.day] && td.byDay[cd.month][cd.day].srvs[srv]) {
                                 dayHrs = td.byDay[cd.month][cd.day].srvs[srv];
                             }
-                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:12px;color:#475569;padding:4px;display:none;">' + fmtV(dayHrs) + '</td>';
+                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:12px;color:' + srvTextColor + ';padding:4px;display:none;">' + fmtV(dayHrs) + '</td>';
                         }
                     });
-                    sCells += '<td style="text-align:center;font-size:13px;font-weight:600;color:#334155;padding:4px;background:#f8fafc;">' + fmtV(sTotal) + '</td>';
-                    const srvRowStyle = isVbSi ? 'display:none;border-bottom:1px solid #bfdbfe;background:#dbeafe;' : 'display:none;border-bottom:1px solid #f1f5f9;';
+                    sCells += '<td style="text-align:center;font-size:13px;font-weight:600;color:' + (isVbSi ? '#fff' : '#334155') + ';padding:4px;background:' + (isVbSi ? '#0066FF' : isFechaAp ? '#DBEAFE' : '#f8fafc') + ';">' + fmtV(sTotal) + '</td>';
+                    const srvRowStyle = 'display:none;border-bottom:1px solid ' + srvBorder + ';' + srvRowBg;
                     bodyRows += '<tr class="pt-row pt-srv" data-parent="' + tecId + '" style="' + srvRowStyle + '">' + sCells + '</tr>';
                 });
             });
