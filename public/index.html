@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.065</title>
+    <title>Gestor de Proyectos y Ofertas v0.066</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -2650,6 +2650,18 @@
                             }
                         }
 
+                        // Actualizar color dinámico si cambia 'fecha_ap' (Fecha Finalización)
+                        if (fieldName === 'fecha_ap') {
+                            if (!tr.classList.contains('fila-vb-si')) {
+                                if ((newValue || '').trim() !== '') {
+                                    tr.style.backgroundColor = '#dbeafe';
+                                } else {
+                                    tr.style.backgroundColor = '';
+                                    cargarProduccion();
+                                }
+                            }
+                        }
+
                         if (['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an'].includes(fieldName)) {
                             td.innerHTML = getTecnicoLabelForValue(newValue);
                         } else if (fieldName === 'presupuesto_m' || fieldName === 'gastos_n') {
@@ -2979,6 +2991,22 @@
         function cargarDashboardOfertas() {
             const yFil = getMulti('filt-ofe-year'); const mFil = getMulti('filt-ofe-month');
             const licFil = getMulti('filt-ofe-es-lic'); const pertFil = getMulti('filt-ofe-pert-lic');
+
+            // ── DIAG temporal ──
+            console.log("🔍 Dashboard ofertas: total en memoria:", datosOfertasMemoria.length);
+            if (datosOfertasMemoria.length > 0) {
+                const sample = datosOfertasMemoria[0];
+                console.log("🔍 Sample oferta:", JSON.stringify({
+                    fecha_oferta: sample.fecha_oferta,
+                    presupuesto_total: sample.presupuesto_total,
+                    estado: sample.estado,
+                    agente_comercial: sample.agente_comercial
+                }));
+                console.log("🔍 parseSpanishNum(presupuesto_total):", parseSpanishNum(sample.presupuesto_total));
+            }
+            console.log("🔍 Filtros: yFil:", yFil, "mFil:", mFil);
+            // ── FIN DIAG ──
+
             let vivas = 0, aceptadas = 0, rechazadas = 0;
             let pptoCurso = 0, pptoAcep = 0, pptoRech = 0;
             let totalLic = 0, totalOfertas = 0;
@@ -6347,7 +6375,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.48</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.066</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
