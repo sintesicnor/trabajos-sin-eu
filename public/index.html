@@ -655,7 +655,13 @@
                     Object.keys(row).forEach(csvCol => {
                         const key = colMap[csvCol.trim().toLowerCase()];
                         if (key) {
-                            let val = (row[csvCol] || '').trim();
+                            let val = row[csvCol];
+                            val = (val === null || val === undefined) ? '' : String(val).trim();
+                            // Limpiar símbolos de moneda en campos de importe
+                            if (key === 'presupuesto_m' || key === 'gastos_n') {
+                                val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
+                            }
+                            // Convertir fechas serial Excel
                             if ((key === 'fecha_inicio' || key === 'fecha_fin') && /^\d{4,5}$/.test(val)) val = formatearFechaDisplay(val);
                             docData[key] = val;
                         }
@@ -730,10 +736,19 @@
                     };
                     Object.keys(row).forEach(csvCol => {
                         const key = colMap[csvCol.trim().toLowerCase()];
-                        if (key) docData[key] = (row[csvCol] || '').trim();
+                        if (key) {
+                            let val = row[csvCol];
+                            // Convertir a string si es número u otro tipo
+                            val = (val === null || val === undefined) ? '' : String(val).trim();
+                            // Limpiar símbolos de moneda en campos de importe
+                            if (key === 'presupuesto' || key === 'gastos_estimados') {
+                                val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
+                            }
+                            docData[key] = val;
+                        }
                     });
                     if (!docData.objeto && !docData.cliente && !docData.servicio) return;
-                    const docId = docData.oferta_gestiona || ('OFE-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4));
+                    const docId = docData.oferta_gestiona || ('OFE-' + Date.now() + '-' + count + '-' + Math.random().toString(36).substr(2, 4));
                     const docRef = doc(db, 'ofertas', docId);
                     batch.set(docRef, docData);
                     count++;
