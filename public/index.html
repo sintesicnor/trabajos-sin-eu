@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.064</title>
+    <title>Gestor de Proyectos y Ofertas v0.065</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -606,8 +606,8 @@
 
                     // Regla de color de fila
                     if ((data['visto_vb_cliente'] || '').trim().toLowerCase() === 'si') tr.classList.add('fila-vb-si');
-                    else if ((data['fecha_fin'] || '').trim() !== '') {
-                        tr.style.backgroundColor = '#dbeafe'; // Azul claro cuando tiene fecha_fin
+                    else if ((data['fecha_ap'] || '').trim() !== '') {
+                        tr.style.backgroundColor = '#dbeafe'; // Azul claro cuando tiene fecha finalización
                     }
                     else if (rowBgColor) tr.style.backgroundColor = rowBgColor;
 
@@ -672,12 +672,13 @@
 
                 tbody.appendChild(fragment);
 
-                if (tableProd) { 
-                    applyTableFilters(tableProd); 
-                    applyColumnOrder(tableProd); 
-                    actualizarIconosFiltroDeTabla(tableProd);
-                    aplicarVisibilidadColumnas(tableProd);
-                    updateDynamicStickyColumns(tableProd);
+                const tableProdRef = tableProd || document.querySelector('#view-produccion .data-table');
+                if (tableProdRef) { 
+                    applyTableFilters(tableProdRef); 
+                    applyColumnOrder(tableProdRef); 
+                    actualizarIconosFiltroDeTabla(tableProdRef);
+                    aplicarVisibilidadColumnas(tableProdRef);
+                    updateDynamicStickyColumns(tableProdRef);
                 }
             } catch (error) {
                 console.error("Error al obtener documentos: ", error);
