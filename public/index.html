@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.070</title>
+    <title>Gestor de Proyectos y Ofertas v0.078</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -4003,6 +4003,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             const tecMap = {};
             const allMonths = new Set();
             const daysPerMonth = {};
+            const srvToNumTrabajo = {}; // Mapa srvLabel → num_trabajo
 
             rawData.forEach(p => {
                 const fecha = parseFecha(p.fecha);
@@ -4013,16 +4014,19 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 if (horas === 0) return;
                 const trab = (p.trabajador || '').trim();
                 const tec = resolverTec(trab);
-                if (!tec) return; // Técnico no reconocido — ignorar
+                if (!tec) return;
                 const tecKey = tec.acronimo;
                 const tecLabel = tec.nombre_pila || tec.acronimo;
-                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
                 const hasCode = /^\d{3,6}/.test(obs);
                 if (!hasCode) errores.push({ tecnico: tecLabel, tecAcr: tecKey, fecha: p.fecha || '', observaciones: obs });
                 const m = fecha.getMonth() + 1;
                 const mKey = String(m);
                 const dKey = String(fecha.getDate()).padStart(2, '0');
                 const srvLabel = getServicioLabel(obs);
+                // Guardar mapeo srvLabel → num_trabajo
+                const obsMatch = obs.match(/^(\d{3,6})/);
+                if (obsMatch && !srvToNumTrabajo[srvLabel]) srvToNumTrabajo[srvLabel] = obsMatch[1];
                 allMonths.add(m);
                 if (!daysPerMonth[mKey]) daysPerMonth[mKey] = new Set();
                 daysPerMonth[mKey].add(dKey);
@@ -4129,12 +4133,6 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 };
             });
 
-            // Helper para extraer num_trabajo del label del servicio
-            function extractNumTrabajo(srvLabel) {
-                const m = srvLabel.match(/^(\d{3,6})/);
-                return m ? m[1] : null;
-            }
-
             let bodyRows = '';
 
             tecKeys.forEach(tecKey => {
@@ -4161,27 +4159,29 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     if (sTotal === 0) return;
 
                     // Badge % Uso
-                    const numT = extractNumTrabajo(srv);
+                    const numT = srvToNumTrabajo[srv] || null;
                     const pInfo = numT ? prodLookup[numT] : null;
                     let pctBadge = '';
+                    let rowTooltip = srv.replace(/"/g, '&quot;');
                     if (pInfo) {
                         const pctLabel = pInfo.pctUso === Infinity ? '∞%' : pInfo.pctUso.toFixed(0) + '%';
-                        let tooltipLines = [];
+                        let tooltipLines = [srv];
                         if (pInfo.fInicio) tooltipLines.push('F.Inicio: ' + pInfo.fInicio);
                         if (pInfo.fFin) tooltipLines.push('F.Fin: ' + pInfo.fFin);
                         if (pInfo.rble) tooltipLines.push('Rble: ' + pInfo.rble);
                         if (pInfo.t1) tooltipLines.push('T1: ' + pInfo.t1);
                         if (pInfo.t2) tooltipLines.push('T2: ' + pInfo.t2);
                         if (pInfo.t3) tooltipLines.push('T3: ' + pInfo.t3);
-                        if (pInfo.tipoServicio) tooltipLines.push('Servicio: ' + pInfo.tipoServicio);
+                        if (pInfo.tipoServicio) tooltipLines.push('Tipo servicio: ' + pInfo.tipoServicio);
                         if (pInfo.grupo) tooltipLines.push('Grupo: ' + pInfo.grupo);
                         tooltipLines.push('Presupuesto: ' + fmtE2.format(pInfo.presupuesto));
                         tooltipLines.push('Hrs restantes: ' + pInfo.hrsRestantes.toFixed(1) + 'h');
-                        const tooltipText = tooltipLines.join('&#10;');
-                        pctBadge = ' <span title="' + tooltipText + '" style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;background:' + pInfo.pctColor + ';color:' + pInfo.pctTextColor + ';cursor:help;vertical-align:middle;margin-left:4px;">' + pctLabel + '</span>';
+                        tooltipLines.push('% Uso: ' + pctLabel);
+                        rowTooltip = tooltipLines.join('&#10;');
+                        pctBadge = '<span style="display:inline-block;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700;background:' + pInfo.pctColor + ';color:' + pInfo.pctTextColor + ';white-space:nowrap;flex-shrink:0;line-height:16px;">' + pctLabel + '</span> ';
                     }
 
-                    let sCells = '<td style="padding:4px 12px 4px 32px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px;position:sticky;left:0;background:white;z-index:2;" title="' + srv.replace(/"/g, '&quot;') + '">' + srv + pctBadge + '</td>';
+                    let sCells = '<td style="padding:4px 12px 4px 28px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px;position:sticky;left:0;background:white;z-index:2;" title="' + rowTooltip + '"><div style="display:flex;align-items:center;gap:5px;overflow:hidden;">' + pctBadge + '<span style="overflow:hidden;text-overflow:ellipsis;">' + srv + '</span></div></td>';
                     colDefs.forEach(cd => {
                         if (cd.type === 'month') {
                             sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:#475569;padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
@@ -4344,7 +4344,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 if (!matchFilt(fecha)) return;
                 const horas = parseFloat(p.horas) || 0;
                 if (horas === 0) return;
-                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
                 const m = obs.match(/^(\d{3,6})/);
                 const numT = m ? m[1] : null;
                 if (!numT) return;
@@ -4425,7 +4425,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 if (horas === 0) return;
                 const tec = resolverTecP((p.trabajador || '').trim());
                 if (!tec) return;
-                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
                 const m2 = obs.match(/^(\d{3,6})/);
                 const numT = m2 ? m2[1] : null;
                 const tipoExp = numT ? (tipoExpMap[numT] || '') : '';
@@ -4568,7 +4568,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 if (!fecha || !filtYears.includes(fecha.getFullYear())) return;
                 const horas = parseFloat(p.horas) || 0;
                 if (horas === 0) return;
-                const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
                 const m = obs.match(/^(\d{3,6})/);
                 const numT = m ? m[1] : null;
                 if (!numT) return;
@@ -6871,7 +6871,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.070</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.078</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
