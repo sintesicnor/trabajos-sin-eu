@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.078</title>
+    <title>Gestor de Proyectos y Ofertas v0.080</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -1256,8 +1256,20 @@
                         const rawText = td.dataset.valor || td.textContent.trim();
                         const filterVal = tableFilters[tblId][cIdx];
                         if (Array.isArray(filterVal)) {
-                            if (filterVal.length > 0 && !filterVal.includes(rawText)) {
-                                show = false;
+                            if (filterVal.length > 0) {
+                                // Comparación case-insensitive + resolución de acrónimos de técnicos
+                                const rawUpper = rawText.toUpperCase();
+                                const match = filterVal.some(fv => {
+                                    if (fv.toUpperCase() === rawUpper) return true;
+                                    // Buscar si el filtro es nombre_pila y la celda tiene acrónimo (o viceversa)
+                                    const tec = listaTecnicos.find(t =>
+                                        (t.nombre_pila && t.nombre_pila === fv && t.acronimo === rawText) ||
+                                        (t.acronimo === fv && t.nombre_pila === rawText) ||
+                                        (t.nombre_pila && t.nombre_pila.toUpperCase() === rawUpper && t.nombre_pila === fv)
+                                    );
+                                    return !!tec;
+                                });
+                                if (!match) show = false;
                             }
                         } else if (filterVal && !rawText.toLowerCase().includes(filterVal)) {
                             show = false;
@@ -1323,13 +1335,25 @@
                     const popup = document.createElement('div');
                     popup.className = 'filter-popup';
 
-                    const multiSelectColsOfertas = ['Eº', 'Pertenece a Licitación', 'Es Licitación', 'Agente Comercial', 'Oficina', 'T1'];
+                    const multiSelectColsOfertas = ['Eº', 'Pertenece a Licitación', 'Es Licitación', 'Agente Comercial', 'Oficina', 'T1', 'Servicio', 'Origen'];
                     const multiSelectColsProd = ['Tipo Exp.', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)', 'Tipo Servicio', 'VB Cliente'];
+
+                    // Columnas sin filtro (producción: desde Presupuesto en adelante excepto VB Cliente)
+                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Fecha AP', 'Fecha AR', 'Observaciones', 'Nº Fact', 'Mes Facturación', 'Archivar', 'Fecha Finalización'];
+                    const isNoFilter = noFilterCols.some(t => originalText === t || originalText.includes(t));
 
                     const isOfertasTable = table.id === 'table-ofertas' || table.closest('#view-ofertas');
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
 
-                    const isMulti = targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t));
+                    const isMulti = !isNoFilter && (targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t)));
+
+                    if (isNoFilter) {
+                        // No crear filtro para esta columna
+                        iconContainer.style.display = 'none';
+                        wrapper.appendChild(iconContainer);
+                        th.appendChild(wrapper);
+                        return; // Saltar al siguiente th
+                    }
 
                     if (isMulti) {
                         popup.style.maxHeight = '200px';
@@ -1342,11 +1366,29 @@
                         if (originalText === 'Eº') options = ['Aceptada', 'Rechazada', 'En curso'];
                         else if (originalText.includes('Oficina')) options = listaOficinas;
                         else if (['T1', 'Agente Comercial', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)'].some(t => originalText.includes(t))) {
-                            options = listaTecnicos.map(t => preferenciaTecnicos === 'nombre_pila' ? t.nombre_pila : t.acronimo);
+                            options = listaTecnicos.map(t => t.nombre_pila || t.acronimo);
                         } else if (originalText.includes('VB Cliente')) options = ['Si', 'No'];
                         else if (originalText.includes('Tipo Exp.')) options = listaTiposExpediente;
                         else if (originalText.includes('Tipo Servicio')) options = listaTiposServicio;
-                        else if (['Pertenece a Licitación', 'Es Licitación'].some(t => originalText.includes(t))) options = ['Si', 'No'];
+                        else if (['Pertenece a Licitación', 'Es Licitación'].some(t => originalText.includes(t))) options = ['SI', 'NO'];
+                        else if (originalText === 'Servicio') {
+                            // Recoger valores únicos de la tabla
+                            const vals = new Set();
+                            table.querySelectorAll('tbody tr').forEach(tr => {
+                                const tds = tr.querySelectorAll('td');
+                                const colIdx = Array.from(th.parentNode.children).indexOf(th);
+                                if (tds[colIdx]) { const v = tds[colIdx].textContent.trim(); if (v) vals.add(v); }
+                            });
+                            options = [...vals].sort();
+                        } else if (originalText === 'Origen') {
+                            const vals = new Set();
+                            table.querySelectorAll('tbody tr').forEach(tr => {
+                                const tds = tr.querySelectorAll('td');
+                                const colIdx = Array.from(th.parentNode.children).indexOf(th);
+                                if (tds[colIdx]) { const v = tds[colIdx].textContent.trim(); if (v) vals.add(v); }
+                            });
+                            options = [...vals].sort();
+                        }
 
                         // Remover duplicados y falsy
                         options = [...new Set(options)].filter(Boolean);
@@ -3656,8 +3698,11 @@
             let minGanttTime = null; let maxGanttTime = null;
             const hrsPorMes = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0 };
 
-            const matchTec = (val, filArr) => {
+            const matchTec = (val, filArr, selectId) => {
+                // Si no hay filtro o todos están seleccionados, no filtrar
                 if (filArr.length === 0) return true;
+                const sel = document.getElementById(selectId);
+                if (sel && filArr.length === sel.options.length) return true; // Todos seleccionados = sin filtro
                 if (!val) return false;
                 const check = typeof val === 'string' ? val.trim() : val;
                 const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
@@ -3667,10 +3712,10 @@
             datosProduccionMemoria.forEach(prod => {
                 if (prod.visible === false) return;
                 if (!checkDateMatch(prod.fecha_inicio, yFil, mFil)) return;
-                if (!matchTec(prod.responsable_g, rbleFil)) return;
-                if (!matchTec(prod.ejecutor_t1, t1Fil)) return;
-                if (!matchTec(prod.apoyo_am, t2Fil)) return;
-                if (!matchTec(prod.apoyo_an, t3Fil)) return;
+                if (!matchTec(prod.responsable_g, rbleFil, 'filt-pro-rble')) return;
+                if (!matchTec(prod.ejecutor_t1, t1Fil, 'filt-pro-t1')) return;
+                if (!matchTec(prod.apoyo_am, t2Fil, 'filt-pro-t2')) return;
+                if (!matchTec(prod.apoyo_an, t3Fil, 'filt-pro-t3')) return;
                 if (srvFil.length > 0 && !srvFil.includes((prod.tipo_servicio || '').trim())) return;
 
                 const vbCliente = (prod.visto_vb_cliente || '').trim().toLowerCase();
@@ -3698,12 +3743,12 @@
                     }
 
                     // Facturación pendiente por servicio
-                                    // Only include services from technicians present in the fact.pdte panel
-                const tecFieldSrv = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
-                const tecSrvMatch = listaTecnicos.find(t => t.acronimo === tecFieldSrv || t.nombre_pila === tecFieldSrv || t.nombre === tecFieldSrv);
-                if (!tecSrvMatch) return;
-const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
-                    if (srv) srvFactPdte[srv] = (srvFactPdte[srv] || 0) + ppto;
+                    const tecFieldSrv = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
+                    const tecSrvMatch = listaTecnicos.find(t => t.acronimo === tecFieldSrv || t.nombre_pila === tecFieldSrv || t.nombre === tecFieldSrv);
+                    if (tecSrvMatch) {
+                        const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
+                        if (srv) srvFactPdte[srv] = (srvFactPdte[srv] || 0) + ppto;
+                    }
                 }
 
                 let hrsDisp = 0;
@@ -6871,7 +6916,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.078</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.080</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
