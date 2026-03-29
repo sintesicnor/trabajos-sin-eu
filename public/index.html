@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas</title>
+    <title>Gestor de Proyectos y Ofertas v0.064</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -491,26 +491,6 @@
                     }
                 });
 
-                // ── DIAGNÓSTICO TEMPORAL: ver qué hay en horasAgregadas ──
-                const idsConHoras = Object.keys(horasAgregadas);
-                console.log("🔍 DIAG: Total registros partes_horas:", partesSnap.size);
-                console.log("🔍 DIAG: IDs de trabajo con horas:", idsConHoras.length, "| Primeros 5:", idsConHoras.slice(0, 5));
-                if (idsConHoras.length > 0) {
-                    const primerKey = idsConHoras[0];
-                    console.log("🔍 DIAG: Ejemplo horasAgregadas['" + primerKey + "']:", JSON.stringify(horasAgregadas[primerKey]));
-                }
-                // Ver cuántos técnicos tienen id_tec
-                const tecsConId = listaTecnicos.filter(t => t.id_tec);
-                console.log("🔍 DIAG: Técnicos con id_tec:", tecsConId.length, "| Total técnicos:", listaTecnicos.length);
-                if (tecsConId.length > 0) {
-                    console.log("🔍 DIAG: Ejemplo técnico:", JSON.stringify(tecsConId[0]));
-                }
-                // Ver un sample de trabajador de partes_horas
-                const sampleParte = partesSnap.docs[0] ? partesSnap.docs[0].data() : null;
-                if (sampleParte) {
-                    console.log("🔍 DIAG: Sample parte - trabajador:", JSON.stringify(sampleParte.trabajador), "| num_trabajo_vinculado:", sampleParte.num_trabajo_vinculado);
-                }
-
                 tbody.innerHTML = '';
                 datosProduccionMemoria.length = 0;
 
@@ -624,9 +604,11 @@
                         else if (numTrabajo >= 4000) rowBgColor = '#fff7ed';
                     }
 
-                    // Regla de color: solo cuando fecha_fin fue confirmada manualmente
+                    // Regla de color de fila
                     if ((data['visto_vb_cliente'] || '').trim().toLowerCase() === 'si') tr.classList.add('fila-vb-si');
-                    else if (data['fecha_fin_confirmada'] && (data['fecha_fin'] || '').trim() !== '') tr.classList.add('fila-fecha-fin');
+                    else if ((data['fecha_fin'] || '').trim() !== '') {
+                        tr.style.backgroundColor = '#dbeafe'; // Azul claro cuando tiene fecha_fin
+                    }
                     else if (rowBgColor) tr.style.backgroundColor = rowBgColor;
 
                     const f_ap = (data['fecha_ap'] || '').trim();
@@ -779,7 +761,7 @@
                 }
             }
 
-            // Columnas de técnicos: lectura solo ve la suya
+            // Columnas de técnicos: lectura/ofertador solo ve la suya
             if (tienePermiso('ver_columnas_horas') && !tienePermiso('ver_todas_columnas_tec')) {
                 headers.forEach((th, idx) => {
                     if (rows.length > 0) {
@@ -793,6 +775,27 @@
                                 } else if (!currentUserAcronym) {
                                     indicesToHide.add(idx);
                                 }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Ocultar columnas de técnicos que no tienen horas en ningún trabajo
+            if (tienePermiso('ver_columnas_horas')) {
+                headers.forEach((th, idx) => {
+                    if (indicesToHide.has(idx)) return; // Ya oculta
+                    if (rows.length > 0) {
+                        const td = rows[0].children[idx];
+                        if (td) {
+                            const f = td.dataset.field;
+                            if (f && f.startsWith('tec_')) {
+                                // Comprobar si alguna fila tiene valor en esta columna
+                                const tieneHoras = rows.some(row => {
+                                    const cell = row.children[idx];
+                                    return cell && cell.textContent.trim() !== '';
+                                });
+                                if (!tieneHoras) indicesToHide.add(idx);
                             }
                         }
                     }
@@ -1991,11 +1994,10 @@
 
             async function initAppContent() {
                 isAppInitialized = false;
-                console.log("📦 initAppContent: inicio");
                 await cargarPreferenciasUsuario();
                 await cargarSettings();
 
-                inyectarColumnasDinamicas(); // Inyectar antes de setupTableHeaders
+                inyectarColumnasDinamicas();
                 await setupTableHeaders();
 
                 const tables = document.querySelectorAll('.data-table');
@@ -2004,15 +2006,12 @@
                     setTimeout(() => updateDynamicStickyColumns(t), 100);
                 });
 
-                console.log("📦 initAppContent: cargando producción...");
                 await cargarProduccion();
-                console.log("📦 initAppContent: producción cargada OK");
                 
                 try {
                     await cargarOfertas();
-                    console.log("📦 initAppContent: ofertas cargadas OK");
                 } catch (ofeErr) {
-                    console.error("📦 initAppContent: Error cargando ofertas (no bloquea la app):", ofeErr);
+                    console.error("Error cargando ofertas:", ofeErr);
                 }
 
                 tableProd = document.querySelector('#view-produccion .data-table');
@@ -2024,7 +2023,6 @@
 
                 initEventosListasConfig();
                 cargarAuditoriaDeNombres();
-                console.log("📦 initAppContent: completado");
             }
 
             // Evento para colapsar/desplegar el menú lateral
@@ -4585,6 +4583,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                         <select class="inline-edit-input" style="width: 100%; border: 1px solid #cbd5e1; padding: 2px;">
                             <option value="lectura" ${t.rol === 'lectura' ? 'selected' : ''}>lectura</option>
                             <option value="edicion" ${t.rol === 'edicion' ? 'selected' : ''}>edicion</option>
+                            <option value="ofertador" ${t.rol === 'ofertador' ? 'selected' : ''}>ofertador</option>
                             <option value="admin" ${t.rol === 'admin' ? 'selected' : ''}>admin</option>
                             <option value="financiero" ${t.rol === 'financiero' ? 'selected' : ''}>financiero</option>
                         </select>
@@ -4659,6 +4658,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                         <select class="inline-edit-input" style="width: 100%; border: 1px solid #2176AC; border-radius: 4px; padding: 2px 4px; font-size: 13px; outline: none;">
                             <option value="admin"      ${rolActual === 'admin'      ? 'selected' : ''}>admin</option>
                             <option value="edicion"    ${rolActual === 'edicion'    ? 'selected' : ''}>edicion</option>
+                            <option value="ofertador"  ${rolActual === 'ofertador'  ? 'selected' : ''}>ofertador</option>
                             <option value="lectura"    ${rolActual === 'lectura'    ? 'selected' : ''}>lectura</option>
                             <option value="financiero" ${rolActual === 'financiero' ? 'selected' : ''}>financiero</option>
                         </select>
@@ -6977,7 +6977,9 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                                     <select id="input-tec-rol" style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                         <option value="lectura">lectura</option>
                                         <option value="edicion">edicion</option>
+                                        <option value="ofertador">ofertador</option>
                                         <option value="admin">admin</option>
+                                        <option value="financiero">financiero</option>
                                     </select>
                                     <button id="btn-add-tecnico" class="btn-primary"
                                         style="padding: 6px 12px; font-size: 13px;">Añadir</button>
