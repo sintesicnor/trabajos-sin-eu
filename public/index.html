@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.080</title>
+    <title>Gestor de Proyectos y Ofertas v0.081</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -3474,11 +3474,11 @@
             const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
             // Update KPIs
-            document.getElementById('kpi-ofe-vivas').textContent = vivas;
+            document.getElementById('kpi-ofe-vivas').textContent = vivas + ' ofertas';
             document.getElementById('kpi-ofe-ppto-curso').textContent = fmtES(pptoCurso);
-            document.getElementById('kpi-ofe-acep-count').textContent = aceptadas;
+            document.getElementById('kpi-ofe-acep-count').textContent = aceptadas + ' ofertas';
             document.getElementById('kpi-ofe-ppto-acep').textContent = fmtES(pptoAcep);
-            document.getElementById('kpi-ofe-rech-count').textContent = rechazadas;
+            document.getElementById('kpi-ofe-rech-count').textContent = rechazadas + ' ofertas';
             document.getElementById('kpi-ofe-ppto-rech').textContent = fmtES(pptoRech);
             document.getElementById('kpi-ofe-exito').textContent = totalOfertas > 0 ? ((totalLic / totalOfertas) * 100).toFixed(1) + '%' : '0%';
 
@@ -3643,6 +3643,41 @@
                                     const d = mensualDataAll[k];
                                     if (!d) return [];
                                     return ['Importe: ' + fmtE.format(d.pptoAcep + d.pptoCurso + d.pptoRech)];
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Monthly importes evolution chart (same period as mensual)
+            if (chartsObj.ofeMensualImportes) chartsObj.ofeMensualImportes.destroy();
+            chartsObj.ofeMensualImportes = new Chart(document.getElementById('chart-ofe-mensual-importes'), {
+                type: 'bar',
+                data: {
+                    labels: evolLabels,
+                    datasets: [
+                        { label: 'Aceptadas', data: evolKeys.map(k => mensualDataAll[k] ? Math.round(mensualDataAll[k].pptoAcep) : 0), backgroundColor: '#10b981', stack: 's1' },
+                        { label: 'En curso', data: evolKeys.map(k => mensualDataAll[k] ? Math.round(mensualDataAll[k].pptoCurso) : 0), backgroundColor: '#F38E00', stack: 's1' },
+                        { label: 'Rechazadas', data: evolKeys.map(k => mensualDataAll[k] ? Math.round(mensualDataAll[k].pptoRech) : 0), backgroundColor: '#ef4444', stack: 's1' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true, ticks: { callback: v => fmtE.format(v) } }
+                    },
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw),
+                                afterBody: (items) => {
+                                    const k = evolKeys[items[0].dataIndex];
+                                    const d = mensualDataAll[k];
+                                    if (!d) return [];
+                                    return ['Total: ' + fmtE.format(d.pptoAcep + d.pptoCurso + d.pptoRech)];
                                 }
                             }
                         }
@@ -4165,6 +4200,7 @@
                 const hrsRestantes = Math.max(0, hrsDisp - hTotalCalc);
                 prodLookup[nt] = {
                     pctUso, pctColor, pctTextColor,
+                    vbCliente: (prod.visto_vb_cliente || '').trim().toLowerCase() === 'si',
                     fInicio: formatearFechaDisplay(prod.fecha_inicio || ''),
                     fFin: formatearFechaDisplay(prod.fecha_fin || ''),
                     rble: getAcr(prod.responsable_g),
@@ -4226,7 +4262,9 @@
                         pctBadge = '<span style="display:inline-block;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700;background:' + pInfo.pctColor + ';color:' + pInfo.pctTextColor + ';white-space:nowrap;flex-shrink:0;line-height:16px;">' + pctLabel + '</span> ';
                     }
 
-                    let sCells = '<td style="padding:4px 12px 4px 28px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px;position:sticky;left:0;background:white;z-index:2;" title="' + rowTooltip + '"><div style="display:flex;align-items:center;gap:5px;overflow:hidden;">' + pctBadge + '<span style="overflow:hidden;text-overflow:ellipsis;">' + srv + '</span></div></td>';
+                    const isVbSi = pInfo && pInfo.vbCliente;
+                    const srvCellBg = isVbSi ? '#dbeafe' : 'white';
+                    let sCells = '<td style="padding:4px 12px 4px 28px;font-size:13px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px;position:sticky;left:0;background:' + srvCellBg + ';z-index:2;" title="' + rowTooltip + '"><div style="display:flex;align-items:center;gap:5px;overflow:hidden;">' + pctBadge + '<span style="overflow:hidden;text-overflow:ellipsis;">' + srv + '</span></div></td>';
                     colDefs.forEach(cd => {
                         if (cd.type === 'month') {
                             sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:#475569;padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
@@ -4239,7 +4277,8 @@
                         }
                     });
                     sCells += '<td style="text-align:center;font-size:13px;font-weight:600;color:#334155;padding:4px;background:#f8fafc;">' + fmtV(sTotal) + '</td>';
-                    bodyRows += '<tr class="pt-row pt-srv" data-parent="' + tecId + '" style="display:none;border-bottom:1px solid #f1f5f9;">' + sCells + '</tr>';
+                    const srvRowStyle = isVbSi ? 'display:none;border-bottom:1px solid #bfdbfe;background:#dbeafe;' : 'display:none;border-bottom:1px solid #f1f5f9;';
+                    bodyRows += '<tr class="pt-row pt-srv" data-parent="' + tecId + '" style="' + srvRowStyle + '">' + sCells + '</tr>';
                 });
             });
 
@@ -6916,7 +6955,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.080</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.081</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -7150,18 +7189,18 @@
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
                                 <div class="kpi-title">En Curso</div>
-                                <div class="kpi-value" id="kpi-ofe-vivas" style="color: #2176AC;">0</div>
-                                <div class="kpi-sub" id="kpi-ofe-ppto-curso" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
+                                <div class="kpi-value" id="kpi-ofe-ppto-curso" style="color: #2176AC;">0 €</div>
+                                <div class="kpi-sub" id="kpi-ofe-vivas" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 ofertas</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Aceptadas</div>
-                                <div class="kpi-value" id="kpi-ofe-acep-count" style="color: #10b981;">0</div>
-                                <div class="kpi-sub" id="kpi-ofe-ppto-acep" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
+                                <div class="kpi-value" id="kpi-ofe-ppto-acep" style="color: #10b981;">0 €</div>
+                                <div class="kpi-sub" id="kpi-ofe-acep-count" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 ofertas</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">Rechazadas</div>
-                                <div class="kpi-value" id="kpi-ofe-rech-count" style="color: #ef4444;">0</div>
-                                <div class="kpi-sub" id="kpi-ofe-ppto-rech" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 €</div>
+                                <div class="kpi-value" id="kpi-ofe-ppto-rech" style="color: #ef4444;">0 €</div>
+                                <div class="kpi-sub" id="kpi-ofe-rech-count" style="color: #64748b; font-size: 14px; margin-top: 4px;">0 ofertas</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-title">% Licitación</div>
@@ -7184,6 +7223,10 @@
                                 <select id="filt-ofe-evol-year" style="padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px;"></select>
                             </div>
                             <div style="width: 100%; height: 360px; position: relative;"><canvas id="chart-ofe-mensual"></canvas></div>
+                        </div>
+                        <div class="chart-box" style="margin-bottom: 20px;">
+                            <h3 class="chart-title">Evolución Mensual de Importes</h3>
+                            <div style="width: 100%; height: 360px; position: relative;"><canvas id="chart-ofe-mensual-importes"></canvas></div>
                         </div>
                         <div class="chart-box">
                             <h3 class="chart-title">Resumen Anual de Ofertas</h3>
