@@ -306,9 +306,6 @@
                 .replace(/'/g, "&#039;");
         }
 
-        // Utilidad númerica
-        function parseSpanishNum(val) {
-
         // ── Resolución de técnico por id_tec (número del ERP) ──
         // El campo "trabajador" en partes_horas es un número (ej: "375")
         // que se cruza con el campo "id_tec" de cada técnico en listas_config/tecnicos
@@ -318,6 +315,7 @@
             return listaTecnicos.find(t => String(t.id_tec || '').trim() === id) || null;
         }
 
+        // Utilidad númerica
         function parseSpanishNum(val) {
             if (val === undefined || val === null || val === '') return 0;
             if (typeof val === 'number') return val;
@@ -3748,6 +3746,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             function resolverTecP(trabajadorStr) {
                 return resolverTecPorIdTec(trabajadorStr);
             }
+            function parseFechaR(raw) {
                 if (!raw) return null;
                 if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
                 const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
@@ -4020,6 +4019,8 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             function resolverTecP(trabajadorStr) {
                 return resolverTecPorIdTec(trabajadorStr);
             }
+
+            (window._partesHorasData || []).forEach(p => {
                 const fecha = parseFechaR(p.fecha);
                 if (!fecha || !filtYears.includes(fecha.getFullYear())) return;
                 const horas = parseFloat(p.horas) || 0;
