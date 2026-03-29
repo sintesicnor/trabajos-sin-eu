@@ -4,10 +4,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.069</title>
+    <title>Gestor de Proyectos y Ofertas v0.070</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+
+    <!-- SheetJS para exportación a Excel -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
     <!-- Chart.js para Fase 8: Dashboard -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -439,16 +442,39 @@
             // Mostrar u ocultar botones de la cabecera global
             const btnNuevoTrabajo = document.getElementById('btn-nuevo-trabajo');
             const btnNuevaOferta = document.getElementById('btn-nueva-oferta');
+            const btnPlantillaProd = document.getElementById('btn-plantilla-produccion');
+            const btnSubirProd = document.getElementById('btn-subir-produccion');
+            const btnPlantillaOfe = document.getElementById('btn-plantilla-ofertas');
+            const btnSubirOfe = document.getElementById('btn-subir-ofertas');
+            const btnExport = document.getElementById('btn-export');
+
+            const canCreate = tienePermiso('crear_trabajo');
+            const canEditOfe = tienePermiso('editar_ofertas');
 
             if (activeViewId === 'view-produccion') {
-                if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'flex';
+                if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = canCreate ? 'flex' : 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
+                if (btnPlantillaProd) btnPlantillaProd.style.display = canCreate ? 'flex' : 'none';
+                if (btnSubirProd) btnSubirProd.style.display = canCreate ? 'flex' : 'none';
+                if (btnPlantillaOfe) btnPlantillaOfe.style.display = 'none';
+                if (btnSubirOfe) btnSubirOfe.style.display = 'none';
+                if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? '' : 'none';
             } else if (activeViewId === 'view-ofertas') {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
-                if (btnNuevaOferta) btnNuevaOferta.style.display = 'flex';
+                if (btnNuevaOferta) btnNuevaOferta.style.display = canEditOfe ? 'flex' : 'none';
+                if (btnPlantillaProd) btnPlantillaProd.style.display = 'none';
+                if (btnSubirProd) btnSubirProd.style.display = 'none';
+                if (btnPlantillaOfe) btnPlantillaOfe.style.display = canEditOfe ? 'flex' : 'none';
+                if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'flex' : 'none';
+                if (btnExport) btnExport.style.display = 'none';
             } else {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
+                if (btnPlantillaProd) btnPlantillaProd.style.display = 'none';
+                if (btnSubirProd) btnSubirProd.style.display = 'none';
+                if (btnPlantillaOfe) btnPlantillaOfe.style.display = 'none';
+                if (btnSubirOfe) btnSubirOfe.style.display = 'none';
+                if (btnExport) btnExport.style.display = 'none';
             }
         }
 
@@ -530,6 +556,178 @@
         if (dashMonth) dashMonth.addEventListener('change', cargarDashboard);
 
         // Eventos e inicializaciones para importación
+
+        // ═══ EXPORTAR A EXCEL ═══
+        document.getElementById('btn-export')?.addEventListener('click', () => {
+            try {
+                if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); return; }
+                const table = document.querySelector('#view-produccion .data-table');
+                if (!table) { alert('No se encontró la tabla de producción.'); return; }
+                const headers = [];
+                const colIndices = [];
+                table.querySelectorAll('thead th').forEach((th, i) => {
+                    if (th.offsetParent !== null && th.style.display !== 'none') {
+                        headers.push(th.textContent.trim());
+                        colIndices.push(i);
+                    }
+                });
+                const rows = [];
+                table.querySelectorAll('tbody tr').forEach(tr => {
+                    if (tr.style.display === 'none') return;
+                    const cells = tr.querySelectorAll('td');
+                    const row = colIndices.map(i => {
+                        const cell = cells[i];
+                        return cell ? cell.textContent.trim() : '';
+                    });
+                    rows.push(row);
+                });
+                const wsData = [headers, ...rows];
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.aoa_to_sheet(wsData);
+                ws['!cols'] = headers.map((h, i) => {
+                    let maxLen = h.length;
+                    rows.forEach(r => { if (r[i] && r[i].length > maxLen) maxLen = r[i].length; });
+                    return { wch: Math.min(maxLen + 2, 40) };
+                });
+                XLSX.utils.book_append_sheet(wb, ws, 'Producción');
+                const fecha = new Date().toISOString().slice(0, 10);
+                XLSX.writeFile(wb, 'Produccion_' + fecha + '.xlsx');
+            } catch (err) {
+                console.error('Error exportando:', err);
+                alert('Error al exportar: ' + err.message);
+            }
+        });
+
+        // ═══ PLANTILLA CSV PRODUCCIÓN ═══
+        document.getElementById('btn-plantilla-produccion')?.addEventListener('click', () => {
+            const header = 'Oferta Gestiona,Expedientes,Tipo Exp,F.Inicio,F.Fin,Técnico Rble,Ejecutor (T1),Servicio,Tipo Servicio,Grupo,Cliente,Presupuesto (M),Gastos (N)';
+            const example = ',,ANUAL,01/01/2026,31/12/2026,,,,,,,0,0';
+            const bom = '\uFEFF';
+            const blob = new Blob([bom + header + '\n' + example + '\n'], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'Plantilla_Produccion.csv'; a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        // ═══ SUBIR TRABAJOS (CSV PRODUCCIÓN) ═══
+        document.getElementById('csv-import-produccion')?.addEventListener('change', async function () {
+            const file = this.files[0];
+            if (!file) return;
+            if (!confirm('¿Importar trabajos desde "' + file.name + '"?\nSe crearán nuevos registros en producción.')) { this.value = ''; return; }
+            try {
+                const text = await file.text();
+                const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+                if (result.errors.length > 0) { alert('Error parseando CSV: ' + result.errors[0].message); this.value = ''; return; }
+                const rows = result.data;
+                if (rows.length === 0) { alert('El CSV no contiene datos.'); this.value = ''; return; }
+                const colMap = {
+                    'oferta gestiona': 'oferta_gestiona', 'ofertas_gestiona': 'oferta_gestiona', 'ofertas gestiona': 'oferta_gestiona',
+                    'expedientes': 'exp_gestiona',
+                    'tipo exp': 'tipo_expediente', 'tipo_expediente': 'tipo_expediente', 'tipo expediente': 'tipo_expediente',
+                    'f.inicio': 'fecha_inicio', 'fecha_inicio': 'fecha_inicio', 'fecha inicio': 'fecha_inicio',
+                    'f.fin': 'fecha_fin', 'fecha_fin': 'fecha_fin', 'fecha fin': 'fecha_fin',
+                    'técnico rble': 'responsable_g', 'tecnico rble': 'responsable_g', 'responsable_g': 'responsable_g',
+                    'ejecutor (t1)': 'ejecutor_t1', 'ejecutor_t1': 'ejecutor_t1', 'ejecutor t1': 'ejecutor_t1',
+                    'servicio': 'servicio',
+                    'tipo servicio': 'tipo_servicio', 'tipo_servicio': 'tipo_servicio',
+                    'grupo': 'grupo',
+                    'cliente': 'cliente',
+                    'presupuesto (m)': 'presupuesto_m', 'presupuesto_m': 'presupuesto_m', 'presupuesto': 'presupuesto_m',
+                    'gastos (n)': 'gastos_n', 'gastos_n': 'gastos_n', 'gastos': 'gastos_n'
+                };
+                let maxNum = 0;
+                datosProduccionMemoria.forEach(p => { const n = parseInt(p.num_trabajo); if (n > maxNum) maxNum = n; });
+                const batch = writeBatch(db);
+                let count = 0;
+                rows.forEach(row => {
+                    const docData = { visible: true, total_horas_historico: '', visto_vb_cliente: 'NO', fecha_ap: '', fecha_ar: '', observaciones: '', num_at: '', mes_facturacion: '' };
+                    Object.keys(row).forEach(csvCol => {
+                        const key = colMap[csvCol.trim().toLowerCase()];
+                        if (key) {
+                            let val = (row[csvCol] || '').trim();
+                            if ((key === 'fecha_inicio' || key === 'fecha_fin') && /^\d{4,5}$/.test(val)) val = formatearFechaDisplay(val);
+                            docData[key] = val;
+                        }
+                    });
+                    if (!docData.tipo_expediente && !docData.servicio && !docData.cliente) return;
+                    maxNum++;
+                    docData.num_trabajo = String(maxNum);
+                    const docRef = doc(db, 'produccion', String(maxNum));
+                    batch.set(docRef, docData);
+                    count++;
+                });
+                if (count === 0) { alert('No se encontraron filas válidas.'); this.value = ''; return; }
+                await batch.commit();
+                alert(count + ' trabajos importados correctamente.');
+                this.value = '';
+                await cargarProduccion();
+            } catch (err) {
+                console.error('Error importando producción:', err);
+                alert('Error al importar: ' + err.message);
+                this.value = '';
+            }
+        });
+
+        // ═══ PLANTILLA CSV OFERTAS ═══
+        document.getElementById('btn-plantilla-ofertas')?.addEventListener('click', () => {
+            const header = 'Oferta Gestiona,Pertenece a Licitación,Es Licitación,Agente Comercial,Oficina,Cliente,Grupo,Objeto,Servicio,Origen,Comentarios,Presupuesto,Gastos Estimados';
+            const example = ',No,No,,,,,,,,,,0';
+            const bom = '\uFEFF';
+            const blob = new Blob([bom + header + '\n' + example + '\n'], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'Plantilla_Ofertas.csv'; a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        // ═══ SUBIR OFERTAS (CSV) ═══
+        document.getElementById('csv-import-ofertas')?.addEventListener('change', async function () {
+            const file = this.files[0];
+            if (!file) return;
+            if (!confirm('¿Importar ofertas desde "' + file.name + '"?\nSe crearán nuevos registros en ofertas.')) { this.value = ''; return; }
+            try {
+                const text = await file.text();
+                const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+                if (result.errors.length > 0) { alert('Error parseando CSV: ' + result.errors[0].message); this.value = ''; return; }
+                const rows = result.data;
+                if (rows.length === 0) { alert('El CSV no contiene datos.'); this.value = ''; return; }
+                const colMap = {
+                    'oferta gestiona': 'oferta_gestiona', 'ofertas gestiona': 'oferta_gestiona', 'oferta_gestiona': 'oferta_gestiona',
+                    'pertenece a licitación': 'pertenece_a_licitacion', 'pertenece a licitacion': 'pertenece_a_licitacion',
+                    'es licitación': 'es_licitacion', 'es licitacion': 'es_licitacion',
+                    'agente comercial': 'agente_comercial', 'agente_comercial': 'agente_comercial',
+                    'oficina': 'oficina', 'cliente': 'cliente', 'grupo': 'grupo', 'objeto': 'objeto',
+                    'servicio': 'servicio', 'origen': 'origen', 'comentarios': 'comentarios',
+                    'presupuesto': 'presupuesto', 'presupuesto_oferta': 'presupuesto',
+                    'gastos estimados': 'gastos_estimados', 'gastos_estimados': 'gastos_estimados'
+                };
+                const batch = writeBatch(db);
+                let count = 0;
+                rows.forEach(row => {
+                    const docData = {
+                        estado: 'En curso',
+                        fecha_oferta: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                    };
+                    Object.keys(row).forEach(csvCol => {
+                        const key = colMap[csvCol.trim().toLowerCase()];
+                        if (key) docData[key] = (row[csvCol] || '').trim();
+                    });
+                    if (!docData.objeto && !docData.cliente && !docData.servicio) return;
+                    const docId = docData.oferta_gestiona || ('OFE-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4));
+                    const docRef = doc(db, 'ofertas', docId);
+                    batch.set(docRef, docData);
+                    count++;
+                });
+                if (count === 0) { alert('No se encontraron filas válidas.'); this.value = ''; return; }
+                await batch.commit();
+                alert(count + ' ofertas importadas correctamente.');
+                this.value = '';
+                await cargarOfertas();
+            } catch (err) {
+                console.error('Error importando ofertas:', err);
+                alert('Error al importar: ' + err.message);
+                this.value = '';
+            }
+        });
 
         // Función para cargar datos de Firestore
         let isVistaHistorico = false;
@@ -6635,7 +6833,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.069</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.070</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -6690,6 +6888,28 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                     </svg>
                     Oferta
                 </button>
+
+                <!-- Botones Plantilla/Subir Producción (solo visibles en vista producción) -->
+                <button id="btn-plantilla-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px;" title="Descargar plantilla CSV de Producción">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    Plantilla
+                </button>
+                <label id="btn-subir-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer;" title="Subir trabajos desde CSV">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                    Subir Trabajos
+                    <input type="file" id="csv-import-produccion" accept=".csv" style="display:none;" />
+                </label>
+
+                <!-- Botones Plantilla/Subir Ofertas (solo visibles en vista ofertas) -->
+                <button id="btn-plantilla-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px;" title="Descargar plantilla CSV de Ofertas">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                    Plantilla
+                </button>
+                <label id="btn-subir-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer;" title="Subir ofertas desde CSV">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                    Subir Ofertas
+                    <input type="file" id="csv-import-ofertas" accept=".csv" style="display:none;" />
+                </label>
             </div>
 
             <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="margin-right: 16px; padding: 10px;">
@@ -6699,7 +6919,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 </svg>
             </button>
 
-            <button class="btn-export">
+            <button id="btn-export" class="btn-export">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
