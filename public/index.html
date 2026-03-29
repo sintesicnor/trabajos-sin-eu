@@ -308,6 +308,17 @@
 
         // Utilidad númerica
         function parseSpanishNum(val) {
+
+        // ── Resolución de técnico por id_tec (número del ERP) ──
+        // El campo "trabajador" en partes_horas es un número (ej: "375")
+        // que se cruza con el campo "id_tec" de cada técnico en listas_config/tecnicos
+        function resolverTecPorIdTec(trabajadorId) {
+            if (!trabajadorId) return null;
+            const id = String(trabajadorId).trim();
+            return listaTecnicos.find(t => String(t.id_tec || '').trim() === id) || null;
+        }
+
+        function parseSpanishNum(val) {
             if (val === undefined || val === null || val === '') return 0;
             if (typeof val === 'number') return val;
             let str = String(val).trim();
@@ -472,44 +483,13 @@
                     if (!horasAgregadas[idTrabajo]) horasAgregadas[idTrabajo] = { total: 0, tecnicos: {} };
                     horasAgregadas[idTrabajo].total += horas;
 
-                    // Motor de Búsqueda Inteligente de Técnicos (Fuzzy Match)
-                    const getWords = (str) => {
-                        return (str || '')
-                            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Elimina tildes
-                            .replace(/[^a-zA-Z0-9]/g, ' ') // Solo letras y números
-                            .toLowerCase()
-                            .split(/\s+/)
-                            .filter(w => w.length > 2); // Filtra palabras muy cortas (de, la, mª)
-                    };
+                    // Resolver técnico por id_tec (número del ERP)
+                    const tec = resolverTecPorIdTec(trabajadorStr);
 
-                    const wordsCSV = getWords(trabajadorStr);
-                    let tec = null;
-                    let maxMatches = 0;
-
-                    listaTecnicos.forEach(t => {
-                        const wordsConfig = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
-                        let matches = 0;
-                        wordsCSV.forEach(w => {
-                            if (wordsConfig.includes(w)) matches++;
-                        });
-
-                        if (matches > maxMatches) {
-                            maxMatches = matches;
-                            tec = t;
-                        }
-                    });
-
-                    // Fallback por si el técnico es literalmente un acrónimo corto en el CSV
-                    if (maxMatches === 0) {
-                        tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
+                    const tecKey = tec ? tec.acronimo : null;
+                    if (tecKey) {
+                        horasAgregadas[idTrabajo].tecnicos[tecKey] = (horasAgregadas[idTrabajo].tecnicos[tecKey] || 0) + horas;
                     }
-
-                    if (!tec) {
-                        console.warn("⚠️ ALERTA: Técnico del CSV no reconocido ->", trabajadorStr);
-                    }
-
-                    const tecKey = tec ? tec.acronimo : trabajadorStr.trim();
-                    horasAgregadas[idTrabajo].tecnicos[tecKey] = (horasAgregadas[idTrabajo].tecnicos[tecKey] || 0) + horas;
                 });
 
                 tbody.innerHTML = '';
@@ -3532,18 +3512,9 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             }
 
             const rawData = window._partesHorasData;
-            const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
 
             function resolverTec(trabajadorStr) {
-                const w = getWords(trabajadorStr);
-                let tec = null, mx = 0;
-                listaTecnicos.forEach(t => {
-                    const wc = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
-                    let m = 0; w.forEach(x => { if (wc.includes(x)) m++; });
-                    if (m > mx) { mx = m; tec = t; }
-                });
-                if (mx === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
-                return tec;
+                return resolverTecPorIdTec(trabajadorStr);
             }
 
             function parseFecha(raw) {
@@ -3578,8 +3549,9 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 if (horas === 0) return;
                 const trab = (p.trabajador || '').trim();
                 const tec = resolverTec(trab);
-                const tecKey = tec ? tec.acronimo : trab;
-                const tecLabel = tec ? (tec.nombre_pila || tec.acronimo) : trab;
+                if (!tec) return; // Técnico no reconocido — ignorar
+                const tecKey = tec.acronimo;
+                const tecLabel = tec.nombre_pila || tec.acronimo;
                 const obs = (p.observaciones_crudas || p.observaciones || p.obs || '').trim();
                 const hasCode = /^\d{3,6}/.test(obs);
                 if (!hasCode) errores.push({ tecnico: tecLabel, tecAcr: tecKey, fecha: p.fecha || '', observaciones: obs });
@@ -3774,17 +3746,8 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             // Helpers
             const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
             function resolverTecP(trabajadorStr) {
-                const w = getWords(trabajadorStr);
-                let tec = null, mx = 0;
-                listaTecnicos.forEach(t => {
-                    const wc = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
-                    let m = 0; w.forEach(x => { if (wc.includes(x)) m++; });
-                    if (m > mx) { mx = m; tec = t; }
-                });
-                if (mx === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
-                return tec;
+                return resolverTecPorIdTec(trabajadorStr);
             }
-            function parseFechaR(raw) {
                 if (!raw) return null;
                 if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
                 const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
@@ -4055,18 +4018,8 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
 
             const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
             function resolverTecP(trabajadorStr) {
-                const w = getWords(trabajadorStr);
-                let tec = null, mx = 0;
-                listaTecnicos.forEach(t => {
-                    const wc = [...new Set([...getWords(t.nombre), ...getWords(t.nombre_pila), ...getWords(t.acronimo)])];
-                    let m = 0; w.forEach(x => { if (wc.includes(x)) m++; });
-                    if (m > mx) { mx = m; tec = t; }
-                });
-                if (mx === 0) tec = listaTecnicos.find(t => (t.acronimo || '').toLowerCase() === (trabajadorStr || '').trim().toLowerCase());
-                return tec;
+                return resolverTecPorIdTec(trabajadorStr);
             }
-
-            (window._partesHorasData || []).forEach(p => {
                 const fecha = parseFechaR(p.fecha);
                 if (!fecha || !filtYears.includes(fecha.getFullYear())) return;
                 const horas = parseFloat(p.horas) || 0;
