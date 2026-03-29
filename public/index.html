@@ -307,6 +307,38 @@
                 .replace(/'/g, "&#039;");
         }
 
+        // ── v0.068: Convertir número de serie Excel a Date ──
+        // Excel: serial 1 = 1900-01-01 (con bug Lotus de 29/02/1900)
+        // Rango válido: 30000-60000 ≈ años 1982-2064
+        function excelSerialToDate(serial) {
+            const n = typeof serial === 'string' ? parseFloat(serial) : serial;
+            if (!n || isNaN(n) || n < 30000 || n > 60000) return null;
+            // Excel epoch: 1899-12-30 (para compensar el bug Lotus 1-2-3)
+            const epoch = new Date(1899, 11, 30);
+            const result = new Date(epoch.getTime() + n * 86400000);
+            return isNaN(result.getTime()) ? null : result;
+        }
+
+        // ── v0.068: Parser universal de fechas (dd/mm/yyyy, yyyy-mm-dd, serial Excel) ──
+        function parseFechaUniversal(raw) {
+            if (!raw) return null;
+            const s = String(raw).trim();
+            if (!s) return null;
+            // Formato dd/mm/yyyy
+            if (s.includes('/')) {
+                const p = s.split('/');
+                if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
+            }
+            // Número de serie Excel (ej: 46007)
+            if (/^\d{4,5}$/.test(s)) {
+                const d = excelSerialToDate(s);
+                if (d) return d;
+            }
+            // Fallback ISO u otros formatos
+            const d = new Date(s);
+            return isNaN(d.getTime()) ? null : d;
+        }
+
         // ── Resolución de técnico por id_tec (número del ERP) ──
         // El campo "trabajador" en partes_horas es un número (ej: "375")
         // que se cruza con el campo "id_tec" de cada técnico en listas_config/tecnicos
@@ -2935,14 +2967,23 @@
         // Lógica del Dashboard de Métricas (Fase 8)
         // ============================================
         function extractDateInfo(dateStr) {
-            if (!dateStr || !dateStr.includes('/')) return { y: null, m: null };
-            let parts = dateStr.split('/');
-            if (parts.length === 3) {
-                return { y: parts[2], m: parts[1] };
+            if (!dateStr) return { y: null, m: null };
+            const s = String(dateStr).trim();
+            if (!s) return { y: null, m: null };
+            // Formato dd/mm/yyyy
+            if (s.includes('/')) {
+                let parts = s.split('/');
+                if (parts.length === 3) return { y: parts[2], m: parts[1] };
             }
-            if (dateStr.includes('-')) {
-                parts = dateStr.split('-');
-                return { y: parts[0], m: parts[1] };
+            // Formato yyyy-mm-dd
+            if (s.includes('-')) {
+                let parts = s.split('-');
+                if (parts.length >= 2) return { y: parts[0], m: parts[1] };
+            }
+            // Número de serie Excel (ej: 46007)
+            if (/^\d{4,5}$/.test(s)) {
+                const d = excelSerialToDate(s);
+                if (d) return { y: String(d.getFullYear()), m: String(d.getMonth() + 1).padStart(2, '0') };
             }
             return { y: null, m: null };
         }
@@ -3676,9 +3717,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             }
 
             function parseFecha(raw) {
-                if (!raw) return null;
-                if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
-                const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
+                return parseFechaUniversal(raw);
             }
 
             function getServicioLabel(obs) {
@@ -3907,9 +3946,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 return resolverTecPorIdTec(trabajadorStr);
             }
             function parseFechaR(raw) {
-                if (!raw) return null;
-                if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
-                const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
+                return parseFechaUniversal(raw);
             }
 
             const tipoExpMap = {};
@@ -4140,9 +4177,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
             const targetYear = filtYears[0]; // Use first selected year for month labels
 
             function parseFechaR(raw) {
-                if (!raw) return null;
-                if (raw.includes('/')) { const p = raw.split('/'); if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0])); }
-                const d = new Date(raw); return isNaN(d.getTime()) ? null : d;
+                return parseFechaUniversal(raw);
             }
 
             const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
