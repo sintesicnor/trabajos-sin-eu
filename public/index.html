@@ -724,7 +724,7 @@
                     'agente comercial': 'agente_comercial', 'agente_comercial': 'agente_comercial',
                     'oficina': 'oficina', 'cliente': 'cliente', 'grupo': 'grupo', 'objeto': 'objeto',
                     'servicio': 'servicio', 'origen': 'origen', 'comentarios': 'comentarios',
-                    'presupuesto': 'presupuesto', 'presupuesto_oferta': 'presupuesto',
+                    'presupuesto': 'presupuesto_total', 'presupuesto_oferta': 'presupuesto_total', 'presupuesto_total': 'presupuesto_total',
                     'gastos estimados': 'gastos_estimados', 'gastos_estimados': 'gastos_estimados'
                 };
                 const batch = writeBatch(db);
@@ -741,7 +741,7 @@
                             // Convertir a string si es número u otro tipo
                             val = (val === null || val === undefined) ? '' : String(val).trim();
                             // Limpiar símbolos de moneda en campos de importe
-                            if (key === 'presupuesto' || key === 'gastos_estimados') {
+                            if (key === 'presupuesto_total' || key === 'gastos_estimados') {
                                 val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
                             }
                             docData[key] = val;
@@ -1021,7 +1021,7 @@
         function aplicarVisibilidadColumnas(table) {
             if (!table) return;
             const headers = table.querySelectorAll('thead th');
-            const rows = table.querySelectorAll('tbody tr');
+            const rows = Array.from(table.querySelectorAll('tbody tr'));
 
             // Mapear índices de columnas por data-field del header
             const colIndexByField = {};
