@@ -450,12 +450,13 @@
 
             const canCreate = tienePermiso('crear_trabajo');
             const canEditOfe = tienePermiso('editar_ofertas');
+            const canImport = currentUserRole === 'admin' || currentUserRole === 'edicion';
 
             if (activeViewId === 'view-produccion') {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = canCreate ? 'flex' : 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
-                if (btnPlantillaProd) btnPlantillaProd.style.display = canCreate ? 'flex' : 'none';
-                if (btnSubirProd) btnSubirProd.style.display = canCreate ? 'flex' : 'none';
+                if (btnPlantillaProd) btnPlantillaProd.style.display = canImport ? 'flex' : 'none';
+                if (btnSubirProd) btnSubirProd.style.display = canImport ? 'inline-flex' : 'none';
                 if (btnPlantillaOfe) btnPlantillaOfe.style.display = 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = 'none';
                 if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? '' : 'none';
@@ -465,7 +466,7 @@
                 if (btnPlantillaProd) btnPlantillaProd.style.display = 'none';
                 if (btnSubirProd) btnSubirProd.style.display = 'none';
                 if (btnPlantillaOfe) btnPlantillaOfe.style.display = canEditOfe ? 'flex' : 'none';
-                if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'flex' : 'none';
+                if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'inline-flex' : 'none';
                 if (btnExport) btnExport.style.display = 'none';
             } else {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
@@ -600,25 +601,35 @@
 
         // ═══ PLANTILLA CSV PRODUCCIÓN ═══
         document.getElementById('btn-plantilla-produccion')?.addEventListener('click', () => {
-            const header = 'Oferta Gestiona,Expedientes,Tipo Exp,F.Inicio,F.Fin,Técnico Rble,Ejecutor (T1),Servicio,Tipo Servicio,Grupo,Cliente,Presupuesto (M),Gastos (N)';
-            const example = ',,ANUAL,01/01/2026,31/12/2026,,,,,,,0,0';
-            const bom = '\uFEFF';
-            const blob = new Blob([bom + header + '\n' + example + '\n'], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = 'Plantilla_Produccion.csv'; a.click();
-            URL.revokeObjectURL(url);
+            if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); return; }
+            const headers = ['Oferta Gestiona','Expedientes','Tipo Exp','F.Inicio','F.Fin','Técnico Rble','Ejecutor (T1)','Servicio','Tipo Servicio','Grupo','Cliente','Presupuesto (M)','Gastos (N)'];
+            const example = ['','','ANUAL','01/01/2026','31/12/2026','','','','','','','0','0'];
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+            ws['!cols'] = headers.map(h => ({ wch: Math.max(h.length + 2, 16) }));
+            XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
+            XLSX.writeFile(wb, 'Plantilla_Produccion.xlsx');
         });
 
-        // ═══ SUBIR TRABAJOS (CSV PRODUCCIÓN) ═══
+        // ═══ SUBIR TRABAJOS (CSV/XLSX PRODUCCIÓN) ═══
         document.getElementById('csv-import-produccion')?.addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
             if (!confirm('¿Importar trabajos desde "' + file.name + '"?\nSe crearán nuevos registros en producción.')) { this.value = ''; return; }
             try {
-                const text = await file.text();
-                const result = Papa.parse(text, { header: true, skipEmptyLines: true });
-                if (result.errors.length > 0) { alert('Error parseando CSV: ' + result.errors[0].message); this.value = ''; return; }
-                const rows = result.data;
+                let rows;
+                const isExcel = /\.xlsx?$/i.test(file.name);
+                if (isExcel && typeof XLSX !== 'undefined') {
+                    const data = await file.arrayBuffer();
+                    const wb = XLSX.read(data, { type: 'array' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                } else {
+                    const text = await file.text();
+                    const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+                    if (result.errors.length > 0) { alert('Error parseando CSV: ' + result.errors[0].message); this.value = ''; return; }
+                    rows = result.data;
+                }
                 if (rows.length === 0) { alert('El CSV no contiene datos.'); this.value = ''; return; }
                 const colMap = {
                     'oferta gestiona': 'oferta_gestiona', 'ofertas_gestiona': 'oferta_gestiona', 'ofertas gestiona': 'oferta_gestiona',
@@ -670,25 +681,35 @@
 
         // ═══ PLANTILLA CSV OFERTAS ═══
         document.getElementById('btn-plantilla-ofertas')?.addEventListener('click', () => {
-            const header = 'Oferta Gestiona,Pertenece a Licitación,Es Licitación,Agente Comercial,Oficina,Cliente,Grupo,Objeto,Servicio,Origen,Comentarios,Presupuesto,Gastos Estimados';
-            const example = ',No,No,,,,,,,,,,0';
-            const bom = '\uFEFF';
-            const blob = new Blob([bom + header + '\n' + example + '\n'], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = 'Plantilla_Ofertas.csv'; a.click();
-            URL.revokeObjectURL(url);
+            if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); return; }
+            const headers = ['Oferta Gestiona','Pertenece a Licitación','Es Licitación','Agente Comercial','Oficina','Cliente','Grupo','Objeto','Servicio','Origen','Comentarios','Presupuesto','Gastos Estimados'];
+            const example = ['','No','No','','','','','','','','','0','0'];
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+            ws['!cols'] = headers.map(h => ({ wch: Math.max(h.length + 2, 16) }));
+            XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
+            XLSX.writeFile(wb, 'Plantilla_Ofertas.xlsx');
         });
 
-        // ═══ SUBIR OFERTAS (CSV) ═══
+        // ═══ SUBIR OFERTAS (CSV/XLSX) ═══
         document.getElementById('csv-import-ofertas')?.addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
             if (!confirm('¿Importar ofertas desde "' + file.name + '"?\nSe crearán nuevos registros en ofertas.')) { this.value = ''; return; }
             try {
-                const text = await file.text();
-                const result = Papa.parse(text, { header: true, skipEmptyLines: true });
-                if (result.errors.length > 0) { alert('Error parseando CSV: ' + result.errors[0].message); this.value = ''; return; }
-                const rows = result.data;
+                let rows;
+                const isExcel = /\.xlsx?$/i.test(file.name);
+                if (isExcel && typeof XLSX !== 'undefined') {
+                    const data = await file.arrayBuffer();
+                    const wb = XLSX.read(data, { type: 'array' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                } else {
+                    const text = await file.text();
+                    const result = Papa.parse(text, { header: true, skipEmptyLines: true });
+                    if (result.errors.length > 0) { alert('Error parseando CSV: ' + result.errors[0].message); this.value = ''; return; }
+                    rows = result.data;
+                }
                 if (rows.length === 0) { alert('El CSV no contiene datos.'); this.value = ''; return; }
                 const colMap = {
                     'oferta gestiona': 'oferta_gestiona', 'ofertas gestiona': 'oferta_gestiona', 'oferta_gestiona': 'oferta_gestiona',
@@ -2200,6 +2221,8 @@
                     if (!isAppInitialized) {
                         isAppInitialized = true;
                         await initAppContent();
+                        // Refrescar visibilidad de botones de cabecera con el rol correcto
+                        switchView('tab-produccion', 'view-produccion');
                     } else {
                         cargarProduccion();
                         cargarOfertas();
@@ -6897,7 +6920,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <label id="btn-subir-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer;" title="Subir trabajos desde CSV">
                     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                     Subir Trabajos
-                    <input type="file" id="csv-import-produccion" accept=".csv" style="display:none;" />
+                    <input type="file" id="csv-import-produccion" accept=".csv,.xlsx,.xls" style="display:none;" />
                 </label>
 
                 <!-- Botones Plantilla/Subir Ofertas (solo visibles en vista ofertas) -->
@@ -6908,7 +6931,7 @@ const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
                 <label id="btn-subir-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer;" title="Subir ofertas desde CSV">
                     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                     Subir Ofertas
-                    <input type="file" id="csv-import-ofertas" accept=".csv" style="display:none;" />
+                    <input type="file" id="csv-import-ofertas" accept=".csv,.xlsx,.xls" style="display:none;" />
                 </label>
             </div>
 
