@@ -455,22 +455,22 @@
                     const horas = parseFloat(dataP.horas) || 0;
                     if (horas === 0) return;
 
-                    // 1. Campo principal
-                    let idTrabajo = dataP.num_trabajo_vinculado
-                        ? String(dataP.num_trabajo_vinculado).trim()
-                        : null;
+                    let idTrabajo = null;
 
-                    // 2. Fallback: el campo observaciones_crudas DEBE EMPEZAR por el código numérico
-                    //    (seguido de fin de cadena, espacio, guion, dos puntos u otro no-dígito)
-                    //    Esto evita contar horas de otros trabajos mencionados dentro del texto.
-                    if (!idTrabajo && dataP.observaciones_crudas) {
+                    // 1. Principal: extraer código de 3-4 cifras del inicio de observaciones_crudas
+                    //    Los técnicos apuntan "1002 Reunion Ford" → extraemos "1002"
+                    if (dataP.observaciones_crudas) {
                         const match = String(dataP.observaciones_crudas).trim().match(/^(\d{3,6})(?:\D|$)/);
                         if (match) idTrabajo = match[1];
                     }
-                    // 3. Fallback secundario: campo observaciones genérico (misma lógica)
+                    // 2. Fallback: campo observaciones genérico
                     if (!idTrabajo && dataP.observaciones) {
                         const match = String(dataP.observaciones).trim().match(/^(\d{3,6})(?:\D|$)/);
                         if (match) idTrabajo = match[1];
+                    }
+                    // 3. Último fallback: num_trabajo_vinculado (código largo del ERP)
+                    if (!idTrabajo && dataP.num_trabajo_vinculado) {
+                        idTrabajo = String(dataP.num_trabajo_vinculado).trim();
                     }
 
                     const trabajadorStr = dataP.trabajador;
@@ -489,6 +489,26 @@
                         horasAgregadas[idTrabajo].tecnicos[tecKey] = (horasAgregadas[idTrabajo].tecnicos[tecKey] || 0) + horas;
                     }
                 });
+
+                // ── DIAGNÓSTICO TEMPORAL: ver qué hay en horasAgregadas ──
+                const idsConHoras = Object.keys(horasAgregadas);
+                console.log("🔍 DIAG: Total registros partes_horas:", partesSnap.size);
+                console.log("🔍 DIAG: IDs de trabajo con horas:", idsConHoras.length, "| Primeros 5:", idsConHoras.slice(0, 5));
+                if (idsConHoras.length > 0) {
+                    const primerKey = idsConHoras[0];
+                    console.log("🔍 DIAG: Ejemplo horasAgregadas['" + primerKey + "']:", JSON.stringify(horasAgregadas[primerKey]));
+                }
+                // Ver cuántos técnicos tienen id_tec
+                const tecsConId = listaTecnicos.filter(t => t.id_tec);
+                console.log("🔍 DIAG: Técnicos con id_tec:", tecsConId.length, "| Total técnicos:", listaTecnicos.length);
+                if (tecsConId.length > 0) {
+                    console.log("🔍 DIAG: Ejemplo técnico:", JSON.stringify(tecsConId[0]));
+                }
+                // Ver un sample de trabajador de partes_horas
+                const sampleParte = partesSnap.docs[0] ? partesSnap.docs[0].data() : null;
+                if (sampleParte) {
+                    console.log("🔍 DIAG: Sample parte - trabajador:", JSON.stringify(sampleParte.trabajador), "| num_trabajo_vinculado:", sampleParte.num_trabajo_vinculado);
+                }
 
                 tbody.innerHTML = '';
                 datosProduccionMemoria.length = 0;
@@ -1970,6 +1990,7 @@
 
             async function initAppContent() {
                 isAppInitialized = false;
+                console.log("📦 initAppContent: inicio");
                 await cargarPreferenciasUsuario();
                 await cargarSettings();
 
@@ -1982,8 +2003,16 @@
                     setTimeout(() => updateDynamicStickyColumns(t), 100);
                 });
 
+                console.log("📦 initAppContent: cargando producción...");
                 await cargarProduccion();
-                await cargarOfertas();
+                console.log("📦 initAppContent: producción cargada OK");
+                
+                try {
+                    await cargarOfertas();
+                    console.log("📦 initAppContent: ofertas cargadas OK");
+                } catch (ofeErr) {
+                    console.error("📦 initAppContent: Error cargando ofertas (no bloquea la app):", ofeErr);
+                }
 
                 tableProd = document.querySelector('#view-produccion .data-table');
                 tableOfe = document.querySelector('#view-ofertas .data-table');
@@ -1994,6 +2023,7 @@
 
                 initEventosListasConfig();
                 cargarAuditoriaDeNombres();
+                console.log("📦 initAppContent: completado");
             }
 
             // Evento para colapsar/desplegar el menú lateral
