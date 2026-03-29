@@ -79,10 +79,11 @@
 
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
         let permisosRoles = {
-            admin:      { ver_tab_configuracion:true, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            lectura:    { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
-            financiero: { ver_tab_configuracion:false, crear_trabajo:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
+            admin:      { ver_tab_configuracion:true, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            ofertador:  { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            lectura:    { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
+            financiero: { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
         };
 
         function tienePermiso(permiso) {
@@ -1831,7 +1832,7 @@
                             const permDoc = await getDoc(doc(db, "configuracion", "permisos_roles"));
                             if (permDoc && permDoc.exists()) {
                                 const saved = permDoc.data();
-                                ['admin','edicion','lectura','financiero'].forEach(rol => {
+                                ['admin','edicion','ofertador','lectura','financiero'].forEach(rol => {
                                     if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
                                 });
                             }
@@ -2341,6 +2342,12 @@
             if (btnNuevoTrabajo) {
                 btnNuevoTrabajo.addEventListener('click', () => {
                     const modal = document.getElementById('modal-nuevo-trabajo');
+                    // Ocultar opción INTERNO si no es admin
+                    const selectTipo = document.getElementById('modal-nuevo-tipo-exp');
+                    if (selectTipo) {
+                        const optInterno = selectTipo.querySelector('option[value="INTERNO"]');
+                        if (optInterno) optInterno.style.display = tienePermiso('crear_trabajo_interno') ? '' : 'none';
+                    }
                     if (modal) modal.style.display = 'flex';
                 });
             }
@@ -2462,6 +2469,28 @@
                 // Bloquear edición del Nº Trabajo y Total Horas Histórico
                 if (fieldName === 'num_trabajo') return;
                 if (fieldName === 'total_horas_historico') return;
+
+                // ── Restricción INTERNO: solo admin puede editar expedientes INTERNO ──
+                const tdTipoExp = tr.querySelector('td[data-field="tipo_expediente"]');
+                const tipoExpVal = tdTipoExp ? tdTipoExp.textContent.trim().toUpperCase() : '';
+                if (tipoExpVal === 'INTERNO' && !tienePermiso('crear_trabajo_interno')) return;
+
+                // ── Restricción edición: rol "edicion" solo puede editar trabajos donde figure como técnico ──
+                if (currentUserRole === 'edicion') {
+                    const camposFinCheck = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
+                    if (!camposFinCheck.includes(fieldName)) {
+                        // Comprobar si el usuario figura como Rble, T1, T2 o T3
+                        const tdResp = tr.querySelector('td[data-field="responsable_g"]');
+                        const tdT1 = tr.querySelector('td[data-field="ejecutor_t1"]');
+                        const tdAm = tr.querySelector('td[data-field="apoyo_am"]');
+                        const tdAn = tr.querySelector('td[data-field="apoyo_an"]');
+                        const vals = [tdResp, tdT1, tdAm, tdAn].map(t => t ? t.textContent.trim() : '');
+                        const esTecnicoEnFila = currentUserAcronym && vals.some(v => 
+                            v === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === v || t.nombre === v))
+                        );
+                        if (!esTecnicoEnFila) return;
+                    }
+                }
 
                 // Campos financieros redefinidos: fecha_ap, visto_vb_cliente, fecha_ar, observaciones, num_at, mes_facturacion, fecha_fin
                 const camposFinancieros = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
@@ -2663,6 +2692,26 @@
                 const fieldName = td.dataset.field;
 
                 if (!docId || !fieldName) return;
+
+                // ── Restricción por rol: edicion solo edita ofertas donde es agente comercial ──
+                if (currentUserRole === 'edicion' && currentUserAcronym) {
+                    const tdAgente = tr.querySelector('td[data-field="agente_comercial"]');
+                    const agenteVal = tdAgente ? tdAgente.textContent.trim() : '';
+                    const esAgente = agenteVal === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === agenteVal));
+                    if (!esAgente) return;
+                }
+
+                // ── Restricción por rol: ofertador solo edita ofertas donde es agente o técnico ──
+                if (currentUserRole === 'ofertador' && currentUserAcronym) {
+                    const tdAgente = tr.querySelector('td[data-field="agente_comercial"]');
+                    const tdTecnico = tr.querySelector('td[data-field="tecnico_t1"]');
+                    const agenteVal = tdAgente ? tdAgente.textContent.trim() : '';
+                    const tecVal = tdTecnico ? tdTecnico.textContent.trim() : '';
+                    const esAgenteOTec = [agenteVal, tecVal].some(v => 
+                        v === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === v))
+                    );
+                    if (!esAgenteOTec) return;
+                }
 
                 // Lista blanca de edición de Ofertas
                 const editAllowedFields = [
