@@ -84,7 +84,7 @@
         let permisosRoles = {
             admin:      { ver_tab_configuracion:true, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            ofertador:  { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            ofertador:  { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             lectura:    { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
             financiero: { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
         };
@@ -2882,8 +2882,8 @@
                 const tipoExpVal = tdTipoExp ? tdTipoExp.textContent.trim().toUpperCase() : '';
                 if (tipoExpVal === 'INTERNO' && !tienePermiso('crear_trabajo_interno')) return;
 
-                // ── Restricción edición: rol "edicion" solo puede editar trabajos donde figure como técnico ──
-                if (currentUserRole === 'edicion') {
+                // ── Restricción edición: rol "edicion" y "ofertador" solo pueden editar trabajos donde figuren como técnico ──
+                if ((currentUserRole === 'edicion' || currentUserRole === 'ofertador') && currentUserAcronym) {
                     const camposFinCheck = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
                     if (!camposFinCheck.includes(fieldName)) {
                         // Comprobar si el usuario figura como Rble, T1, T2 o T3
@@ -2892,7 +2892,7 @@
                         const tdAm = tr.querySelector('td[data-field="apoyo_am"]');
                         const tdAn = tr.querySelector('td[data-field="apoyo_an"]');
                         const vals = [tdResp, tdT1, tdAm, tdAn].map(t => t ? t.textContent.trim() : '');
-                        const esTecnicoEnFila = currentUserAcronym && vals.some(v => 
+                        const esTecnicoEnFila = vals.some(v => 
                             v === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === v || t.nombre === v))
                         );
                         if (!esTecnicoEnFila) return;
