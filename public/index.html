@@ -1392,7 +1392,142 @@
                         return; // Saltar al siguiente th
                     }
 
-                    if (isMulti) {
+                    // ── Filtro híbrido estilo Excel para Grupo y Cliente ──
+                    const isHybridFilter = (originalText === 'Grupo' || originalText === 'Cliente');
+
+                    if (isHybridFilter) {
+                        popup.style.display = 'none';
+                        popup.style.flexDirection = 'column';
+                        popup.style.gap = '4px';
+                        popup.style.padding = '8px';
+                        popup.style.minWidth = '200px';
+
+                        // 1. Obtener valores únicos de la columna
+                        const colIdx = Array.from(th.parentNode.children).indexOf(th);
+                        const uniqueVals = new Set();
+                        table.querySelectorAll('tbody tr').forEach(tr => {
+                            const tds = tr.querySelectorAll('td');
+                            if (tds[colIdx]) {
+                                const v = tds[colIdx].textContent.trim();
+                                if (v) uniqueVals.add(v);
+                            }
+                        });
+                        const sortedVals = [...uniqueVals].sort((a, b) => a.localeCompare(b, 'es'));
+
+                        // 2. Buscador
+                        const searchInput = document.createElement('input');
+                        searchInput.type = 'text';
+                        searchInput.placeholder = 'Buscar...';
+                        searchInput.style.cssText = 'width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:4px;font-size:13px;margin-bottom:6px;box-sizing:border-box;';
+                        searchInput.addEventListener('click', e => e.stopPropagation());
+                        popup.appendChild(searchInput);
+
+                        // 3. Contenedor de checkboxes con scroll
+                        const listContainer = document.createElement('div');
+                        listContainer.style.cssText = 'max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;';
+                        listContainer.addEventListener('click', e => e.stopPropagation());
+
+                        // 4. Checkbox "Seleccionar todos"
+                        const lblAll = document.createElement('label');
+                        lblAll.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 0;font-weight:500;color:#334155;border-bottom:1px solid #e2e8f0;margin-bottom:2px;padding-bottom:5px;';
+                        const cbAll = document.createElement('input');
+                        cbAll.type = 'checkbox';
+                        cbAll.dataset.selectAll = 'true';
+                        lblAll.appendChild(cbAll);
+                        lblAll.appendChild(document.createTextNode('(Seleccionar todos)'));
+                        listContainer.appendChild(lblAll);
+
+                        // 5. Checkboxes de valores
+                        const tblIdInit = table.dataset.tableId;
+                        const savedFilter = (tableFilters[tblIdInit] && Array.isArray(tableFilters[tblIdInit][colIdx])) ? tableFilters[tblIdInit][colIdx] : [];
+
+                        sortedVals.forEach(val => {
+                            const lbl = document.createElement('label');
+                            lbl.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0;';
+                            lbl.dataset.filterValue = val.toLowerCase();
+                            const cb = document.createElement('input');
+                            cb.type = 'checkbox';
+                            cb.value = val;
+                            // Estado inicial desde filtro guardado
+                            if (savedFilter.includes(val)) cb.checked = true;
+                            lbl.appendChild(cb);
+                            lbl.appendChild(document.createTextNode(val));
+                            listContainer.appendChild(lbl);
+                        });
+
+                        popup.appendChild(listContainer);
+
+                        // 6. Lógica del buscador (filtra checkboxes internos, no la tabla)
+                        searchInput.addEventListener('input', () => {
+                            const query = searchInput.value.toLowerCase();
+                            listContainer.querySelectorAll('label').forEach(lbl => {
+                                if (lbl.querySelector('[data-select-all]')) {
+                                    lbl.style.display = ''; // Siempre visible
+                                    return;
+                                }
+                                const val = lbl.dataset.filterValue || '';
+                                lbl.style.display = val.includes(query) ? '' : 'none';
+                            });
+                            // Actualizar estado de "Seleccionar todos"
+                            const visibleCbs = Array.from(listContainer.querySelectorAll('label:not([style*="display: none"]) input[type="checkbox"]:not([data-select-all])'));
+                            const allChecked = visibleCbs.length > 0 && visibleCbs.every(cb => cb.checked);
+                            cbAll.checked = allChecked;
+                        });
+
+                        // 7. Lógica de "Seleccionar todos" (solo afecta a visibles)
+                        cbAll.addEventListener('change', () => {
+                            const isChecked = cbAll.checked;
+                            listContainer.querySelectorAll('label').forEach(lbl => {
+                                if (lbl.querySelector('[data-select-all]')) return;
+                                if (lbl.style.display === 'none') return; // Solo afecta visibles
+                                const cb = lbl.querySelector('input[type="checkbox"]');
+                                if (cb) cb.checked = isChecked;
+                            });
+                            // Disparar actualización del filtro
+                            actualizarFiltroHibrido();
+                        });
+                        cbAll.addEventListener('click', e => e.stopPropagation());
+
+                        // 8. Función para aplicar filtro cuando cambia cualquier checkbox
+                        const actualizarFiltroHibrido = () => {
+                            const tblId = table.dataset.tableId;
+                            if (!tableFilters[tblId]) tableFilters[tblId] = {};
+                            const checkedVals = Array.from(listContainer.querySelectorAll('input[type="checkbox"]:checked:not([data-select-all])')).map(cb => cb.value);
+                            tableFilters[tblId][colIdx] = checkedVals;
+
+                            if (checkedVals.length > 0) {
+                                iconContainer.dataset.active = 'true';
+                                iconContainer.innerHTML = activeSvg;
+                                iconContainer.style.color = '#ef4444';
+                            } else {
+                                iconContainer.dataset.active = 'false';
+                                iconContainer.innerHTML = normalSvg;
+                                iconContainer.style.color = '';
+                            }
+                            applyTableFilters(table);
+                            guardarPreferenciasUsuario();
+                        };
+
+                        // Listener en cada checkbox de valor
+                        listContainer.querySelectorAll('input[type="checkbox"]:not([data-select-all])').forEach(cb => {
+                            cb.addEventListener('click', e => e.stopPropagation());
+                            cb.addEventListener('change', () => {
+                                actualizarFiltroHibrido();
+                                // Actualizar estado del "Seleccionar todos"
+                                const visibleCbs = Array.from(listContainer.querySelectorAll('label:not([style*="display: none"]) input[type="checkbox"]:not([data-select-all])'));
+                                const allChecked = visibleCbs.length > 0 && visibleCbs.every(c => c.checked);
+                                cbAll.checked = allChecked;
+                            });
+                        });
+
+                        // Estado inicial del icono
+                        if (savedFilter.length > 0) {
+                            iconContainer.dataset.active = 'true';
+                            iconContainer.innerHTML = activeSvg;
+                            iconContainer.style.color = '#ef4444';
+                        }
+
+                    } else if (isMulti) {
                         popup.style.maxHeight = '200px';
                         popup.style.overflowY = 'auto';
                         popup.style.display = 'none';
@@ -1541,8 +1676,15 @@
                             iconContainer.innerHTML = normalSvg;
                             iconContainer.style.color = '';
 
-                            if (isMulti) {
+                            if (isHybridFilter || isMulti) {
                                 popup.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+                                // Limpiar buscador del híbrido
+                                if (isHybridFilter) {
+                                    const si = popup.querySelector('input[type="text"]');
+                                    if (si) si.value = '';
+                                    // Mostrar todos los labels
+                                    popup.querySelectorAll('label').forEach(lbl => lbl.style.display = '');
+                                }
                             } else {
                                 const ip = popup.querySelector('input[type="text"]');
                                 if (ip) ip.value = '';
@@ -1551,9 +1693,9 @@
                             const tblId = table.dataset.tableId;
                             const colIndex = Array.from(th.parentNode.children).indexOf(th);
                             if (tableFilters[tblId]) {
-                                tableFilters[tblId][colIndex] = isMulti ? [] : '';
+                                tableFilters[tblId][colIndex] = (isHybridFilter || isMulti) ? [] : '';
                                 applyTableFilters(table);
-                                guardarPreferenciasUsuario(); // Added here
+                                guardarPreferenciasUsuario();
                             }
                             popup.style.display = 'none';
                             return;
@@ -1561,8 +1703,11 @@
 
                         const isVisible = popup.style.display === 'flex' || popup.style.display === 'block';
                         document.querySelectorAll('.filter-popup').forEach(p => p.style.display = 'none');
-                        popup.style.display = isVisible ? 'none' : (isMulti ? 'flex' : 'block');
-                        if (!isVisible && !isMulti) {
+                        popup.style.display = isVisible ? 'none' : ((isHybridFilter || isMulti) ? 'flex' : 'block');
+                        if (!isVisible && isHybridFilter) {
+                            const si = popup.querySelector('input[type="text"]');
+                            if (si) si.focus();
+                        } else if (!isVisible && !isMulti) {
                             const ip = popup.querySelector('input[type="text"]');
                             if (ip) ip.focus();
                         }
