@@ -1338,11 +1338,22 @@
                     const multiSelectColsOfertas = ['Eº', 'Pertenece a Licitación', 'Es Licitación', 'Agente Comercial', 'Oficina', 'T1', 'Servicio', 'Origen'];
                     const multiSelectColsProd = ['Tipo Exp.', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)', 'Tipo Servicio', 'VB Cliente'];
 
-                    // Columnas sin filtro (producción: desde Presupuesto en adelante excepto VB Cliente)
-                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Fecha AP', 'Fecha AR', 'Observaciones', 'Nº Fact', 'Mes Facturación', 'Archivar', 'Fecha Finalización'];
-                    const isNoFilter = noFilterCols.some(t => originalText === t || originalText.includes(t));
-
                     const isOfertasTable = table.id === 'table-ofertas' || table.closest('#view-ofertas');
+
+                    // Columnas sin filtro (producción: desde Presupuesto en adelante + horas/uso/técnicos)
+                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Fecha AP', 'Fecha AR', 'Observaciones', 'Nº Fact', 'Mes Facturación', 'Archivar', 'Fecha Finalización', 'Total Hrs', '% Uso'];
+                    // Detectar columnas de técnicos dinámicas (comprobar si el th corresponde a tec_*)
+                    let isTecCol = false;
+                    if (!isOfertasTable) {
+                        const thIdx = Array.from(th.parentNode.children).indexOf(th);
+                        const firstRow = table.querySelector('tbody tr');
+                        if (firstRow) {
+                            const tdCheck = firstRow.children[thIdx];
+                            if (tdCheck && tdCheck.dataset.field && tdCheck.dataset.field.startsWith('tec_')) isTecCol = true;
+                        }
+                    }
+                    const isNoFilter = isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t));
+
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
 
                     const isMulti = !isNoFilter && (targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t)));
