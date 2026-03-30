@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.081</title>
+    <title>Gestor de Proyectos y Ofertas v0.082</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -1341,16 +1341,14 @@
                     const isOfertasTable = table.id === 'table-ofertas' || table.closest('#view-ofertas');
 
                     // Columnas sin filtro (producción: desde Presupuesto en adelante + horas/uso/técnicos)
-                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Fecha AP', 'Fecha AR', 'Observaciones', 'Nº Fact', 'Mes Facturación', 'Archivar', 'Fecha Finalización', 'Total Hrs', '% Uso'];
-                    // Detectar columnas de técnicos dinámicas (comprobar si el th corresponde a tec_*)
+                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Fecha AP', 'Fecha AR', 'Observaciones', 'Nº Fact', 'Mes Facturación', 'Archivar', 'Fecha Finalización', 'Total Hrs', 'Total Horas', '% Uso'];
+                    // Detectar columnas de técnicos por nombre en el header
                     let isTecCol = false;
                     if (!isOfertasTable) {
-                        const thIdx = Array.from(th.parentNode.children).indexOf(th);
-                        const firstRow = table.querySelector('tbody tr');
-                        if (firstRow) {
-                            const tdCheck = firstRow.children[thIdx];
-                            if (tdCheck && tdCheck.dataset.field && tdCheck.dataset.field.startsWith('tec_')) isTecCol = true;
-                        }
+                        isTecCol = listaTecnicos.some(t =>
+                            (t.nombre_pila && t.nombre_pila === originalText) ||
+                            (t.acronimo && t.acronimo === originalText)
+                        );
                     }
                     const isNoFilter = isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t));
 
@@ -2508,6 +2506,20 @@
             if (thFechaOferta) {
                 thFechaOferta.addEventListener('click', () => {
                     sortTable('table-body-ofertas', 'Fecha Oferta', 'date-es');
+                });
+            }
+
+            const thFechaInicio = document.getElementById('th-sort-fecha-inicio');
+            if (thFechaInicio) {
+                thFechaInicio.addEventListener('click', () => {
+                    sortTable('table-body', 'Fecha Inicio', 'date-es');
+                });
+            }
+
+            const thFechaFin = document.getElementById('th-sort-fecha-fin');
+            if (thFechaFin) {
+                thFechaFin.addEventListener('click', () => {
+                    sortTable('table-body', 'F. Fin', 'date-es');
                 });
             }
 
@@ -4148,9 +4160,16 @@
             listaTecnicos.forEach(t => {
                 if (!tecMap[t.acronimo]) tecMap[t.acronimo] = { label: t.nombre_pila || t.acronimo, byMonth: {}, bySrv: {}, byDay: {} };
             });
-            // Ocultar técnicos sin horas
+            // Ocultar técnicos sin horas + restringir a su propio usuario para lectura/ofertador
+            const soloPropio = (currentUserRole === 'lectura' || currentUserRole === 'ofertador');
             const tecKeys = Object.keys(tecMap)
-                .filter(k => { const td = tecMap[k]; return months.reduce((s, m) => s + (td.byMonth[String(m)] || 0), 0) > 0; })
+                .filter(k => {
+                    const td = tecMap[k];
+                    const tieneHoras = months.reduce((s, m) => s + (td.byMonth[String(m)] || 0), 0) > 0;
+                    if (!tieneHoras) return false;
+                    if (soloPropio && currentUserAcronym && k !== currentUserAcronym) return false;
+                    return true;
+                })
                 .sort((a, b) => tecMap[a].label.localeCompare(tecMap[b].label));
 
             // Column structure: month (visible) + day cols (hidden) per month
@@ -6974,7 +6993,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.081</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.082</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -7091,8 +7110,8 @@
                                     <th>Ofertas Gestiona</th>
                                     <th>Expedientes</th>
                                     <th>Tipo Exp.</th>
-                                    <th>Fecha Inicio</th>
-                                    <th>F. Fin</th>
+                                    <th style="cursor:pointer;" id="th-sort-fecha-inicio" title="Ordenar por Fecha Inicio">Fecha Inicio <span class="sort-icon" style="font-size: 10px; color: #94a3b8; margin-left: 4px;">▼</span></th>
+                                    <th style="cursor:pointer;" id="th-sort-fecha-fin" title="Ordenar por F. Fin">F. Fin <span class="sort-icon" style="font-size: 10px; color: #94a3b8; margin-left: 4px;">▼</span></th>
                                     <th>Técnico Rble.</th>
                                     <th>Ejecutor (T1)</th>
                                     <th>Apoyo (AM)</th>
