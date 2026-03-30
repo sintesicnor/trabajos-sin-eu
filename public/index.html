@@ -6,21 +6,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestor de Proyectos y Ofertas v0.083</title>
 
-    <!-- PapaParse para procesamiento de CSV -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <!-- PapaParse para procesamiento de CSV (defer: no bloquea renderizado) -->
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
 
-    <!-- SheetJS para exportación a Excel -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- SheetJS para exportación a Excel (defer: no bloquea renderizado) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <!-- Chart.js para Fase 8: Dashboard -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script
+    <!-- Chart.js para Fase 8: Dashboard (defer: no bloquea renderizado) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer
         src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc, enableMultiTabIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
@@ -38,6 +38,14 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        // ── Persistencia offline: caché IndexedDB para cargas instantáneas ──
+        enableMultiTabIndexedDbPersistence(db).catch(err => {
+            if (err.code === 'failed-precondition') {
+                console.warn("⚠️ Persistencia offline no disponible: múltiples pestañas abiertas sin soporte multi-tab.");
+            } else if (err.code === 'unimplemented') {
+                console.warn("⚠️ Persistencia offline no soportada en este navegador.");
+            }
+        });
         const auth = getAuth(app);
         const functions = getFunctions(app);
 
@@ -219,6 +227,9 @@
         let freezeColsOfer = 5;
         let pinnedColsProd = []; // Índices de columnas fijadas por el usuario (Producción)
         let pinnedColsOfer = []; // Índices de columnas fijadas por el usuario (Ofertas)
+        let _cachedPartesHoras = null; // Caché en memoria de partes_horas
+        let _cachedPartesHorasTimestamp = 0; // Timestamp de la última lectura
+        const PARTES_CACHE_TTL = 5 * 60 * 1000; // 5 minutos de TTL
         let tableProd = null;
         let tableOfe = null;
 
@@ -780,11 +791,21 @@
                 const colName = isVistaHistorico ? "historico_produccion" : "produccion";
                 const querySnapshot = await getDocs(collection(db, colName));
 
-                // Leer y agregar horas de partes_horas
-                const partesSnap = await getDocs(collection(db, "partes_horas"));
+                // Leer y agregar horas de partes_horas (con caché en memoria)
+                const now = Date.now();
+                if (!_cachedPartesHoras || (now - _cachedPartesHorasTimestamp) > PARTES_CACHE_TTL) {
+                    const partesSnap = await getDocs(collection(db, "partes_horas"));
+                    _cachedPartesHoras = [];
+                    partesSnap.forEach(d => _cachedPartesHoras.push(d.data()));
+                    _cachedPartesHorasTimestamp = now;
+                    // Sincronizar también la caché del dashboard
+                    window._partesHorasData = _cachedPartesHoras.map((data, i) => ({ id: 'p' + i, ...data }));
+                    console.log("📦 partes_horas cargados desde Firestore (" + _cachedPartesHoras.length + " docs)");
+                } else {
+                    console.log("⚡ partes_horas servidos desde caché (" + _cachedPartesHoras.length + " docs)");
+                }
                 const horasAgregadas = {};
-                partesSnap.forEach(d => {
-                    const dataP = d.data();
+                _cachedPartesHoras.forEach(dataP => {
                     const horas = parseFloat(dataP.horas) || 0;
                     if (horas === 0) return;
 
@@ -1672,29 +1693,38 @@
 
                 const fragmentOfertas = document.createDocumentFragment();
 
+                // Recopilar todos los datos en memoria primero
                 querySnapshot.forEach((docSnapshot) => {
                     const data = docSnapshot.data();
-                    const docId = docSnapshot.id;
+                    data._docId = docSnapshot.id;
+                    datosOfertasMemoria.push(data);
+                });
+
+                // Función auxiliar para parsear fecha DD/MM/YYYY a timestamp
+                const parseFechaEs = (fechaStr) => {
+                    if (!fechaStr || !fechaStr.includes('/')) return 0;
+                    const p = fechaStr.split('/');
+                    return p.length === 3 ? new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0])).getTime() : 0;
+                };
+
+                // Ordenar datos en memoria ANTES de renderizar (evita reflow doble)
+                datosOfertasMemoria.sort((a, b) => parseFechaEs(b.fecha_oferta) - parseFechaEs(a.fecha_oferta));
+
+                // Funciones de formato (definidas una sola vez fuera del loop)
+                const currencyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 2 });
+                function formatCurrency(val) {
+                    const num = typeof val === 'string' ? parseFloat(val.replace(',', '.')) : val;
+                    if (isNaN(num) || num === 0 || val === '') return '';
+                    return currencyFormatter.format(num);
+                }
+                function formatHours(val) {
+                    if (!val || val === 0) return '';
+                    return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(val);
+                }
+
+                datosOfertasMemoria.forEach((data) => {
+                    const docId = data._docId;
                     const isAceptada = data.estado === 'Aceptada';
-
-                    data._docId = docId; // Guardamos ID para referencia interna
-                    datosOfertasMemoria.push(data); // Guardamos en memoria
-
-                    function formatCurrency(val) {
-                        const num = typeof val === 'string' ? parseFloat(val.replace(',', '.')) : val;
-                        if (isNaN(num) || num === 0 || val === '') return '';
-                        return new Intl.NumberFormat('es-ES', {
-                            style: 'currency',
-                            currency: 'EUR',
-                            minimumFractionDigits: (num % 1 === 0 ? 0 : 2),
-                            maximumFractionDigits: 2
-                        }).format(num);
-                    };
-
-                    function formatHours(val) {
-                        if (!val || val === 0) return '';
-                        return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(val);
-                    };
 
                     const tr = document.createElement('tr');
                     tr.dataset.id = docId;
@@ -1738,21 +1768,6 @@
                 });
 
                 tbodyOfertas.appendChild(fragmentOfertas);
-
-                // Ordenar ofertas por fecha (nuevas primero) por defecto
-                const rowsOfe = Array.from(tbodyOfertas.children);
-                rowsOfe.sort((a, b) => {
-                    const parseD = (td) => {
-                        const t = td ? td.textContent.trim() : '';
-                        if (!t || !t.includes('/')) return 0;
-                        const p = t.split('/');
-                        return p.length === 3 ? new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0])).getTime() : 0;
-                    };
-                    const tdA = a.querySelector('td[data-field="fecha_oferta"]');
-                    const tdB = b.querySelector('td[data-field="fecha_oferta"]');
-                    return parseD(tdB) - parseD(tdA);
-                });
-                rowsOfe.forEach(r => tbodyOfertas.appendChild(r));
 
             } catch (error) {
                 console.error("Error cargando ofertas:", error);
@@ -3060,7 +3075,13 @@
                                     }
                                 } else {
                                     tr.classList.remove('fila-fecha-fin');
-                                    cargarProduccion(); // Reload to restore original styles
+                                    // Restaurar estilos sin recargar toda la tabla
+                                    tr.removeAttribute('style');
+                                    for (let ci = 0; ci < tr.children.length; ci++) {
+                                        const cell = tr.children[ci];
+                                        if (cell.dataset && cell.dataset.field === 'pct_uso') continue;
+                                        cell.style.cssText = '';
+                                    }
                                 }
                             }
                         }
@@ -3072,7 +3093,10 @@
                                     tr.style.backgroundColor = '#dbeafe';
                                 } else {
                                     tr.style.backgroundColor = '';
-                                    cargarProduccion();
+                                    // Restaurar estilos sin recargar toda la tabla
+                                    for (let ci = 0; ci < tr.children.length; ci++) {
+                                        tr.children[ci].style.backgroundColor = '';
+                                    }
                                 }
                             }
                         }
@@ -4095,16 +4119,28 @@
             const yearSel = document.getElementById('filt-partes-year');
 
             if (!window._partesHorasData) {
-                container.innerHTML = '<p style="color:#64748b;padding:16px;">Cargando datos de partes de horas...</p>';
-                getDocs(collection(db, 'partes_horas')).then(snap => {
-                    window._partesHorasData = [];
-                    snap.forEach(d => window._partesHorasData.push({ id: d.id, ...d.data() }));
-                    cargarDashboardPartes();
-                }).catch(err => {
-                    console.error('Error cargando partes_horas:', err);
-                    container.innerHTML = '<p style="color:#ef4444;padding:16px;">Error cargando datos.</p>';
-                });
-                return;
+                // Intentar reusar caché centralizada de cargarProduccion
+                if (_cachedPartesHoras && _cachedPartesHoras.length > 0) {
+                    window._partesHorasData = _cachedPartesHoras.map((data, i) => ({ id: 'p' + i, ...data }));
+                    console.log("⚡ Dashboard Partes: datos servidos desde caché centralizada");
+                } else {
+                    container.innerHTML = '<p style="color:#64748b;padding:16px;">Cargando datos de partes de horas...</p>';
+                    getDocs(collection(db, 'partes_horas')).then(snap => {
+                        _cachedPartesHoras = [];
+                        window._partesHorasData = [];
+                        snap.forEach(d => {
+                            const data = d.data();
+                            _cachedPartesHoras.push(data);
+                            window._partesHorasData.push({ id: d.id, ...data });
+                        });
+                        _cachedPartesHorasTimestamp = Date.now();
+                        cargarDashboardPartes();
+                    }).catch(err => {
+                        console.error('Error cargando partes_horas:', err);
+                        container.innerHTML = '<p style="color:#ef4444;padding:16px;">Error cargando datos.</p>';
+                    });
+                    return;
+                }
             }
 
             const rawData = window._partesHorasData;
@@ -4402,12 +4438,18 @@
 
             // Ensure partes_horas data is loaded
             if (!window._partesHorasData) {
-                getDocs(collection(db, 'partes_horas')).then(snap => {
-                    window._partesHorasData = [];
-                    snap.forEach(d => window._partesHorasData.push({ id: d.id, ...d.data() }));
-                    cargarDashboardRendimiento();
-                }).catch(err => console.error('Error cargando partes_horas:', err));
-                return;
+                if (_cachedPartesHoras && _cachedPartesHoras.length > 0) {
+                    window._partesHorasData = _cachedPartesHoras.map((data, i) => ({ id: 'p' + i, ...data }));
+                } else {
+                    getDocs(collection(db, 'partes_horas')).then(snap => {
+                        _cachedPartesHoras = [];
+                        window._partesHorasData = [];
+                        snap.forEach(d => { const data = d.data(); _cachedPartesHoras.push(data); window._partesHorasData.push({ id: d.id, ...data }); });
+                        _cachedPartesHorasTimestamp = Date.now();
+                        cargarDashboardRendimiento();
+                    }).catch(err => console.error('Error cargando partes_horas:', err));
+                    return;
+                }
             }
 
             // Populate year filter
@@ -4647,12 +4689,18 @@
 
             // Ensure partes_horas data is loaded
             if (!window._partesHorasData) {
-                getDocs(collection(db, 'partes_horas')).then(snap => {
-                    window._partesHorasData = [];
-                    snap.forEach(d => window._partesHorasData.push({ id: d.id, ...d.data() }));
-                    cargarMensualFactChart();
-                }).catch(err => console.error('Error cargando partes_horas:', err));
-                return;
+                if (_cachedPartesHoras && _cachedPartesHoras.length > 0) {
+                    window._partesHorasData = _cachedPartesHoras.map((data, i) => ({ id: 'p' + i, ...data }));
+                } else {
+                    getDocs(collection(db, 'partes_horas')).then(snap => {
+                        _cachedPartesHoras = [];
+                        window._partesHorasData = [];
+                        snap.forEach(d => { const data = d.data(); _cachedPartesHoras.push(data); window._partesHorasData.push({ id: d.id, ...data }); });
+                        _cachedPartesHorasTimestamp = Date.now();
+                        cargarMensualFactChart();
+                    }).catch(err => console.error('Error cargando partes_horas:', err));
+                    return;
+                }
             }
 
             // Populate tech filter
@@ -6106,8 +6154,9 @@
     </script>
 
     <!-- Estilos de la aplicación -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --tesicnor-blue: #2176AC;
@@ -6132,7 +6181,7 @@
         }
 
         body {
-            font-family: 'DM Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background-color: #f8fafc;
             color: #1e293b;
             display: flex;
