@@ -718,7 +718,7 @@
                 }
                 if (rows.length === 0) { alert('El CSV no contiene datos.'); this.value = ''; return; }
                 const colMap = {
-                    'oferta gestiona': 'oferta_gestiona', 'ofertas gestiona': 'oferta_gestiona', 'oferta_gestiona': 'oferta_gestiona',
+                    'oferta gestiona': 'num_gestiona', 'ofertas gestiona': 'num_gestiona', 'oferta_gestiona': 'num_gestiona', 'num_gestiona': 'num_gestiona',
                     'pertenece a licitación': 'pertenece_a_licitacion', 'pertenece a licitacion': 'pertenece_a_licitacion',
                     'es licitación': 'es_licitacion', 'es licitacion': 'es_licitacion',
                     'agente comercial': 'agente_comercial', 'agente_comercial': 'agente_comercial',
@@ -748,7 +748,7 @@
                         }
                     });
                     if (!docData.objeto && !docData.cliente && !docData.servicio) return;
-                    const docId = docData.oferta_gestiona || ('OFE-' + Date.now() + '-' + count + '-' + Math.random().toString(36).substr(2, 4));
+                    const docId = docData.num_gestiona || ('OFE-' + Date.now() + '-' + count + '-' + Math.random().toString(36).substr(2, 4));
                     const docRef = doc(db, 'ofertas', docId);
                     batch.set(docRef, docData);
                     count++;
@@ -7994,35 +7994,37 @@
                     Trabajo</button>
             </div>
         </div>
-        <!-- Modal Nueva Oferta -->
-        <div id="modal-nueva-oferta"
-            style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
-            <div
-                style="background-color: white; padding: 24px; border-radius: 8px; width: 400px; max-width: 90vw; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">Añadir Nueva Oferta
-                </h2>
-                <div style="margin-bottom: 16px;">
-                    <label
-                        style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Nº
-                        Oferta (Gestiona) *</label>
-                    <input type="text" id="modal-ofe-num"
-                        style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;" required>
-                </div>
-                <div style="margin-bottom: 24px;">
-                    <label
-                        style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Cliente</label>
-                    <input type="text" id="modal-ofe-cli"
-                        style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
-                </div>
-                <div style="display: flex; justify-content: flex-end; gap: 12px;">
-                    <button id="modal-btn-cancelar-ofe"
-                        style="padding: 8px 16px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; cursor: pointer; color: #475569;">Cancelar</button>
-                    <button id="modal-btn-aceptar-ofe"
-                        style="padding: 8px 16px; border: none; background: #2176AC; color: white; border-radius: 6px; cursor: pointer;">Crear
-                        Oferta</button>
-                </div>
+    </div>
+
+    <!-- Modal Nueva Oferta -->
+    <div id="modal-nueva-oferta"
+        style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
+        <div
+            style="background-color: white; padding: 24px; border-radius: 8px; width: 400px; max-width: 90vw; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">Añadir Nueva Oferta
+            </h2>
+            <div style="margin-bottom: 16px;">
+                <label
+                    style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Nº
+                    Oferta (Gestiona) *</label>
+                <input type="text" id="modal-ofe-num"
+                    style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;" required>
+            </div>
+            <div style="margin-bottom: 24px;">
+                <label
+                    style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Cliente</label>
+                <input type="text" id="modal-ofe-cli"
+                    style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                <button id="modal-btn-cancelar-ofe"
+                    style="padding: 8px 16px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; cursor: pointer; color: #475569;">Cancelar</button>
+                <button id="modal-btn-aceptar-ofe"
+                    style="padding: 8px 16px; border: none; background: #2176AC; color: white; border-radius: 6px; cursor: pointer;">Crear
+                    Oferta</button>
             </div>
         </div>
+    </div>
 </body>
 
 </html>
