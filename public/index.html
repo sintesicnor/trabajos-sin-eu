@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.083</title>
+    <title>Gestor de Proyectos y Ofertas v0.091</title>
 
     <!-- PapaParse para procesamiento de CSV (defer: no bloquea renderizado) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -981,22 +981,15 @@
                     if (!isVistaHistorico) {
                         let canArchive = false;
                         let archiveReason = "Faltan datos (Fechas, AT, Presupuesto o Gastos)";
-                        // ── Punto 9: Usar año de fecha_ar en vez de mes_facturacion ──
+                        // ── v0.091: Archivar si fecha_ar es anterior al 1 de enero del año en curso ──
                         if (f_ap && f_ar && n_at && p_m !== '' && p_m !== undefined && g_n !== '' && g_n !== undefined) {
-                            const currentYear = new Date().getFullYear();
-                            let yearAr = currentYear;
-                            // Extraer año de fecha_ar (formato DD/MM/YYYY o YYYY-MM-DD)
-                            const matchYY = f_ar.match(/(\d{4})/);
-                            if (matchYY) yearAr = parseInt(matchYY[1], 10);
-                            // Si la fecha tiene formato DD/MM/YYYY, el año es la tercera parte
-                            if (f_ar.includes('/')) {
-                                const parts = f_ar.split('/');
-                                if (parts.length === 3 && parts[2].length === 4) yearAr = parseInt(parts[2], 10);
+                            const fechaArDate = parseFechaUniversal(f_ar);
+                            const primerDiaAnioActual = new Date(new Date().getFullYear(), 0, 1); // 1 de enero del año en curso
+                            if (fechaArDate && fechaArDate < primerDiaAnioActual) {
+                                canArchive = true;
+                            } else {
+                                archiveReason = "La fecha de facturación debe ser anterior al " + primerDiaAnioActual.toLocaleDateString('es-ES') + ".";
                             }
-                            const isLastWeek = (new Date().getMonth() === 11 && new Date().getDate() >= 24);
-
-                            if (yearAr < currentYear || isLastWeek) canArchive = true;
-                            else archiveReason = "Solo facturación de años anteriores o última semana del año.";
                         }
                         btnArchiveHtml = canArchive
                             ? `<button class="btn-archivar-prod" data-id="${docSnap.id}" style="padding: 4px 12px; background-color: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;">Archivar</button>`
@@ -7291,7 +7284,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.083</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.091</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
