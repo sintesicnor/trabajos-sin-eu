@@ -526,7 +526,7 @@
         function navegarInformesSeccion(seccionTabId) {
             switchView('tab-dashboard', 'view-dashboard');
             // Limpiar tabs internos del dashboard
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
             document.getElementById(seccionTabId)?.classList.add('active');
@@ -537,7 +537,8 @@
                 'tab-dash-produccion': 'sidebar-dash-produccion',
                 'tab-dash-ofertas': 'sidebar-dash-ofertas',
                 'tab-dash-partes': 'sidebar-dash-partes',
-                'tab-dash-rendimiento': 'sidebar-dash-rendimiento'
+                'tab-dash-rendimiento': 'sidebar-dash-rendimiento',
+                'tab-dash-financiero': 'sidebar-dash-financiero'
             };
             document.getElementById(mapTabToSidebar[seccionTabId])?.classList.add('active');
             cargarDashboard();
@@ -559,6 +560,11 @@
         document.getElementById('sidebar-dash-rendimiento')?.addEventListener('click', (e) => {
             e.preventDefault();
             navegarInformesSeccion('tab-dash-rendimiento');
+        });
+        // ── Punto 7: Listener sidebar Financiero ──
+        document.getElementById('sidebar-dash-financiero')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            navegarInformesSeccion('tab-dash-financiero');
         });
 
         // Eventos filtros Dashboard
@@ -662,7 +668,7 @@
                 const batch = writeBatch(db);
                 let count = 0;
                 rows.forEach(row => {
-                    const docData = { visible: true, total_horas_historico: '', visto_vb_cliente: 'NO', fecha_ap: '', fecha_ar: '', observaciones: '', num_at: '', mes_facturacion: '' };
+                    const docData = { visible: true, total_horas_historico: '', visto_vb_cliente: 'NO', fecha_ap: '', fecha_ar: '', observaciones: '', num_at: '', mes_facturacion: '', gestionado: 'No' };
                     Object.keys(row).forEach(csvCol => {
                         const key = colMap[csvCol.trim().toLowerCase()];
                         if (key) {
@@ -974,15 +980,22 @@
                     let btnArchiveHtml = '<span style="color: #94a3b8; font-size: 12px; font-weight: 500;">Archivado</span>';
                     if (!isVistaHistorico) {
                         let canArchive = false;
-                        let archiveReason = "Faltan datos (Fechas, AT, Mes, Presupuesto o Gastos)";
-                        if (f_ap && f_ar && n_at && m_fac && p_m !== '' && p_m !== undefined && g_n !== '' && g_n !== undefined) {
+                        let archiveReason = "Faltan datos (Fechas, AT, Presupuesto o Gastos)";
+                        // ── Punto 9: Usar año de fecha_ar en vez de mes_facturacion ──
+                        if (f_ap && f_ar && n_at && p_m !== '' && p_m !== undefined && g_n !== '' && g_n !== undefined) {
                             const currentYear = new Date().getFullYear();
-                            let yearFac = currentYear;
-                            const matchY = m_fac.match(/\d{4}/);
-                            if (matchY) yearFac = parseInt(matchY[0], 10);
+                            let yearAr = currentYear;
+                            // Extraer año de fecha_ar (formato DD/MM/YYYY o YYYY-MM-DD)
+                            const matchYY = f_ar.match(/(\d{4})/);
+                            if (matchYY) yearAr = parseInt(matchYY[1], 10);
+                            // Si la fecha tiene formato DD/MM/YYYY, el año es la tercera parte
+                            if (f_ar.includes('/')) {
+                                const parts = f_ar.split('/');
+                                if (parts.length === 3 && parts[2].length === 4) yearAr = parseInt(parts[2], 10);
+                            }
                             const isLastWeek = (new Date().getMonth() === 11 && new Date().getDate() >= 24);
 
-                            if (yearFac < currentYear || isLastWeek) canArchive = true;
+                            if (yearAr < currentYear || isLastWeek) canArchive = true;
                             else archiveReason = "Solo facturación de años anteriores o última semana del año.";
                         }
                         btnArchiveHtml = canArchive
@@ -1017,7 +1030,8 @@
                         <td data-field="fecha_ar" style="background-color: #fce7f3; color: #334155;">${escapeHTML(formatearFechaDisplay(data['fecha_ar']))}</td>
                         <td data-field="observaciones" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['observaciones'] || '')}</td>
                         <td data-field="num_at" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['num_at'] || '')}</td>
-                        <td data-field="mes_facturacion" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['mes_facturacion'] || '')}</td>
+                        <td data-field="gestionado" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['gestionado'] || 'No')}</td>
+                        <td data-field="mes_facturacion" style="background-color: #fce7f3; color: #334155; display: none;">${escapeHTML(data['mes_facturacion'] || '')}</td>
                         <td style="text-align: center;">${btnArchiveHtml}</td>
                     `;
                     fragment.appendChild(tr);
@@ -1102,7 +1116,7 @@
 
             // Lectura: ocultar columnas de gestión/financieras y archivar
             if (!tienePermiso('editar_campos_generales') && !tienePermiso('editar_campos_financieros')) {
-                const camposOcultar = ['fecha_fin', 'visto_vb_cliente', 'fecha_ap', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
+                const camposOcultar = ['fecha_fin', 'visto_vb_cliente', 'fecha_ap', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion', 'gestionado'];
                 camposOcultar.forEach(f => {
                     const idx = idxByField(f);
                     if (idx > -1) indicesToHide.add(idx);
@@ -1362,7 +1376,7 @@
                     const isOfertasTable = table.id === 'table-ofertas' || table.closest('#view-ofertas');
 
                     // Columnas sin filtro (producción: desde Presupuesto en adelante + horas/uso/técnicos)
-                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Fecha AP', 'Fecha AR', 'Observaciones', 'Nº Fact', 'Mes Facturación', 'Archivar', 'Fecha Finalización', 'Total Hrs', 'Total Horas', '% Uso'];
+                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Observaciones', 'Nº Fact', 'Mes Facturación', 'Archivar', 'Fecha Finalización', 'Total Hrs', 'Total Horas', '% Uso'];
                     // Detectar columnas de técnicos por nombre en el header
                     let isTecCol = false;
                     if (!isOfertasTable) {
@@ -2292,6 +2306,14 @@
                     if (tabDashOfertas) tabDashOfertas.style.display = currentUserRole === 'lectura' ? 'none' : '';
                     const sidebarRendimiento = document.getElementById('sidebar-dash-rendimiento');
                     if (sidebarRendimiento) sidebarRendimiento.style.display = (showDash && (currentUserRole === 'admin' || currentUserRole === 'edicion')) ? 'flex' : 'none';
+                    const tabDashRendimiento = document.getElementById('tab-dash-rendimiento');
+                    if (tabDashRendimiento) tabDashRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
+
+                    // ── Punto 7: Visibilidad informe Financiero: solo admin y financiero ──
+                    const sidebarFinanciero = document.getElementById('sidebar-dash-financiero');
+                    if (sidebarFinanciero) sidebarFinanciero.style.display = (showDash && (currentUserRole === 'admin' || currentUserRole === 'financiero')) ? 'flex' : 'none';
+                    const tabDashFinanciero = document.getElementById('tab-dash-financiero');
+                    if (tabDashFinanciero) tabDashFinanciero.style.display = (currentUserRole === 'admin' || currentUserRole === 'financiero') ? '' : 'none';
 
                     // Restringir panel de técnicos solo a admin
                     const panelTecnicos = document.getElementById('panel-tecnicos');
@@ -2632,7 +2654,7 @@
                                     fecha_inicio: datosExtra.fechaInicio || "", fecha_fin: datosExtra.fechaFin || "", gastos_n: "",
                                     ejecutor_t1: datosExtra.t1, apoyo_am: "", apoyo_an: "",
                                     total_horas_historico: "", visto_vb_cliente: "No",
-                                    fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "",
+                                    fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "", gestionado: "No",
                                     oferta_gestiona: docId, exp_gestiona: datosExtra.expediente,
                                     tipo_expediente: "", observaciones: "", grupo: ofertaData ? (ofertaData.grupo || "") : "", tipo_servicio: ""
                                 };
@@ -2811,7 +2833,7 @@
                             cliente: "", servicio: "", fecha_inicio: "", fecha_fin: "",
                             presupuesto_m: "", gastos_n: "", ejecutor_t1: "", apoyo_am: "",
                             apoyo_an: "", total_horas_historico: "", visto_vb_cliente: "No",
-                            fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "",
+                            fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "", gestionado: "No",
                             oferta_gestiona: "", exp_gestiona: "", tipo_expediente: tipoExp,
                             observaciones: "", grupo: "", tipo_servicio: "", visible: true
                         };
@@ -2898,6 +2920,9 @@
                 // Bloquear edición del Nº Trabajo y Total Horas Histórico
                 if (fieldName === 'num_trabajo') return;
                 if (fieldName === 'total_horas_historico') return;
+                // ── Punto 1: Bloquear edición de horas de técnicos (vienen de partes_horas) ──
+                if (fieldName.startsWith('tec_')) return;
+                if (fieldName === 'total_horas_calc' || fieldName === 'pct_uso' || fieldName === 'horas_disponibles') return;
 
                 // ── Restricción INTERNO: solo admin puede editar expedientes INTERNO ──
                 const tdTipoExp = tr.querySelector('td[data-field="tipo_expediente"]');
@@ -2923,7 +2948,10 @@
 
                 // Campos financieros redefinidos: fecha_ap, visto_vb_cliente, fecha_ar, observaciones, num_at, mes_facturacion, fecha_fin
                 const camposFinancieros = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
-                if (camposFinancieros.includes(fieldName)) {
+                // ── Punto 6: gestionado solo editable por admin y financiero ──
+                if (fieldName === 'gestionado') {
+                    if (currentUserRole !== 'admin' && currentUserRole !== 'financiero') return;
+                } else if (camposFinancieros.includes(fieldName)) {
                     if (!tienePermiso('editar_campos_financieros')) return;
                 } else if (fieldName === 'fecha_fin') {
                     // Admin, financiero, o técnico responsable pueden editar fecha_fin
@@ -2945,7 +2973,7 @@
                 const currentValue = td.textContent === '-' ? '' : td.textContent.trim();
 
                 // Campos que requieren Select (Desplegable) o campos especiales de Fecha
-                const esDesplegable = ['tipo_servicio', 'visto_vb_cliente', 'responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an', 'tipo_expediente'].includes(fieldName);
+                const esDesplegable = ['tipo_servicio', 'visto_vb_cliente', 'gestionado', 'responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an', 'tipo_expediente'].includes(fieldName);
                 const esFecha = ['fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar'].includes(fieldName);
 
                 if (esDesplegable) {
@@ -2953,6 +2981,10 @@
                     if (fieldName === 'tipo_servicio') {
                         optionsHTML = `<option value="">-</option>` + listaTiposServicio.map(v => `<option value="${v}" ${currentValue === v ? 'selected' : ''}>${v}</option>`).join('');
                     } else if (fieldName === 'visto_vb_cliente') {
+                        const actVal = currentValue === 'Si' ? 'Si' : 'No';
+                        optionsHTML = `<option value="No" ${actVal === 'No' ? 'selected' : ''}>No</option><option value="Si" ${actVal === 'Si' ? 'selected' : ''}>Si</option>`;
+                    } else if (fieldName === 'gestionado') {
+                        // ── Punto 6: Desplegable Gestionado Si/No ──
                         const actVal = currentValue === 'Si' ? 'Si' : 'No';
                         optionsHTML = `<option value="No" ${actVal === 'No' ? 'selected' : ''}>No</option><option value="Si" ${actVal === 'Si' ? 'selected' : ''}>Si</option>`;
                     } else if (fieldName === 'tipo_expediente') {
@@ -3159,12 +3191,15 @@
 
                 // Lista blanca de edición de Ofertas
                 const editAllowedFields = [
-                    'cliente', 'grupo', 'objeto', 'presupuesto_total', 'gastos_estimados',
+                    'num_gestiona', 'cliente', 'grupo', 'objeto', 'presupuesto_total', 'gastos_estimados',
                     'ingresos_2026', 'ingresos_2027', 'ingresos_2028', 'ingresos_2029', 'ingresos_2030',
                     'oficina', 'origen', 'servicio', 'agente_comercial', 'tecnico_t1', 'es_licitacion', 'pertenece_a_licitacion',
                     'fin_licitacion', 'comentarios'
                 ];
                 if (!editAllowedFields.includes(fieldName)) return;
+
+                // ── Punto 2: num_gestiona solo editable por admin y edicion ──
+                if (fieldName === 'num_gestiona' && currentUserRole !== 'admin' && currentUserRole !== 'edicion') return;
 
                 if (td.querySelector('input') || td.querySelector('select')) return;
 
@@ -3245,6 +3280,41 @@
 
                     try {
                         const parsedValue = camposMoneda.includes(fieldName) && newValue !== '' ? parseFloat(newValue) : newValue;
+
+                        // ── Punto 2: Si se edita num_gestiona, renombrar documento en Firestore ──
+                        if (fieldName === 'num_gestiona') {
+                            const nuevoNumOfe = String(newValue).trim();
+                            if (!nuevoNumOfe) { td.innerHTML = currentValue; isSaving = false; return; }
+                            // Verificar que no exista ya un documento con ese ID
+                            const existeSnap = await getDoc(doc(db, "ofertas", nuevoNumOfe));
+                            if (existeSnap.exists()) {
+                                alert("Ya existe una oferta con el Nº " + nuevoNumOfe);
+                                td.innerHTML = currentValue;
+                                isSaving = false;
+                                return;
+                            }
+                            // Leer documento actual, copiar al nuevo ID, eliminar antiguo
+                            const oldSnap = await getDoc(doc(db, "ofertas", docId));
+                            if (oldSnap.exists()) {
+                                const oldData = oldSnap.data();
+                                oldData.num_gestiona = nuevoNumOfe;
+                                oldData._usuario_edicion = auth.currentUser ? auth.currentUser.email : 'Desconocido';
+                                await setDoc(doc(db, "ofertas", nuevoNumOfe), oldData);
+                                await deleteDoc(doc(db, "ofertas", docId));
+                                // Actualizar memoria local
+                                const memIdx = datosOfertasMemoria.findIndex(o => o._docId === docId);
+                                if (memIdx !== -1) {
+                                    datosOfertasMemoria[memIdx].num_gestiona = nuevoNumOfe;
+                                    datosOfertasMemoria[memIdx]._docId = nuevoNumOfe;
+                                }
+                                // Actualizar dataset de la fila
+                                tr.dataset.id = nuevoNumOfe;
+                                td.innerHTML = escapeHTML(nuevoNumOfe);
+                            }
+                            isSaving = false;
+                            return;
+                        }
+
                         await updateDoc(doc(db, "ofertas", docId), {
                             [fieldName]: parsedValue,
                             _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
@@ -3898,7 +3968,7 @@
                     if (dStart && dEnd) {
                         dEnd = new Date(dEnd.getTime() + 86399000); // Set to end of day
                         if (dEnd > dStart) {
-                            ganttLabels.push(`${prod.num_trabajo} - ${(prod.servicio || '').substring(0, 15)}`);
+                            ganttLabels.push(`${prod.num_trabajo} - ${prod.servicio || ''}`);
                             ganttBase.push([dStart.getTime(), dEnd.getTime()]);
 
                             // Metadata for tooltip
@@ -3909,9 +3979,11 @@
                                 return obj ? obj.acronimo : check;
                             };
                             const pctUsoGantt = hrsDisp > 0 ? Math.round((hTotalCalc / hrsDisp) * 100) : 0;
+                            const hrsRestantes = hrsDisp > 0 ? Math.round(hrsDisp - hTotalCalc) : 0;
                             ganttMeta.push({
                                 horas: hrsDisp > 0 ? Math.round(hrsDisp) : 0,
                                 horasUsadas: Math.round(hTotalCalc),
+                                horasRestantes: hrsRestantes,
                                 pctUso: pctUsoGantt,
                                 rble: getAcr(prod.responsable_g),
                                 t1: getAcr(prod.ejecutor_t1),
@@ -4039,6 +4111,16 @@
                             grid: { drawTicks: false },
                             min: minGanttTime || undefined,
                             max: maxGanttTime || undefined
+                        },
+                        // ── Punto 3: Eje Y trunca visualmente pero labels completos accesibles ──
+                        y: {
+                            ticks: {
+                                callback: function(value, index) {
+                                    const label = this.getLabelForValue(value);
+                                    return label.length > 25 ? label.substring(0, 22) + '...' : label;
+                                },
+                                font: { size: 11 }
+                            }
                         }
                     },
                     plugins: {
@@ -4046,6 +4128,7 @@
                         tooltip: {
                             callbacks: {
                                 title: function(items) {
+                                    // ── Punto 4: Mostrar código + servicio completo sin truncar ──
                                     return ganttLabels[items[0].dataIndex] || '';
                                 },
                                 label: function(ctx) {
@@ -4054,6 +4137,8 @@
                                     const lines = [];
                                     if (ctx.datasetIndex === 0) {
                                         lines.push('Progreso: ' + meta.horasUsadas + 'h / ' + meta.horas + 'h');
+                                        // ── Punto 4: Añadir horas restantes ──
+                                        lines.push('Horas restantes: ' + meta.horasRestantes + 'h');
                                     } else {
                                         lines.push('Horas totales: ' + fmtN.format(meta.horas) + 'h');
                                     }
@@ -4181,6 +4266,9 @@
                 const trab = (p.trabajador || '').trim();
                 const tec = resolverTec(trab);
                 if (!tec) return;
+                // ── Punto 5: Excluir técnicos con rol financiero del informe de Partes ──
+                const tecInfo = listaTecnicos.find(t => t.acronimo === tec.acronimo);
+                if (tecInfo && tecInfo.rol === 'financiero') return;
                 const tecKey = tec.acronimo;
                 const tecLabel = tec.nombre_pila || tec.acronimo;
                 const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
@@ -4680,6 +4768,122 @@
         });
 
 
+        // ═══ Punto 7: Informe Financiero ═══
+        let _chartFinanciero = null;
+
+        function cargarDashboardFinanciero() {
+            const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+            const curYear = new Date().getFullYear();
+            const mNames = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+            // Poblar selector de año si está vacío
+            const yearSel = document.getElementById('filt-fin-year');
+            if (yearSel && yearSel.options.length === 0) {
+                const years = new Set();
+                datosProduccionMemoria.forEach(p => {
+                    const fa = parseFechaUniversal(p.fecha_ar);
+                    if (fa) years.add(fa.getFullYear());
+                });
+                if (years.size === 0) years.add(curYear);
+                [...years].sort().reverse().forEach(y => {
+                    const opt = document.createElement('option');
+                    opt.value = y; opt.textContent = y;
+                    if (y === curYear) opt.selected = true;
+                    yearSel.appendChild(opt);
+                });
+            }
+
+            const filtYear = parseInt(yearSel?.value || curYear, 10);
+            const filtVB = document.getElementById('filt-fin-vb')?.value || 'Todos';
+            const filtGest = document.getElementById('filt-fin-gest')?.value || 'Todos';
+
+            // Agrupar importes facturados por mes
+            const monthlyTotals = new Array(12).fill(0);
+            let totalAnual = 0;
+            let countTrabajos = 0;
+
+            datosProduccionMemoria.forEach(p => {
+                // Solo trabajos con fecha_ar (fecha de facturación)
+                const fechaAr = parseFechaUniversal(p.fecha_ar);
+                if (!fechaAr) return;
+                if (fechaAr.getFullYear() !== filtYear) return;
+
+                // Filtro VB Cliente
+                const vb = (p.visto_vb_cliente || '').trim();
+                if (filtVB === 'Si' && vb !== 'Si') return;
+                if (filtVB === 'No' && vb === 'Si') return;
+
+                // Filtro Gestionado
+                const gest = (p.gestionado || 'No').trim();
+                if (filtGest === 'Si' && gest !== 'Si') return;
+                if (filtGest === 'No' && gest === 'Si') return;
+
+                // Presupuesto (M) como importe facturado
+                const importe = parseSpanishNum(p.presupuesto_m);
+                if (!importe || importe === 0) return;
+
+                const mes = fechaAr.getMonth(); // 0-11
+                monthlyTotals[mes] += importe;
+                totalAnual += importe;
+                countTrabajos++;
+            });
+
+            // Renderizar gráfico
+            const ctx = document.getElementById('chart-financiero');
+            if (!ctx) return;
+
+            if (_chartFinanciero) _chartFinanciero.destroy();
+
+            _chartFinanciero = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: mNames,
+                    datasets: [{
+                        label: 'Importe facturado',
+                        data: monthlyTotals,
+                        backgroundColor: '#2176AC',
+                        borderRadius: 6,
+                        barPercentage: 0.7
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) { return fmtE.format(value); },
+                                font: { size: 11 }
+                            },
+                            grid: { color: '#f1f5f9' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: { size: 12 } }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    return 'Facturado: ' + fmtE.format(ctx.raw);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Resumen
+            const resumen = document.getElementById('financiero-resumen');
+            if (resumen) {
+                resumen.innerHTML = `<strong>Total ${filtYear}:</strong> ${fmtE.format(totalAnual)} &nbsp;|&nbsp; <strong>Trabajos facturados:</strong> ${countTrabajos} &nbsp;|&nbsp; <strong>Media mensual:</strong> ${fmtE.format(totalAnual / 12)}`;
+            }
+        }
+
+
         // ═══ Monthly Facturado/PorFacturar Chart ═══
         let _chartMensualFact = null;
 
@@ -4852,8 +5056,9 @@
             const isOfertas = document.getElementById('tab-dash-ofertas').classList.contains('active');
             const isPartes = document.getElementById('tab-dash-partes') && document.getElementById('tab-dash-partes').classList.contains('active');
             const isRend = document.getElementById('tab-dash-rendimiento') && document.getElementById('tab-dash-rendimiento').classList.contains('active');
+            const isFin = document.getElementById('tab-dash-financiero') && document.getElementById('tab-dash-financiero').classList.contains('active');
 
-            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes','panel-dash-rendimiento'];
+            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes','panel-dash-rendimiento','panel-dash-financiero'];
             panels.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 
             if (isOfertas) {
@@ -4866,6 +5071,9 @@
                 document.getElementById('panel-dash-rendimiento').style.display = 'block';
                 cargarDashboardRendimiento();
                 cargarMensualFactChart();
+            } else if (isFin) {
+                document.getElementById('panel-dash-financiero').style.display = 'block';
+                cargarDashboardFinanciero();
             } else {
                 document.getElementById('panel-dash-produccion').style.display = 'block';
                 cargarDashboardProduccion();
@@ -4875,7 +5083,7 @@
 
         // Listeners Pestañas y Filtros
         const clearActiveTabs = () => {
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
         };
@@ -4886,7 +5094,8 @@
                 'tab-dash-produccion': 'sidebar-dash-produccion',
                 'tab-dash-ofertas': 'sidebar-dash-ofertas',
                 'tab-dash-partes': 'sidebar-dash-partes',
-                'tab-dash-rendimiento': 'sidebar-dash-rendimiento'
+                'tab-dash-rendimiento': 'sidebar-dash-rendimiento',
+                'tab-dash-financiero': 'sidebar-dash-financiero'
             };
             document.getElementById(map[activeTabId])?.classList.add('active');
         }
@@ -4905,16 +5114,24 @@
         });
         document.getElementById('tab-dash-partes')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-partes')?.classList.add('active');
             syncSidebarSubItems('tab-dash-partes');
             cargarDashboard();
         });
         document.getElementById('tab-dash-rendimiento')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-rendimiento')?.classList.add('active');
             syncSidebarSubItems('tab-dash-rendimiento');
+            cargarDashboard();
+        });
+        // ── Punto 7: Listener tab Financiero ──
+        document.getElementById('tab-dash-financiero')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            document.getElementById('tab-dash-financiero')?.classList.add('active');
+            syncSidebarSubItems('tab-dash-financiero');
             cargarDashboard();
         });
 
@@ -4923,6 +5140,8 @@
 
         document.getElementById('btn-update-dash-ofe')?.addEventListener('click', cargarDashboard);
         document.getElementById('btn-update-dash-pro')?.addEventListener('click', cargarDashboard);
+        // ── Punto 7: Listener botón Aplicar del informe Financiero ──
+        document.getElementById('btn-update-dash-financiero')?.addEventListener('click', () => cargarDashboardFinanciero());
 
         document.getElementById('btn-clear-dash-ofe')?.addEventListener('click', () => {
             ['filt-ofe-year', 'filt-ofe-month', 'filt-ofe-es-lic', 'filt-ofe-pert-lic'].forEach(id => {
@@ -7059,6 +7278,9 @@
             <a href="#" class="nav-sub-item" id="sidebar-dash-rendimiento" style="display:none;">
                 <span>Productividad</span>
             </a>
+            <a href="#" class="nav-sub-item" id="sidebar-dash-financiero" style="display:none;">
+                <span>Financiero</span>
+            </a>
             <a href="#" class="nav-item" id="tab-configuracion">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -7205,7 +7427,8 @@
                                     <th style="background-color: #fce7f3; color: #334155;">Fecha AR</th>
                                     <th style="background-color: #fce7f3; color: #334155;">Observaciones</th>
                                     <th style="background-color: #fce7f3; color: #334155;">Nº Fact</th>
-                                    <th style="background-color: #fce7f3; color: #334155;">Mes Facturación</th>
+                                    <th style="background-color: #fce7f3; color: #334155;">Gestionado</th>
+                                    <th style="background-color: #fce7f3; color: #334155; display: none;">Mes Facturación</th>
                                     <th style="background-color: #e2e8f0; color: #475569; text-align: center;">Archivar
                                     </th>
                                 </tr>
@@ -7274,6 +7497,7 @@
                         <button class="dash-tab" id="tab-dash-ofertas">Ofertas</button>
                         <button class="dash-tab" id="tab-dash-partes">Partes de Trabajo</button>
                         <button class="dash-tab" id="tab-dash-rendimiento" style="display:none;">Productividad</button>
+                        <button class="dash-tab" id="tab-dash-financiero" style="display:none;">Financiero</button>
                     </div>
 
                     <div id="panel-dash-ofertas" style="display: none;">
@@ -7474,6 +7698,36 @@
                             <p style="color: #64748b; font-size: 13px; margin-bottom: 12px;">Líneas en las que los técnicos no han indicado un código numérico al inicio de las observaciones.</p>
                             <div id="partes-errores-tabla" style="overflow-x: auto;"></div>
                         </div>
+                    </div>
+
+                    <!-- ── Punto 7: Panel Informe Financiero ── -->
+                    <div id="panel-dash-financiero" style="display: none;">
+                        <h3 class="chart-title" style="margin-bottom: 16px;">Importes facturados (últimos 12 meses)</h3>
+                        <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
+                            <div class="filter-group"><label>Año Facturación</label>
+                                <select id="filt-fin-year" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
+                                </select>
+                            </div>
+                            <div class="filter-group"><label>VB Cliente</label>
+                                <select id="filt-fin-vb" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
+                                    <option value="Todos">Todos</option>
+                                    <option value="Si">Si</option>
+                                    <option value="No">No</option>
+                                </select>
+                            </div>
+                            <div class="filter-group"><label>Gestionado</label>
+                                <select id="filt-fin-gest" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
+                                    <option value="Todos">Todos</option>
+                                    <option value="Si">Si</option>
+                                    <option value="No">No</option>
+                                </select>
+                            </div>
+                            <button id="btn-update-dash-financiero" class="btn-primary" style="height: 38px;">Aplicar</button>
+                        </div>
+                        <div style="position: relative; height: 450px;">
+                            <canvas id="chart-financiero"></canvas>
+                        </div>
+                        <div id="financiero-resumen" style="margin-top: 16px; font-size: 14px; color: #475569;"></div>
                     </div>
 
                     </div>
