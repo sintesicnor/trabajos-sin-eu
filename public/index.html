@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.091</title>
+    <title>Gestor de Proyectos y Ofertas v0.093</title>
 
     <!-- PapaParse para procesamiento de CSV (defer: no bloquea renderizado) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -1400,21 +1400,11 @@
                         popup.style.flexDirection = 'column';
                         popup.style.gap = '4px';
                         popup.style.padding = '8px';
-                        popup.style.minWidth = '200px';
+                        popup.style.minWidth = '220px';
 
-                        // 1. Obtener valores únicos de la columna
                         const colIdx = Array.from(th.parentNode.children).indexOf(th);
-                        const uniqueVals = new Set();
-                        table.querySelectorAll('tbody tr').forEach(tr => {
-                            const tds = tr.querySelectorAll('td');
-                            if (tds[colIdx]) {
-                                const v = tds[colIdx].textContent.trim();
-                                if (v) uniqueVals.add(v);
-                            }
-                        });
-                        const sortedVals = [...uniqueVals].sort((a, b) => a.localeCompare(b, 'es'));
 
-                        // 2. Buscador
+                        // Buscador (siempre presente)
                         const searchInput = document.createElement('input');
                         searchInput.type = 'text';
                         searchInput.placeholder = 'Buscar...';
@@ -1422,79 +1412,18 @@
                         searchInput.addEventListener('click', e => e.stopPropagation());
                         popup.appendChild(searchInput);
 
-                        // 3. Contenedor de checkboxes con scroll
+                        // Contenedor de checkboxes (se rellena al abrir)
                         const listContainer = document.createElement('div');
                         listContainer.style.cssText = 'max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;';
                         listContainer.addEventListener('click', e => e.stopPropagation());
-
-                        // 4. Checkbox "Seleccionar todos"
-                        const lblAll = document.createElement('label');
-                        lblAll.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 0;font-weight:500;color:#334155;border-bottom:1px solid #e2e8f0;margin-bottom:2px;padding-bottom:5px;';
-                        const cbAll = document.createElement('input');
-                        cbAll.type = 'checkbox';
-                        cbAll.dataset.selectAll = 'true';
-                        lblAll.appendChild(cbAll);
-                        lblAll.appendChild(document.createTextNode('(Seleccionar todos)'));
-                        listContainer.appendChild(lblAll);
-
-                        // 5. Checkboxes de valores
-                        const tblIdInit = table.dataset.tableId;
-                        const savedFilter = (tableFilters[tblIdInit] && Array.isArray(tableFilters[tblIdInit][colIdx])) ? tableFilters[tblIdInit][colIdx] : [];
-
-                        sortedVals.forEach(val => {
-                            const lbl = document.createElement('label');
-                            lbl.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0;';
-                            lbl.dataset.filterValue = val.toLowerCase();
-                            const cb = document.createElement('input');
-                            cb.type = 'checkbox';
-                            cb.value = val;
-                            // Estado inicial desde filtro guardado
-                            if (savedFilter.includes(val)) cb.checked = true;
-                            lbl.appendChild(cb);
-                            lbl.appendChild(document.createTextNode(val));
-                            listContainer.appendChild(lbl);
-                        });
-
                         popup.appendChild(listContainer);
 
-                        // 6. Lógica del buscador (filtra checkboxes internos, no la tabla)
-                        searchInput.addEventListener('input', () => {
-                            const query = searchInput.value.toLowerCase();
-                            listContainer.querySelectorAll('label').forEach(lbl => {
-                                if (lbl.querySelector('[data-select-all]')) {
-                                    lbl.style.display = ''; // Siempre visible
-                                    return;
-                                }
-                                const val = lbl.dataset.filterValue || '';
-                                lbl.style.display = val.includes(query) ? '' : 'none';
-                            });
-                            // Actualizar estado de "Seleccionar todos"
-                            const visibleCbs = Array.from(listContainer.querySelectorAll('label:not([style*="display: none"]) input[type="checkbox"]:not([data-select-all])'));
-                            const allChecked = visibleCbs.length > 0 && visibleCbs.every(cb => cb.checked);
-                            cbAll.checked = allChecked;
-                        });
-
-                        // 7. Lógica de "Seleccionar todos" (solo afecta a visibles)
-                        cbAll.addEventListener('change', () => {
-                            const isChecked = cbAll.checked;
-                            listContainer.querySelectorAll('label').forEach(lbl => {
-                                if (lbl.querySelector('[data-select-all]')) return;
-                                if (lbl.style.display === 'none') return; // Solo afecta visibles
-                                const cb = lbl.querySelector('input[type="checkbox"]');
-                                if (cb) cb.checked = isChecked;
-                            });
-                            // Disparar actualización del filtro
-                            actualizarFiltroHibrido();
-                        });
-                        cbAll.addEventListener('click', e => e.stopPropagation());
-
-                        // 8. Función para aplicar filtro cuando cambia cualquier checkbox
+                        // Función central: aplicar filtro desde los checkboxes actuales
                         const actualizarFiltroHibrido = () => {
                             const tblId = table.dataset.tableId;
                             if (!tableFilters[tblId]) tableFilters[tblId] = {};
                             const checkedVals = Array.from(listContainer.querySelectorAll('input[type="checkbox"]:checked:not([data-select-all])')).map(cb => cb.value);
                             tableFilters[tblId][colIdx] = checkedVals;
-
                             if (checkedVals.length > 0) {
                                 iconContainer.dataset.active = 'true';
                                 iconContainer.innerHTML = activeSvg;
@@ -1508,20 +1437,87 @@
                             guardarPreferenciasUsuario();
                         };
 
-                        // Listener en cada checkbox de valor
-                        listContainer.querySelectorAll('input[type="checkbox"]:not([data-select-all])').forEach(cb => {
-                            cb.addEventListener('click', e => e.stopPropagation());
-                            cb.addEventListener('change', () => {
-                                actualizarFiltroHibrido();
-                                // Actualizar estado del "Seleccionar todos"
-                                const visibleCbs = Array.from(listContainer.querySelectorAll('label:not([style*="display: none"]) input[type="checkbox"]:not([data-select-all])'));
-                                const allChecked = visibleCbs.length > 0 && visibleCbs.every(c => c.checked);
-                                cbAll.checked = allChecked;
+                        // Función: poblar checkboxes con valores actuales de la tabla
+                        const poblarCheckboxes = () => {
+                            const tblId = table.dataset.tableId;
+                            const savedFilter = (tableFilters[tblId] && Array.isArray(tableFilters[tblId][colIdx])) ? tableFilters[tblId][colIdx] : [];
+
+                            // Leer valores únicos de las filas ACTUALES (incluidas las ocultas por otros filtros)
+                            const uniqueVals = new Set();
+                            table.querySelectorAll('tbody tr').forEach(tr => {
+                                const tds = tr.querySelectorAll('td');
+                                if (tds[colIdx]) {
+                                    const v = tds[colIdx].textContent.trim();
+                                    if (v) uniqueVals.add(v);
+                                }
                             });
-                        });
+                            const sortedVals = [...uniqueVals].sort((a, b) => a.localeCompare(b, 'es'));
+
+                            // Limpiar contenedor
+                            listContainer.innerHTML = '';
+                            searchInput.value = '';
+
+                            // Checkbox "Seleccionar todos"
+                            const lblAll = document.createElement('label');
+                            lblAll.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;padding:3px 0;font-weight:500;color:#334155;border-bottom:1px solid #e2e8f0;margin-bottom:2px;padding-bottom:5px;';
+                            const cbAll = document.createElement('input');
+                            cbAll.type = 'checkbox';
+                            cbAll.dataset.selectAll = 'true';
+                            cbAll.addEventListener('click', e => e.stopPropagation());
+                            cbAll.addEventListener('change', () => {
+                                const isChecked = cbAll.checked;
+                                listContainer.querySelectorAll('label').forEach(lbl => {
+                                    if (lbl.querySelector('[data-select-all]')) return;
+                                    if (lbl.style.display === 'none') return;
+                                    const cb = lbl.querySelector('input[type="checkbox"]');
+                                    if (cb) cb.checked = isChecked;
+                                });
+                                actualizarFiltroHibrido();
+                            });
+                            lblAll.appendChild(cbAll);
+                            lblAll.appendChild(document.createTextNode('(Seleccionar todos)'));
+                            listContainer.appendChild(lblAll);
+
+                            // Checkboxes por valor
+                            sortedVals.forEach(val => {
+                                const lbl = document.createElement('label');
+                                lbl.style.cssText = 'font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0;';
+                                lbl.dataset.filterValue = val.toLowerCase();
+                                const cb = document.createElement('input');
+                                cb.type = 'checkbox';
+                                cb.value = val;
+                                if (savedFilter.includes(val)) cb.checked = true;
+                                cb.addEventListener('click', e => e.stopPropagation());
+                                cb.addEventListener('change', () => {
+                                    actualizarFiltroHibrido();
+                                    const visCbs = Array.from(listContainer.querySelectorAll('label:not([style*="display: none"]) input[type="checkbox"]:not([data-select-all])'));
+                                    cbAll.checked = visCbs.length > 0 && visCbs.every(c => c.checked);
+                                });
+                                lbl.appendChild(cb);
+                                lbl.appendChild(document.createTextNode(val));
+                                listContainer.appendChild(lbl);
+                            });
+
+                            // Vincular buscador a los checkboxes recién creados
+                            searchInput.oninput = () => {
+                                const query = searchInput.value.toLowerCase();
+                                listContainer.querySelectorAll('label').forEach(lbl => {
+                                    if (lbl.querySelector('[data-select-all]')) { lbl.style.display = ''; return; }
+                                    const v = lbl.dataset.filterValue || '';
+                                    lbl.style.display = v.includes(query) ? '' : 'none';
+                                });
+                                const visCbs = Array.from(listContainer.querySelectorAll('label:not([style*="display: none"]) input[type="checkbox"]:not([data-select-all])'));
+                                cbAll.checked = visCbs.length > 0 && visCbs.every(c => c.checked);
+                            };
+                        };
+
+                        // Guardar referencia para usarla al abrir
+                        popup._poblarCheckboxes = poblarCheckboxes;
 
                         // Estado inicial del icono
-                        if (savedFilter.length > 0) {
+                        const tblIdInit = table.dataset.tableId;
+                        const savedFilterInit = (tableFilters[tblIdInit] && Array.isArray(tableFilters[tblIdInit][colIdx])) ? tableFilters[tblIdInit][colIdx] : [];
+                        if (savedFilterInit.length > 0) {
                             iconContainer.dataset.active = 'true';
                             iconContainer.innerHTML = activeSvg;
                             iconContainer.style.color = '#ef4444';
@@ -1703,13 +1699,21 @@
 
                         const isVisible = popup.style.display === 'flex' || popup.style.display === 'block';
                         document.querySelectorAll('.filter-popup').forEach(p => p.style.display = 'none');
-                        popup.style.display = isVisible ? 'none' : ((isHybridFilter || isMulti) ? 'flex' : 'block');
-                        if (!isVisible && isHybridFilter) {
-                            const si = popup.querySelector('input[type="text"]');
-                            if (si) si.focus();
-                        } else if (!isVisible && !isMulti) {
-                            const ip = popup.querySelector('input[type="text"]');
-                            if (ip) ip.focus();
+                        if (!isVisible) {
+                            // ── Al abrir: poblar checkboxes con valores actuales de la tabla ──
+                            if (isHybridFilter && typeof popup._poblarCheckboxes === 'function') {
+                                popup._poblarCheckboxes();
+                            }
+                            popup.style.display = (isHybridFilter || isMulti) ? 'flex' : 'block';
+                            if (isHybridFilter) {
+                                const si = popup.querySelector('input[type="text"]');
+                                if (si) si.focus();
+                            } else if (!isMulti) {
+                                const ip = popup.querySelector('input[type="text"]');
+                                if (ip) ip.focus();
+                            }
+                        } else {
+                            popup.style.display = 'none';
                         }
                     });
 
@@ -7429,7 +7433,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.091</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.093</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
