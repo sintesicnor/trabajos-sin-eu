@@ -1677,6 +1677,7 @@
                     const docId = docSnapshot.id;
                     const isAceptada = data.estado === 'Aceptada';
 
+                    data._docId = docId; // Guardamos ID para referencia interna
                     datosOfertasMemoria.push(data); // Guardamos en memoria
 
                     function formatCurrency(val) {
@@ -2835,6 +2836,7 @@
                         num_gestiona: numOfe,
                         cliente: cliOfe,
                         estado: 'En curso',
+                        creado_por: currentUserAcronym || '',
                         timestamp_creacion: ts,
                         timestamp_estado: ts,
                         fecha_oferta: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -3117,12 +3119,19 @@
 
                 if (!docId || !fieldName) return;
 
-                // ── Restricción por rol: edicion solo edita ofertas donde es agente comercial ──
+                // ── Restricción por rol: edicion solo edita ofertas donde es agente comercial, T1 o creador ──
                 if (currentUserRole === 'edicion' && currentUserAcronym) {
                     const tdAgente = tr.querySelector('td[data-field="agente_comercial"]');
+                    const tdTecnico = tr.querySelector('td[data-field="tecnico_t1"]');
                     const agenteVal = tdAgente ? tdAgente.textContent.trim() : '';
-                    const esAgente = agenteVal === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === agenteVal));
-                    if (!esAgente) return;
+                    const tecVal = tdTecnico ? tdTecnico.textContent.trim() : '';
+                    // Comprobar si es creador (campo creado_por almacenado en Firestore)
+                    const ofertaData = datosOfertasMemoria.find(d => d._docId === docId);
+                    const esCreador = ofertaData && ofertaData.creado_por === currentUserAcronym;
+                    const esAgenteOTecOCreador = [agenteVal, tecVal].some(v => 
+                        v === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === v))
+                    ) || esCreador;
+                    if (!esAgenteOTecOCreador) return;
                 }
 
                 // ── Restricción por rol: ofertador solo edita ofertas donde es agente o técnico ──
