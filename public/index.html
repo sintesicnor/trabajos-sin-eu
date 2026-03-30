@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.082</title>
+    <title>Gestor de Proyectos y Ofertas v0.083</title>
 
     <!-- PapaParse para procesamiento de CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -2265,10 +2265,15 @@
 
                     // Controlar visibilidad de sub-items de Informes en sidebar
                     const showDash = tienePermiso('ver_dashboard');
-                    ['sidebar-dash-produccion','sidebar-dash-ofertas','sidebar-dash-partes'].forEach(id => {
+                    ['sidebar-dash-produccion','sidebar-dash-partes'].forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.style.display = showDash ? 'flex' : 'none';
                     });
+                    // Ofertas dashboard: ocultar para lectura
+                    const sidebarDashOfertas = document.getElementById('sidebar-dash-ofertas');
+                    if (sidebarDashOfertas) sidebarDashOfertas.style.display = (showDash && currentUserRole !== 'lectura') ? 'flex' : 'none';
+                    const tabDashOfertas = document.getElementById('tab-dash-ofertas');
+                    if (tabDashOfertas) tabDashOfertas.style.display = currentUserRole === 'lectura' ? 'none' : '';
                     const sidebarRendimiento = document.getElementById('sidebar-dash-rendimiento');
                     if (sidebarRendimiento) sidebarRendimiento.style.display = (showDash && (currentUserRole === 'admin' || currentUserRole === 'edicion')) ? 'flex' : 'none';
 
@@ -3409,20 +3414,18 @@
             const yFil = getMulti('filt-ofe-year'); const mFil = getMulti('filt-ofe-month');
             const licFil = getMulti('filt-ofe-es-lic'); const pertFil = getMulti('filt-ofe-pert-lic');
 
-            // ── DIAG temporal ──
-            console.log("🔍 Dashboard ofertas: total en memoria:", datosOfertasMemoria.length);
-            if (datosOfertasMemoria.length > 0) {
-                const sample = datosOfertasMemoria[0];
-                console.log("🔍 Sample oferta:", JSON.stringify({
-                    fecha_oferta: sample.fecha_oferta,
-                    presupuesto_total: sample.presupuesto_total,
-                    estado: sample.estado,
-                    agente_comercial: sample.agente_comercial
-                }));
-                console.log("🔍 parseSpanishNum(presupuesto_total):", parseSpanishNum(sample.presupuesto_total));
+            // Helper: comprobar si el usuario figura como agente o T1 en una oferta
+            function esUsuarioEnOferta(of) {
+                if (!currentUserAcronym) return false;
+                const campos = [of.agente_comercial, of.tecnico_t1];
+                return campos.some(v => {
+                    if (!v) return false;
+                    const check = typeof v === 'string' ? v.trim() : v;
+                    if (check === currentUserAcronym) return true;
+                    return listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === check || t.nombre === check));
+                });
             }
-            console.log("🔍 Filtros: yFil:", yFil, "mFil:", mFil);
-            // ── FIN DIAG ──
+            const filtrarPorUsuario = (currentUserRole === 'ofertador');
 
             let vivas = 0, aceptadas = 0, rechazadas = 0;
             let pptoCurso = 0, pptoAcep = 0, pptoRech = 0;
@@ -3442,6 +3445,7 @@
 
             // First pass: collect all data for unfiltered charts
             datosOfertasMemoria.forEach(of => {
+                if (filtrarPorUsuario && !esUsuarioEnOferta(of)) return;
                 const est = (of.estado || 'En curso').trim();
                 const estLower = est.toLowerCase();
                 const ppto = parseSpanishNum(of.presupuesto_total) || 0;
@@ -3464,6 +3468,7 @@
 
             // Second pass: filtered data for KPIs and agent charts
             datosOfertasMemoria.forEach(of => {
+                if (filtrarPorUsuario && !esUsuarioEnOferta(of)) return;
                 if (!checkDateMatch(of.fecha_oferta, yFil, mFil)) return;
                 const esLic = normSiNo(of.es_licitacion);
                 const pertLic = normSiNo(of.pertenece_a_licitacion);
@@ -3741,6 +3746,15 @@
         }
 
         function cargarDashboardProduccion() {
+            // Visibilidad por rol: lectura/ofertador solo ven Gantt con sus trabajos
+            const esRolRestringido = (currentUserRole === 'lectura' || currentUserRole === 'ofertador');
+            const elFiltros = document.getElementById('dash-pro-filtros');
+            const elKpis = document.getElementById('dash-pro-kpis');
+            const elHorasMes = document.getElementById('dash-pro-horas-mes');
+            if (elFiltros) elFiltros.style.display = esRolRestringido ? 'none' : 'flex';
+            if (elKpis) elKpis.style.display = esRolRestringido ? 'none' : 'grid';
+            if (elHorasMes) elHorasMes.style.display = esRolRestringido ? 'none' : '';
+
             const yFil = getMulti('filt-pro-year'); const mFil = getMulti('filt-pro-month');
             const rbleFil = getMulti('filt-pro-rble'); const t1Fil = getMulti('filt-pro-t1');
             const t2Fil = getMulti('filt-pro-t2'); const t3Fil = getMulti('filt-pro-t3');
@@ -3756,11 +3770,22 @@
             let minGanttTime = null; let maxGanttTime = null;
             const hrsPorMes = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0 };
 
+            // Helper: comprobar si el usuario actual figura como T1, T2, T3 o Rble en un trabajo
+            function esUsuarioEnTrabajo(prod) {
+                if (!currentUserAcronym) return false;
+                const campos = [prod.responsable_g, prod.ejecutor_t1, prod.apoyo_am, prod.apoyo_an];
+                return campos.some(v => {
+                    if (!v) return false;
+                    const check = typeof v === 'string' ? v.trim() : v;
+                    if (check === currentUserAcronym) return true;
+                    return listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === check || t.nombre === check));
+                });
+            }
+
             const matchTec = (val, filArr, selectId) => {
-                // Si no hay filtro o todos están seleccionados, no filtrar
                 if (filArr.length === 0) return true;
                 const sel = document.getElementById(selectId);
-                if (sel && filArr.length === sel.options.length) return true; // Todos seleccionados = sin filtro
+                if (sel && filArr.length === sel.options.length) return true;
                 if (!val) return false;
                 const check = typeof val === 'string' ? val.trim() : val;
                 const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
@@ -3769,12 +3794,18 @@
 
             datosProduccionMemoria.forEach(prod => {
                 if (prod.visible === false) return;
-                if (!checkDateMatch(prod.fecha_inicio, yFil, mFil)) return;
-                if (!matchTec(prod.responsable_g, rbleFil, 'filt-pro-rble')) return;
-                if (!matchTec(prod.ejecutor_t1, t1Fil, 'filt-pro-t1')) return;
-                if (!matchTec(prod.apoyo_am, t2Fil, 'filt-pro-t2')) return;
-                if (!matchTec(prod.apoyo_an, t3Fil, 'filt-pro-t3')) return;
-                if (srvFil.length > 0 && !srvFil.includes((prod.tipo_servicio || '').trim())) return;
+
+                // Restricción lectura/ofertador: solo sus trabajos
+                if (esRolRestringido && !esUsuarioEnTrabajo(prod)) return;
+
+                if (!esRolRestringido) {
+                    if (!checkDateMatch(prod.fecha_inicio, yFil, mFil)) return;
+                    if (!matchTec(prod.responsable_g, rbleFil, 'filt-pro-rble')) return;
+                    if (!matchTec(prod.ejecutor_t1, t1Fil, 'filt-pro-t1')) return;
+                    if (!matchTec(prod.apoyo_am, t2Fil, 'filt-pro-t2')) return;
+                    if (!matchTec(prod.apoyo_an, t3Fil, 'filt-pro-t3')) return;
+                    if (srvFil.length > 0 && !srvFil.includes((prod.tipo_servicio || '').trim())) return;
+                }
 
                 const vbCliente = (prod.visto_vb_cliente || '').trim().toLowerCase();
                 // Filtro VB Cliente
@@ -6993,7 +7024,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.082</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.083</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -7273,7 +7304,7 @@
                     </div>
 
                     <div id="panel-dash-produccion" style="display: block;">
-                        <div
+                        <div id="dash-pro-filtros"
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-pro-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-year').selectedIndex=-1;">✕</button></div></div>
                             <div class="filter-group"><label>Mes</label><div class="filter-wrap">
@@ -7297,7 +7328,7 @@
                             </div>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+                        <div id="dash-pro-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
                             <div class="kpi-card">
                                 <div class="kpi-title">Facturación Pendiente (sin VB)</div>
                                 <div class="kpi-value" id="kpi-pro-fact" style="color: #2176AC;">0 €</div>
@@ -7336,7 +7367,7 @@
                             </div>
                         </div>
 
-                        <div class="chart-box">
+                        <div id="dash-pro-horas-mes" class="chart-box">
                             <h3 class="chart-title">Horas Asignadas en Trabajos (Por Mes de Inicio)</h3>
                             <div style="width: 100%; height: 300px; position: relative;"><canvas
                                     id="chart-pro-bar-meses"></canvas></div>
