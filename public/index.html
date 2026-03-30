@@ -3119,20 +3119,7 @@
 
                 if (!docId || !fieldName) return;
 
-                // ── Restricción por rol: edicion solo edita ofertas donde es agente comercial, T1 o creador ──
-                if (currentUserRole === 'edicion' && currentUserAcronym) {
-                    const tdAgente = tr.querySelector('td[data-field="agente_comercial"]');
-                    const tdTecnico = tr.querySelector('td[data-field="tecnico_t1"]');
-                    const agenteVal = tdAgente ? tdAgente.textContent.trim() : '';
-                    const tecVal = tdTecnico ? tdTecnico.textContent.trim() : '';
-                    // Comprobar si es creador (campo creado_por almacenado en Firestore)
-                    const ofertaData = datosOfertasMemoria.find(d => d._docId === docId);
-                    const esCreador = ofertaData && ofertaData.creado_por === currentUserAcronym;
-                    const esAgenteOTecOCreador = [agenteVal, tecVal].some(v => 
-                        v === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === v))
-                    ) || esCreador;
-                    if (!esAgenteOTecOCreador) return;
-                }
+                // ── Rol edicion: puede editar todas las ofertas (sin restricción) ──
 
                 // ── Restricción por rol: ofertador solo edita ofertas donde es agente o técnico ──
                 if (currentUserRole === 'ofertador' && currentUserAcronym) {
