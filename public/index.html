@@ -548,7 +548,7 @@
         function navegarInformesSeccion(seccionTabId) {
             switchView('tab-dashboard', 'view-dashboard');
             // Limpiar tabs internos del dashboard
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero', 'tab-dash-facthora'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
             document.getElementById(seccionTabId)?.classList.add('active');
@@ -560,7 +560,8 @@
                 'tab-dash-ofertas': 'sidebar-dash-ofertas',
                 'tab-dash-partes': 'sidebar-dash-partes',
                 'tab-dash-rendimiento': 'sidebar-dash-rendimiento',
-                'tab-dash-financiero': 'sidebar-dash-financiero'
+                'tab-dash-financiero': 'sidebar-dash-financiero',
+                'tab-dash-facthora': 'sidebar-dash-facthora'
             };
             document.getElementById(mapTabToSidebar[seccionTabId])?.classList.add('active');
             cargarDashboard();
@@ -587,6 +588,11 @@
         document.getElementById('sidebar-dash-financiero')?.addEventListener('click', (e) => {
             e.preventDefault();
             navegarInformesSeccion('tab-dash-financiero');
+        });
+        // ── Listener sidebar Fact. por Hora ──
+        document.getElementById('sidebar-dash-facthora')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            navegarInformesSeccion('tab-dash-facthora');
         });
 
         // Eventos filtros Dashboard
@@ -2478,6 +2484,12 @@
                     if (sidebarFinanciero) sidebarFinanciero.style.display = (showDash && (currentUserRole === 'admin' || currentUserRole === 'financiero')) ? 'flex' : 'none';
                     const tabDashFinanciero = document.getElementById('tab-dash-financiero');
                     if (tabDashFinanciero) tabDashFinanciero.style.display = (currentUserRole === 'admin' || currentUserRole === 'financiero') ? '' : 'none';
+
+                    // ── Visibilidad informe Fact. por Hora: solo admin ──
+                    const sidebarFactHora = document.getElementById('sidebar-dash-facthora');
+                    if (sidebarFactHora) sidebarFactHora.style.display = (showDash && currentUserRole === 'admin') ? 'flex' : 'none';
+                    const tabDashFactHora = document.getElementById('tab-dash-facthora');
+                    if (tabDashFactHora) tabDashFactHora.style.display = currentUserRole === 'admin' ? '' : 'none';
 
                     // Restringir panel de técnicos solo a admin
                     const panelTecnicos = document.getElementById('panel-tecnicos');
@@ -5058,6 +5070,252 @@
         }
 
 
+        // ═══ Informe Facturación por Hora T1 (solo admin) ═══
+        function cargarDashboardFactHora() {
+            const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
+            const fmtH = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+            const fmtPct = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+            // Ensure partes_horas loaded
+            if (!window._partesHorasData) {
+                if (_cachedPartesHoras && _cachedPartesHoras.length > 0) {
+                    window._partesHorasData = _cachedPartesHoras.map((data, i) => ({ id: 'p' + i, ...data }));
+                } else {
+                    getDocs(collection(db, 'partes_horas')).then(snap => {
+                        _cachedPartesHoras = [];
+                        window._partesHorasData = [];
+                        snap.forEach(d => { const data = d.data(); _cachedPartesHoras.push(data); window._partesHorasData.push({ id: d.id, ...data }); });
+                        _cachedPartesHorasTimestamp = Date.now();
+                        cargarDashboardFactHora();
+                    }).catch(err => console.error('Error cargando partes_horas:', err));
+                    return;
+                }
+            }
+
+            const partesData = window._partesHorasData || [];
+
+            // ── Step 1: Build hours-per-technician-per-work lookup from partes_horas ──
+            // horasPorTrabajo[numTrabajo] = { tecAcronimo: totalHoras, ... }
+            const horasPorTrabajo = {};
+            partesData.forEach(p => {
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+                const obs = String(p.observaciones_crudas || p.observaciones || '').trim();
+                const m = obs.match(/^(\d{3,6})(?:\D|$)/);
+                let numT = m ? m[1] : null;
+                if (!numT && p.num_trabajo_vinculado) numT = String(p.num_trabajo_vinculado).trim();
+                if (!numT) return;
+                const tec = resolverTecPorIdTec((p.trabajador || '').trim());
+                if (!tec) return;
+                if (!horasPorTrabajo[numT]) horasPorTrabajo[numT] = {};
+                horasPorTrabajo[numT][tec.acronimo] = (horasPorTrabajo[numT][tec.acronimo] || 0) + horas;
+            });
+
+            // ── Step 2: Filter only ANUAL+PUNTUAL with fecha_fin (completed) ──
+            // For each, compute adjusted budget for T1 and hours T1 invested
+            // tecData[acronimo] = { importeAjustado: sum, horasT1: sum, pctUsoValues: [] }
+            const tecData = {};
+            // Also collect by tipo_servicio
+            // srvData[tipoServicio][acronimo] = { importeAjustado, horasT1 }
+            const srvData = {};
+
+            // Set of non-admin/non-financiero technicians
+            const tecValidosSet = new Set();
+            listaTecnicos.forEach(t => {
+                const rol = (t.rol || 'lectura').toLowerCase();
+                if (rol !== 'admin' && rol !== 'financiero') {
+                    tecValidosSet.add(t.acronimo);
+                }
+            });
+
+            datosProduccionMemoria.forEach(prod => {
+                const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+
+                // Must have fecha_fin (= finalizado)
+                const fechaFin = (prod.fecha_fin || '').trim();
+                if (!fechaFin) return;
+
+                const presup = parseSpanishNum(prod.presupuesto_m) || 0;
+                if (presup === 0) return;
+
+                const numT = String(prod.num_trabajo || '').trim();
+                if (!numT) return;
+
+                // Identify T1
+                const t1Field = (prod.ejecutor_t1 || '').trim();
+                const t1Obj = listaTecnicos.find(t => t.acronimo === t1Field || t.nombre_pila === t1Field || t.nombre === t1Field);
+                if (!t1Obj) return;
+                const t1Acr = t1Obj.acronimo;
+
+                // Only include valid technicians (not admin/financiero)
+                if (!tecValidosSet.has(t1Acr)) return;
+
+                // Identify T2 and T3
+                const t2Field = (prod.apoyo_am || '').trim();
+                const t3Field = (prod.apoyo_an || '').trim();
+                const t2Obj = t2Field ? listaTecnicos.find(t => t.acronimo === t2Field || t.nombre_pila === t2Field || t.nombre === t2Field) : null;
+                const t3Obj = t3Field ? listaTecnicos.find(t => t.acronimo === t3Field || t.nombre_pila === t3Field || t.nombre === t3Field) : null;
+
+                const horasTrabajo = horasPorTrabajo[numT] || {};
+
+                // Hours invested by T2 and T3 in this work
+                const horasT2 = t2Obj ? (horasTrabajo[t2Obj.acronimo] || 0) : 0;
+                const horasT3 = t3Obj ? (horasTrabajo[t3Obj.acronimo] || 0) : 0;
+
+                // Adjusted budget = presupuesto - (horasT2 + horasT3) * costeHoraActual
+                const descuento = (horasT2 + horasT3) * costeHoraActual;
+                const importeAjustado = Math.max(0, presup - descuento);
+
+                // Hours T1 invested
+                const horasT1 = horasTrabajo[t1Acr] || 0;
+
+                // Calculate % uso for this work
+                const gastos = parseSpanishNum(prod.gastos_n) || 0;
+                const horasDisp = costeHoraActual > 0 ? (presup - gastos) / costeHoraActual : 0;
+                const totalHorasWork = Object.values(horasTrabajo).reduce((s, v) => s + v, 0);
+                // Add historical hours
+                const histHours = parseSpanishNum(prod.total_horas_historico) || 0;
+                const totalHorasConHist = totalHorasWork + histHours;
+                const pctUso = horasDisp > 0 ? (totalHorasConHist / horasDisp) * 100 : 0;
+
+                // Accumulate for technician
+                if (!tecData[t1Acr]) tecData[t1Acr] = { importeAjustado: 0, horasT1: 0, pctUsoValues: [] };
+                tecData[t1Acr].importeAjustado += importeAjustado;
+                tecData[t1Acr].horasT1 += horasT1;
+                if (pctUso > 0) tecData[t1Acr].pctUsoValues.push(pctUso);
+
+                // Accumulate by tipo_servicio
+                const tipoSrv = (prod.tipo_servicio || '').trim() || 'Sin tipo';
+                if (!srvData[tipoSrv]) srvData[tipoSrv] = {};
+                if (!srvData[tipoSrv][t1Acr]) srvData[tipoSrv][t1Acr] = { importeAjustado: 0, horasT1: 0 };
+                srvData[tipoSrv][t1Acr].importeAjustado += importeAjustado;
+                srvData[tipoSrv][t1Acr].horasT1 += horasT1;
+            });
+
+            // ── Step 3: Render TABLE 1 — Técnicos ──
+            const container1 = document.getElementById('container-facthora-tecnicos');
+            if (container1) {
+                const tecKeys = Object.keys(tecData).sort((a, b) => {
+                    const rA = tecData[a].horasT1 > 0 ? tecData[a].importeAjustado / tecData[a].horasT1 : 0;
+                    const rB = tecData[b].horasT1 > 0 ? tecData[b].importeAjustado / tecData[b].horasT1 : 0;
+                    return rB - rA;
+                });
+
+                if (tecKeys.length === 0) {
+                    container1.innerHTML = '<p style="color:#64748b;font-size:13px;">No hay datos de expedientes ANUAL/PUNTUAL finalizados.</p>';
+                } else {
+                    let html = '<table style="width:100%;border-collapse:collapse;font-size:14px;">';
+                    html += '<thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">';
+                    html += '<th style="padding:10px 14px;text-align:left;font-weight:600;color:#334155;">Técnico</th>';
+                    html += '<th style="padding:10px 14px;text-align:right;font-weight:600;color:#334155;">Importe Ajustado</th>';
+                    html += '<th style="padding:10px 14px;text-align:right;font-weight:600;color:#334155;">Horas T1</th>';
+                    html += '<th style="padding:10px 14px;text-align:right;font-weight:600;color:#334155;">€/hora</th>';
+                    html += '<th style="padding:10px 14px;text-align:right;font-weight:600;color:#334155;">Prom. % Uso</th>';
+                    html += '</tr></thead><tbody>';
+
+                    tecKeys.forEach((acr, idx) => {
+                        const d = tecData[acr];
+                        const precioHora = d.horasT1 > 0 ? d.importeAjustado / d.horasT1 : 0;
+                        const promPct = d.pctUsoValues.length > 0 ? d.pctUsoValues.reduce((s, v) => s + v, 0) / d.pctUsoValues.length : 0;
+                        const tecObj = listaTecnicos.find(t => t.acronimo === acr);
+                        const label = tecObj ? (tecObj.nombre_pila || tecObj.acronimo) : acr;
+                        const bgColor = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+
+                        // Color for €/hora
+                        let phColor = '#10b981';
+                        if (precioHora < costeHoraActual * 0.8) phColor = '#ef4444';
+                        else if (precioHora < costeHoraActual) phColor = '#f97316';
+
+                        // Color for %uso
+                        let pctColor = '#10b981';
+                        if (promPct > 95) pctColor = '#ef4444';
+                        else if (promPct > 75) pctColor = '#f97316';
+                        else if (promPct > 50) pctColor = '#eab308';
+
+                        html += `<tr style="background:${bgColor};border-bottom:1px solid #f1f5f9;">`;
+                        html += `<td style="padding:10px 14px;font-weight:500;color:#1e293b;">${escapeHTML(label)} <span style="color:#94a3b8;font-size:12px;">(${escapeHTML(acr)})</span></td>`;
+                        html += `<td style="padding:10px 14px;text-align:right;color:#475569;">${fmtE.format(d.importeAjustado)}</td>`;
+                        html += `<td style="padding:10px 14px;text-align:right;color:#475569;">${fmtH.format(d.horasT1)}h</td>`;
+                        html += `<td style="padding:10px 14px;text-align:right;font-weight:700;color:${phColor};">${precioHora > 0 ? fmtE.format(precioHora) + '/h' : '—'}</td>`;
+                        html += `<td style="padding:10px 14px;text-align:right;font-weight:600;color:${pctColor};">${promPct > 0 ? fmtPct.format(promPct) + '%' : '—'}</td>`;
+                        html += '</tr>';
+                    });
+
+                    // Totals row
+                    const totalImporte = tecKeys.reduce((s, k) => s + tecData[k].importeAjustado, 0);
+                    const totalHoras = tecKeys.reduce((s, k) => s + tecData[k].horasT1, 0);
+                    const totalPH = totalHoras > 0 ? totalImporte / totalHoras : 0;
+                    const allPcts = tecKeys.flatMap(k => tecData[k].pctUsoValues);
+                    const totalPromPct = allPcts.length > 0 ? allPcts.reduce((s, v) => s + v, 0) / allPcts.length : 0;
+
+                    html += `<tr style="background:#f1f5f9;border-top:2px solid #cbd5e1;font-weight:700;">`;
+                    html += `<td style="padding:10px 14px;color:#0f172a;">TOTAL / PROMEDIO</td>`;
+                    html += `<td style="padding:10px 14px;text-align:right;color:#0f172a;">${fmtE.format(totalImporte)}</td>`;
+                    html += `<td style="padding:10px 14px;text-align:right;color:#0f172a;">${fmtH.format(totalHoras)}h</td>`;
+                    html += `<td style="padding:10px 14px;text-align:right;color:#0f172a;">${totalPH > 0 ? fmtE.format(totalPH) + '/h' : '—'}</td>`;
+                    html += `<td style="padding:10px 14px;text-align:right;color:#0f172a;">${totalPromPct > 0 ? fmtPct.format(totalPromPct) + '%' : '—'}</td>`;
+                    html += '</tr>';
+
+                    html += '</tbody></table>';
+                    container1.innerHTML = html;
+                }
+            }
+
+            // ── Step 4: Render TABLE 2 — Por Tipo de Servicio ──
+            const container2 = document.getElementById('container-facthora-servicio');
+            if (container2) {
+                const srvKeys = Object.keys(srvData).sort();
+
+                if (srvKeys.length === 0) {
+                    container2.innerHTML = '<p style="color:#64748b;font-size:13px;">No hay datos.</p>';
+                } else {
+                    let html = '<table style="width:100%;border-collapse:collapse;font-size:14px;">';
+                    html += '<thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">';
+                    html += '<th style="padding:10px 14px;text-align:left;font-weight:600;color:#334155;">Tipo de Servicio</th>';
+                    html += '<th style="padding:10px 14px;text-align:right;font-weight:600;color:#334155;">Nº T1</th>';
+                    html += '<th style="padding:10px 14px;text-align:right;font-weight:600;color:#334155;">Importe Ajustado Total</th>';
+                    html += '<th style="padding:10px 14px;text-align:right;font-weight:600;color:#334155;">Horas T1 Totales</th>';
+                    html += '<th style="padding:10px 14px;text-align:right;font-weight:600;color:#334155;">€/hora Promedio</th>';
+                    html += '</tr></thead><tbody>';
+
+                    srvKeys.forEach((srv, idx) => {
+                        const tecEntries = srvData[srv];
+                        const tecAcrs = Object.keys(tecEntries);
+                        // Calculate per-T1 €/hora, then average
+                        const preciosHora = [];
+                        let totalImporteSrv = 0;
+                        let totalHorasSrv = 0;
+                        tecAcrs.forEach(acr => {
+                            const d = tecEntries[acr];
+                            totalImporteSrv += d.importeAjustado;
+                            totalHorasSrv += d.horasT1;
+                            if (d.horasT1 > 0) {
+                                preciosHora.push(d.importeAjustado / d.horasT1);
+                            }
+                        });
+                        const promPH = preciosHora.length > 0 ? preciosHora.reduce((s, v) => s + v, 0) / preciosHora.length : 0;
+                        const bgColor = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+
+                        let phColor = '#10b981';
+                        if (promPH < costeHoraActual * 0.8) phColor = '#ef4444';
+                        else if (promPH < costeHoraActual) phColor = '#f97316';
+
+                        html += `<tr style="background:${bgColor};border-bottom:1px solid #f1f5f9;">`;
+                        html += `<td style="padding:10px 14px;font-weight:500;color:#1e293b;">${escapeHTML(srv)}</td>`;
+                        html += `<td style="padding:10px 14px;text-align:right;color:#475569;">${tecAcrs.length}</td>`;
+                        html += `<td style="padding:10px 14px;text-align:right;color:#475569;">${fmtE.format(totalImporteSrv)}</td>`;
+                        html += `<td style="padding:10px 14px;text-align:right;color:#475569;">${fmtH.format(totalHorasSrv)}h</td>`;
+                        html += `<td style="padding:10px 14px;text-align:right;font-weight:700;color:${phColor};">${promPH > 0 ? fmtE.format(promPH) + '/h' : '—'}</td>`;
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table>';
+                    container2.innerHTML = html;
+                }
+            }
+        }
+
         // ═══ Monthly Facturado/PorFacturar Chart ═══
         let _chartMensualFact = null;
 
@@ -5231,8 +5489,9 @@
             const isPartes = document.getElementById('tab-dash-partes') && document.getElementById('tab-dash-partes').classList.contains('active');
             const isRend = document.getElementById('tab-dash-rendimiento') && document.getElementById('tab-dash-rendimiento').classList.contains('active');
             const isFin = document.getElementById('tab-dash-financiero') && document.getElementById('tab-dash-financiero').classList.contains('active');
+            const isFactHora = document.getElementById('tab-dash-facthora') && document.getElementById('tab-dash-facthora').classList.contains('active');
 
-            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes','panel-dash-rendimiento','panel-dash-financiero'];
+            const panels = ['panel-dash-ofertas','panel-dash-produccion','panel-dash-partes','panel-dash-rendimiento','panel-dash-financiero','panel-dash-facthora'];
             panels.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 
             if (isOfertas) {
@@ -5248,6 +5507,9 @@
             } else if (isFin) {
                 document.getElementById('panel-dash-financiero').style.display = 'block';
                 cargarDashboardFinanciero();
+            } else if (isFactHora) {
+                document.getElementById('panel-dash-facthora').style.display = 'block';
+                cargarDashboardFactHora();
             } else {
                 document.getElementById('panel-dash-produccion').style.display = 'block';
                 cargarDashboardProduccion();
@@ -5257,7 +5519,7 @@
 
         // Listeners Pestañas y Filtros
         const clearActiveTabs = () => {
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => {
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero', 'tab-dash-facthora'].forEach(id => {
                 document.getElementById(id)?.classList.remove('active');
             });
         };
@@ -5269,7 +5531,8 @@
                 'tab-dash-ofertas': 'sidebar-dash-ofertas',
                 'tab-dash-partes': 'sidebar-dash-partes',
                 'tab-dash-rendimiento': 'sidebar-dash-rendimiento',
-                'tab-dash-financiero': 'sidebar-dash-financiero'
+                'tab-dash-financiero': 'sidebar-dash-financiero',
+                'tab-dash-facthora': 'sidebar-dash-facthora'
             };
             document.getElementById(map[activeTabId])?.classList.add('active');
         }
@@ -5288,14 +5551,14 @@
         });
         document.getElementById('tab-dash-partes')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero', 'tab-dash-facthora'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-partes')?.classList.add('active');
             syncSidebarSubItems('tab-dash-partes');
             cargarDashboard();
         });
         document.getElementById('tab-dash-rendimiento')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero', 'tab-dash-facthora'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-rendimiento')?.classList.add('active');
             syncSidebarSubItems('tab-dash-rendimiento');
             cargarDashboard();
@@ -5303,9 +5566,17 @@
         // ── Punto 7: Listener tab Financiero ──
         document.getElementById('tab-dash-financiero')?.addEventListener('click', (e) => {
             e.preventDefault();
-            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero', 'tab-dash-facthora'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
             document.getElementById('tab-dash-financiero')?.classList.add('active');
             syncSidebarSubItems('tab-dash-financiero');
+            cargarDashboard();
+        });
+        // ── Listener tab Fact. por Hora ──
+        document.getElementById('tab-dash-facthora')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            ['tab-dash-ofertas', 'tab-dash-produccion', 'tab-dash-partes', 'tab-dash-rendimiento', 'tab-dash-financiero', 'tab-dash-facthora'].forEach(id => { document.getElementById(id)?.classList.remove('active'); });
+            document.getElementById('tab-dash-facthora')?.classList.add('active');
+            syncSidebarSubItems('tab-dash-facthora');
             cargarDashboard();
         });
 
@@ -7455,6 +7726,9 @@
             <a href="#" class="nav-sub-item" id="sidebar-dash-financiero" style="display:none;">
                 <span>Financiero</span>
             </a>
+            <a href="#" class="nav-sub-item" id="sidebar-dash-facthora" style="display:none;">
+                <span>Fact. por Hora</span>
+            </a>
             <a href="#" class="nav-item" id="tab-configuracion">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -7672,6 +7946,7 @@
                         <button class="dash-tab" id="tab-dash-partes">Partes de Trabajo</button>
                         <button class="dash-tab" id="tab-dash-rendimiento" style="display:none;">Productividad</button>
                         <button class="dash-tab" id="tab-dash-financiero" style="display:none;">Financiero</button>
+                        <button class="dash-tab" id="tab-dash-facthora" style="display:none;">Fact. por Hora</button>
                     </div>
 
                     <div id="panel-dash-ofertas" style="display: none;">
@@ -7902,6 +8177,25 @@
                             <canvas id="chart-financiero"></canvas>
                         </div>
                         <div id="financiero-resumen" style="margin-top: 16px; font-size: 14px; color: #475569;"></div>
+                    </div>
+
+                    <!-- ── Panel Informe Facturación por Hora (solo admin) ── -->
+                    <div id="panel-dash-facthora" style="display: none;">
+                        <div class="chart-box" style="margin-bottom: 24px;">
+                            <h3 class="chart-title">Facturación por hora de cada técnico T1</h3>
+                            <p style="color: #64748b; font-size: 13px; margin-bottom: 16px; line-height: 1.5;">
+                                Solo expedientes <strong>Anual</strong> y <strong>Puntual</strong> finalizados (con fecha fin).
+                                El importe del presupuesto se minora por las horas de T2/T3 valoradas al coste/hora configurado.
+                            </p>
+                            <div id="container-facthora-tecnicos" style="overflow-x: auto;"></div>
+                        </div>
+                        <div class="chart-box">
+                            <h3 class="chart-title">Facturación por hora promedio por Tipo de Servicio</h3>
+                            <p style="color: #64748b; font-size: 13px; margin-bottom: 16px; line-height: 1.5;">
+                                Promedio de la facturación/hora de los T1 que han trabajado en cada tipo de servicio.
+                            </p>
+                            <div id="container-facthora-servicio" style="overflow-x: auto;"></div>
+                        </div>
                     </div>
 
                     </div>
