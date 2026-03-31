@@ -237,6 +237,28 @@
         // La auditoría se gestiona ahora desde Cloud Functions (backend inmutable).
         // El frontend envía _usuario_edicion en cada updateDoc para identificar al autor.
 
+        // ── v0.093: Restaurar escritura de historial desde frontend ──
+        // La Cloud Function dejó de registrar cambios. Se restaura la escritura directa.
+        async function registrarCambioHistorial(coleccion, docId, campo, valorAnterior, valorNuevo) {
+            try {
+                // No registrar campos internos ni cambios vacíos
+                if (campo.startsWith('_') || campo === 'fecha_fin_confirmada') return;
+                if (String(valorAnterior) === String(valorNuevo)) return;
+                const usuario = auth.currentUser ? auth.currentUser.email : 'Desconocido';
+                await addDoc(collection(db, "historial"), {
+                    coleccion: coleccion,
+                    docId: String(docId),
+                    campo: campo,
+                    valorAnterior: valorAnterior === '' || valorAnterior === undefined || valorAnterior === null ? '-' : String(valorAnterior),
+                    valorNuevo: valorNuevo === '' || valorNuevo === undefined || valorNuevo === null ? '-' : String(valorNuevo),
+                    usuario: usuario,
+                    fecha: new Date().toISOString()
+                });
+            } catch (e) {
+                console.warn("⚠️ No se pudo registrar en historial:", e);
+            }
+        }
+
         // Cargar ajustes y listas globales desde Firestore
         async function cargarSettings() {
             try {
@@ -2803,6 +2825,7 @@
 
                                 await setDoc(doc(db, "produccion", nuevoId.toString()), nuevoDoc);
                                 await updateDoc(doc(db, "ofertas", docId), { estado: 'Aceptada', timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
+                                registrarCambioHistorial('ofertas', docId, 'estado', currentState, 'Aceptada');
 
                                 if (ofertaData) ofertaData.estado = 'Aceptada'; // update local mem
                                 td.firstElementChild.innerHTML = getEstadoIcon('Aceptada');
@@ -2829,6 +2852,7 @@
                                 }
 
                                 await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
+                                registrarCambioHistorial('ofertas', docId, 'estado', currentState, opt.label);
                                 if (ofertaData) ofertaData.estado = opt.label;
                                 td.firstElementChild.innerHTML = getEstadoIcon(opt.label);
                                 menuEstado.style.display = 'none';
@@ -2848,6 +2872,7 @@
                             } else {
                                 // Simple update
                                 await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
+                                registrarCambioHistorial('ofertas', docId, 'estado', currentState, opt.label);
                                 if (ofertaData) ofertaData.estado = opt.label;
                                 td.firstElementChild.innerHTML = getEstadoIcon(opt.label);
                                 menuEstado.style.display = 'none';
@@ -3199,6 +3224,9 @@
                             });
                         }
 
+                        // ── v0.093: Registrar cambio en historial ──
+                        registrarCambioHistorial('produccion', docId, fieldName, currentValue, newValue);
+
                         // Actualización ligera de los contadores para cliente/grupo
                         if ((fieldName === 'cliente' || fieldName === 'grupo') && newValue !== currentValue) {
                             const campoBase = fieldName === 'cliente' ? 'clientes' : 'grupos';
@@ -3452,6 +3480,7 @@
                                 // Actualizar dataset de la fila
                                 tr.dataset.id = nuevoNumOfe;
                                 td.innerHTML = escapeHTML(nuevoNumOfe);
+                                registrarCambioHistorial('ofertas', nuevoNumOfe, 'num_gestiona', docId, nuevoNumOfe);
                             }
                             isSaving = false;
                             return;
@@ -3461,6 +3490,9 @@
                             [fieldName]: parsedValue,
                             _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
                         });
+
+                        // ── v0.093: Registrar cambio en historial ──
+                        registrarCambioHistorial('ofertas', docId, fieldName, currentValue, parsedValue);
 
                         // Ofertas mem sync
                         const memItem = datosOfertasMemoria.find(o => (o.num_gestiona || docId) === docId || o.id === docId);
