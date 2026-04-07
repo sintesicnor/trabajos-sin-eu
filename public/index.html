@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.093</title>
+    <title>Gestor de Proyectos y Ofertas v0.098</title>
 
     <!-- PapaParse para procesamiento de CSV (defer: no bloquea renderizado) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -262,8 +262,12 @@
         // Cargar ajustes y listas globales desde Firestore
         async function cargarSettings() {
             try {
-                // Settings generales
-                const docSnap = await getDocs(query(collection(db, "settings")));
+                console.time('⏱️ cargarSettings');
+                // Settings generales y listas EN PARALELO
+                const [docSnap, listasSnap] = await Promise.all([
+                    getDocs(query(collection(db, "settings"))),
+                    getDocs(query(collection(db, "listas_config")))
+                ]);
                 if (!docSnap.empty) {
                     docSnap.forEach(d => {
                         if (d.id === "global") {
@@ -293,7 +297,7 @@
                 }
 
                 // Cargar listas (Si no existen, se crean con los por defecto)
-                const listasSnap = await getDocs(query(collection(db, "listas_config")));
+                // listasSnap ya cargado en paralelo arriba
                 if (listasSnap.empty) {
                     await setDoc(doc(db, "listas_config", "servicios"), { items: listaServicios });
                     await setDoc(doc(db, "listas_config", "tipos_servicio"), { items: listaTiposServicio });
@@ -326,6 +330,7 @@
 
                 // Renderizar UI Configuración de Listas
                 renderizarListasConfig();
+                console.timeEnd('⏱️ cargarSettings');
 
             } catch (err) {
                 console.error("Error cargando settings y listas:", err);
@@ -822,20 +827,27 @@
         });
         async function cargarProduccion() {
             try {
+                console.time('⏱️ cargarProduccion');
                 const colName = isVistaHistorico ? "historico_produccion" : "produccion";
-                const querySnapshot = await getDocs(collection(db, colName));
 
-                // Leer y agregar horas de partes_horas (con caché en memoria)
+                // Leer producción y partes_horas EN PARALELO (son colecciones independientes)
                 const now = Date.now();
-                if (!_cachedPartesHoras || (now - _cachedPartesHorasTimestamp) > PARTES_CACHE_TTL) {
-                    const partesSnap = await getDocs(collection(db, "partes_horas"));
+                const needPartes = !_cachedPartesHoras || (now - _cachedPartesHorasTimestamp) > PARTES_CACHE_TTL;
+
+                let querySnapshot, partesSnap;
+                if (needPartes) {
+                    // Ambas lecturas en paralelo
+                    [querySnapshot, partesSnap] = await Promise.all([
+                        getDocs(collection(db, colName)),
+                        getDocs(collection(db, "partes_horas"))
+                    ]);
                     _cachedPartesHoras = [];
                     partesSnap.forEach(d => _cachedPartesHoras.push(d.data()));
-                    _cachedPartesHorasTimestamp = now;
-                    // Sincronizar también la caché del dashboard
+                    _cachedPartesHorasTimestamp = Date.now();
                     window._partesHorasData = _cachedPartesHoras.map((data, i) => ({ id: 'p' + i, ...data }));
                     console.log("📦 partes_horas cargados desde Firestore (" + _cachedPartesHoras.length + " docs)");
                 } else {
+                    querySnapshot = await getDocs(collection(db, colName));
                     console.log("⚡ partes_horas servidos desde caché (" + _cachedPartesHoras.length + " docs)");
                 }
                 const horasAgregadas = {};
@@ -1058,7 +1070,15 @@
                     fragment.appendChild(tr);
                 });
 
-                tbody.appendChild(fragment);
+                // ── Renderizado progresivo: primeras filas inmediatas, resto en batches ──
+                const allRows = Array.from(fragment.children);
+                const BATCH_INITIAL = 80;
+                const BATCH_SIZE = 150;
+
+                // Lote inicial: renderizar las primeras filas de inmediato
+                const firstBatch = document.createDocumentFragment();
+                allRows.slice(0, BATCH_INITIAL).forEach(r => firstBatch.appendChild(r));
+                tbody.appendChild(firstBatch);
 
                 const tableProdRef = tableProd || document.querySelector('#view-produccion .data-table');
                 if (tableProdRef) { 
@@ -1068,9 +1088,34 @@
                     aplicarVisibilidadColumnas(tableProdRef);
                     updateDynamicStickyColumns(tableProdRef);
                 }
+
+                // Resto: insertar en batches diferidos para no bloquear el hilo principal
+                if (allRows.length > BATCH_INITIAL) {
+                    let offset = BATCH_INITIAL;
+                    const insertBatch = () => {
+                        const batch = document.createDocumentFragment();
+                        const end = Math.min(offset + BATCH_SIZE, allRows.length);
+                        for (let i = offset; i < end; i++) batch.appendChild(allRows[i]);
+                        tbody.appendChild(batch);
+                        offset = end;
+                        if (offset < allRows.length) {
+                            requestAnimationFrame(insertBatch);
+                        } else {
+                            // Re-aplicar filtros y orden tras insertar todo
+                            if (tableProdRef) {
+                                applyTableFilters(tableProdRef);
+                                applyColumnOrder(tableProdRef);
+                                aplicarVisibilidadColumnas(tableProdRef);
+                            }
+                            console.log("✅ Renderizado progresivo completado (" + allRows.length + " filas)");
+                        }
+                    };
+                    requestAnimationFrame(insertBatch);
+                }
             } catch (error) {
                 console.error("Error al obtener documentos: ", error);
             }
+            console.timeEnd('⏱️ cargarProduccion');
         }
 
         // ── Visibilidad de columnas según permisos del rol ──
@@ -2365,14 +2410,17 @@
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
-                        // 0. Asegurar que listaTecnicos está actualizada desde Firestore
-                        try {
-                            const tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
-                            if (tecSnap.exists()) {
-                                listaTecnicos = tecSnap.data().items || listaTecnicos;
-                            }
-                        } catch (tecErr) {
-                            console.warn("No se pudo precargar lista de técnicos:", tecErr);
+                        console.time('⏱️ Auth: resolver rol + permisos');
+                        // 0. Cargar técnicos y permisos EN PARALELO (son independientes)
+                        const [tecResult, permResult] = await Promise.allSettled([
+                            getDoc(doc(db, "listas_config", "tecnicos")),
+                            getDoc(doc(db, "configuracion", "permisos_roles"))
+                        ]);
+
+                        if (tecResult.status === 'fulfilled' && tecResult.value.exists()) {
+                            listaTecnicos = tecResult.value.data().items || listaTecnicos;
+                        } else if (tecResult.status === 'rejected') {
+                            console.warn("No se pudo precargar lista de técnicos:", tecResult.reason);
                         }
 
                         // 1. Resolver técnico y rol desde la tabla de técnicos (fuente principal)
@@ -2414,16 +2462,16 @@
                             console.log("🔑 Rol asignado desde colección usuarios:", currentUserRole, "para", userEmail);
                         }
 
-                        // Cargar permisos personalizados desde Firestore (si existen)
-                        try {
-                            const permDoc = await getDoc(doc(db, "configuracion", "permisos_roles"));
-                            if (permDoc && permDoc.exists()) {
-                                const saved = permDoc.data();
-                                ['admin','edicion','ofertador','lectura','financiero'].forEach(rol => {
-                                    if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
-                                });
-                            }
-                        } catch(ep) { console.error("Error cargando permisos:", ep); }
+                        // Aplicar permisos personalizados (ya cargados en paralelo)
+                        if (permResult.status === 'fulfilled' && permResult.value && permResult.value.exists()) {
+                            const saved = permResult.value.data();
+                            ['admin','edicion','ofertador','lectura','financiero'].forEach(rol => {
+                                if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
+                            });
+                        } else if (permResult.status === 'rejected') {
+                            console.error("Error cargando permisos:", permResult.reason);
+                        }
+                        console.timeEnd('⏱️ Auth: resolver rol + permisos');
                     } catch (e) {
                         console.error("Error obteniendo rol", e);
                         currentUserRole = 'lectura';
@@ -2608,9 +2656,18 @@
 
             async function initAppContent() {
                 isAppInitialized = false;
-                await cargarPreferenciasUsuario();
-                await cargarSettings();
+                console.time('⏱️ initAppContent total');
 
+                // Fase 1: Cargar preferencias y settings EN PARALELO (son independientes)
+                console.time('⏱️ Fase1: prefs+settings');
+                await Promise.all([
+                    cargarPreferenciasUsuario(),
+                    cargarSettings()
+                ]);
+                console.timeEnd('⏱️ Fase1: prefs+settings');
+
+                // Fase 2: Setup de tabla (depende de settings para listas)
+                console.time('⏱️ Fase2: headers+columnas');
                 inyectarColumnasDinamicas();
                 await setupTableHeaders();
 
@@ -2619,17 +2676,27 @@
                     setupDragAndDropColumns(t);
                     setTimeout(() => updateDynamicStickyColumns(t), 100);
                 });
+                console.timeEnd('⏱️ Fase2: headers+columnas');
 
+                // Fase 3: Cargar producción (vista principal, prioridad alta)
+                console.time('⏱️ Fase3: produccion');
                 await cargarProduccion();
-                
-                try {
-                    await cargarOfertas();
-                } catch (ofeErr) {
-                    console.error("Error cargando ofertas:", ofeErr);
-                }
+                console.timeEnd('⏱️ Fase3: produccion');
 
                 tableProd = document.querySelector('#view-produccion .data-table');
-                tableOfe = document.querySelector('#view-ofertas .data-table');
+
+                // Fase 4: Cargar ofertas DIFERIDO (no bloquea la vista principal)
+                // Se carga en background mientras el usuario ya puede trabajar con producción
+                setTimeout(async () => {
+                    console.time('⏱️ Fase4: ofertas (diferido)');
+                    try {
+                        await cargarOfertas();
+                    } catch (ofeErr) {
+                        console.error("Error cargando ofertas:", ofeErr);
+                    }
+                    tableOfe = document.querySelector('#view-ofertas .data-table');
+                    console.timeEnd('⏱️ Fase4: ofertas (diferido)');
+                }, 50);
 
                 if (document.getElementById('view-dashboard').style.display === 'block') {
                     cargarDashboard();
@@ -2637,6 +2704,7 @@
 
                 initEventosListasConfig();
                 cargarAuditoriaDeNombres();
+                console.timeEnd('⏱️ initAppContent total');
             }
 
             // Evento para colapsar/desplegar el menú lateral
@@ -7739,7 +7807,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.093</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.098</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
