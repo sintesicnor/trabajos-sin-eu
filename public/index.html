@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.098</title>
+    <title>Gestor de Proyectos y Ofertas v0.1.00</title>
 
     <!-- PapaParse para procesamiento de CSV (defer: no bloquea renderizado) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -2824,6 +2824,59 @@
                 btnCloseHistory.addEventListener('click', () => {
                     const hs = document.getElementById('history-sidebar');
                     if (hs) hs.style.display = 'none';
+                });
+            }
+
+            // Botón ampliar/reducir historial
+            const btnExpandHistory = document.getElementById('btn-expand-history');
+            if (btnExpandHistory) {
+                let historyExpanded = false;
+                btnExpandHistory.addEventListener('click', () => {
+                    const hs = document.getElementById('history-sidebar');
+                    if (!hs) return;
+                    historyExpanded = !historyExpanded;
+                    if (historyExpanded) {
+                        hs.dataset.prevWidth = hs.style.width;
+                        hs.style.width = '70%';
+                        hs.style.minWidth = '600px';
+                    } else {
+                        hs.style.width = hs.dataset.prevWidth || '33.33%';
+                        hs.style.minWidth = '400px';
+                    }
+                });
+            }
+
+            // Drag resize del historial
+            const histResizeHandle = document.getElementById('history-resize-handle');
+            if (histResizeHandle) {
+                let isResizing = false;
+                histResizeHandle.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    isResizing = true;
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+
+                    const hs = document.getElementById('history-sidebar');
+                    const parentWidth = hs.parentElement.offsetWidth;
+
+                    const onMouseMove = (ev) => {
+                        if (!isResizing) return;
+                        const newWidth = parentWidth - ev.clientX;
+                        const clampedWidth = Math.max(350, Math.min(newWidth, parentWidth * 0.85));
+                        hs.style.width = clampedWidth + 'px';
+                        hs.style.minWidth = 'unset';
+                    };
+
+                    const onMouseUp = () => {
+                        isResizing = false;
+                        document.body.style.cursor = '';
+                        document.body.style.userSelect = '';
+                        document.removeEventListener('mousemove', onMouseMove);
+                        document.removeEventListener('mouseup', onMouseUp);
+                    };
+
+                    document.addEventListener('mousemove', onMouseMove);
+                    document.addEventListener('mouseup', onMouseUp);
                 });
             }
 
@@ -6315,6 +6368,14 @@
                     `;
                     tbodyHistorial.appendChild(tr);
 
+                    // ── Preview flotante: mostrar fila de la tabla con el cambio superpuesto ──
+                    tr.addEventListener('mouseenter', (e) => {
+                        _showHistorialPreview(e, data);
+                    });
+                    tr.addEventListener('mouseleave', () => {
+                        _hideHistorialPreview();
+                    });
+
                     tr.querySelector('.btn-restaurar-historial').addEventListener('click', async () => {
                         if (confirm(`¿Restaurar el campo '${data.campo}' al valor anterior ('${data.valorAnterior}')?`)) {
                             try {
@@ -6388,6 +6449,103 @@
                 chkAll.checked = checked === total;
                 chkAll.indeterminate = checked > 0 && checked < total;
             });
+        }
+
+        // ── Preview flotante del historial ──
+        let _histPreviewEl = null;
+
+        function _getHistPreviewContainer() {
+            if (_histPreviewEl) return _histPreviewEl;
+            _histPreviewEl = document.createElement('div');
+            _histPreviewEl.id = 'historial-preview';
+            _histPreviewEl.style.cssText = 'display:none;position:fixed;z-index:9999;background:white;border:2px solid #2176AC;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.18);max-width:85vw;max-height:220px;overflow-x:auto;overflow-y:hidden;padding:0;pointer-events:none;';
+            document.body.appendChild(_histPreviewEl);
+            return _histPreviewEl;
+        }
+
+        function _showHistorialPreview(event, histData) {
+            const container = _getHistPreviewContainer();
+
+            // Buscar la fila en la tabla correspondiente
+            const tbodyId = histData.coleccion === 'ofertas' ? 'table-body-ofertas' : 'table-body';
+            const sourceTr = document.querySelector(`#${tbodyId} tr[data-id="${histData.docId}"]`);
+            if (!sourceTr) {
+                container.style.display = 'none';
+                return;
+            }
+
+            // Clonar la fila y su thead para dar contexto
+            const sourceTable = sourceTr.closest('table');
+            const theadTr = sourceTable ? sourceTable.querySelector('thead tr') : null;
+
+            // Construir mini-tabla
+            let html = '<table style="border-collapse:collapse;white-space:nowrap;font-size:13px;">';
+
+            // Header
+            if (theadTr) {
+                html += '<thead><tr>';
+                Array.from(theadTr.children).forEach(th => {
+                    const span = th.querySelector('[data-original-text]');
+                    const label = span ? span.dataset.originalText : th.textContent.trim();
+                    html += `<th style="padding:6px 10px;background:#f1f5f9;color:#475569;font-weight:600;font-size:12px;border-bottom:2px solid #e2e8f0;position:sticky;top:0;">${escapeHTML(label)}</th>`;
+                });
+                html += '</tr></thead>';
+            }
+
+            // Body row con el cambio superpuesto
+            html += '<tbody><tr>';
+            Array.from(sourceTr.children).forEach(td => {
+                const field = td.dataset.field || '';
+                let content = td.textContent.trim();
+                let cellStyle = td.getAttribute('style') || '';
+                let extraStyle = '';
+
+                if (field === histData.campo) {
+                    // Esta es la celda del cambio: superponer diff
+                    content = `<span style="color:#ef4444;text-decoration:line-through;font-size:12px;">${escapeHTML(histData.valorAnterior || '-')}</span><br><span style="color:#10b981;font-weight:600;">${escapeHTML(histData.valorNuevo || '-')}</span>`;
+                    extraStyle = 'background-color:#FEF9C3 !important;border:2px solid #F59E0B;';
+                } else {
+                    content = escapeHTML(content);
+                }
+
+                html += `<td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;${extraStyle}">${content}</td>`;
+            });
+            html += '</tr></tbody></table>';
+
+            // Etiqueta de contexto
+            const numTrabajo = sourceTr.querySelector('td[data-field="num_trabajo"]');
+            const labelTrabajo = numTrabajo ? numTrabajo.textContent.trim() : histData.docId;
+            html = `<div style="padding:6px 12px;background:#2176AC;color:white;font-size:12px;font-weight:600;border-radius:6px 6px 0 0;">Trabajo ${escapeHTML(labelTrabajo)} — Campo: ${escapeHTML(histData.campo)}</div>` + html;
+
+            container.innerHTML = html;
+
+            // Posicionar: a la izquierda del sidebar historial, alineado verticalmente con el row
+            const rect = event.currentTarget.getBoundingClientRect();
+            const sidebar = document.getElementById('history-sidebar');
+            const sidebarRect = sidebar ? sidebar.getBoundingClientRect() : { left: rect.left };
+
+            let top = Math.min(rect.top, window.innerHeight - 240);
+            let left = sidebarRect.left - container.offsetWidth - 12;
+            if (left < 8) left = 8;
+
+            container.style.top = Math.max(8, top) + 'px';
+            container.style.left = left + 'px';
+            container.style.display = 'block';
+
+            // Hacer scroll horizontal hasta la columna del campo modificado
+            const highlightedTd = container.querySelector('td[style*="FEF9C3"]');
+            if (highlightedTd) {
+                const tableWrapper = container;
+                const tdLeft = highlightedTd.offsetLeft;
+                const tdWidth = highlightedTd.offsetWidth;
+                const containerWidth = tableWrapper.clientWidth;
+                tableWrapper.scrollLeft = Math.max(0, tdLeft - containerWidth / 2 + tdWidth / 2);
+            }
+        }
+
+        function _hideHistorialPreview() {
+            const container = _getHistPreviewContainer();
+            container.style.display = 'none';
         }
 
         // Evento global para botón Deshacer (última acción)
@@ -7985,7 +8143,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.098</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.1.00</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -8912,14 +9070,19 @@
 
     <!-- Sidebar Historial Panel Derecho -->
     <aside id="history-sidebar"
-        style="width: 33.33%; min-width: 400px; border-left: 1px solid #e2e8f0; display: none; overflow-y: auto; padding-left: 24px; padding-right: 12px; margin-right: -12px;">
+        style="width: 33.33%; min-width: 400px; border-left: 1px solid #e2e8f0; display: none; overflow-y: auto; padding-left: 0; padding-right: 12px; margin-right: -12px; position: relative;">
+        <div id="history-resize-handle" style="position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;z-index:30;transition:background 0.2s;" onmouseenter="this.style.background='#2176AC40'" onmouseleave="this.style.background='transparent'"></div>
+        <div style="padding-left:24px;">
         <div
             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; position: sticky; top: 0; background: #f8fafc; padding-top: 0px; z-index: 20; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
             <h2 class="config-section-title" style="margin-bottom: 0; border: none; padding: 0;">Histórico de Cambios
             </h2>
-            <button id="btn-refrescar-historial" class="btn-secondary"
-                style="padding: 6px 12px; margin-right: 8px;">Refrescar</button>
-            <button id="btn-close-history" style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;" title="Cerrar historial">&#9650;</button>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <button id="btn-expand-history" style="padding:6px 10px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;font-size:13px;color:#475569;" title="Ampliar / Reducir">&#x2194;</button>
+                <button id="btn-refrescar-historial" class="btn-secondary"
+                    style="padding: 6px 12px;">Refrescar</button>
+                <button id="btn-close-history" style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;" title="Cerrar historial">&#9650;</button>
+            </div>
         </div>
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
             <table class="data-table" id="table-historial" style="min-width: 100%; border-collapse: collapse;">
@@ -8940,6 +9103,7 @@
                     </tr>
                 </tbody>
             </table>
+        </div>
         </div>
     </aside>
 
