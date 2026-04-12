@@ -6349,6 +6349,7 @@
                     const data = docSnap.data();
                     const tr = document.createElement('tr');
                     tr.dataset.histId = docSnap.id;
+                    tr.style.cursor = 'pointer';
 
                     const fechaObj = new Date(data.fecha);
                     const fechaFormat = fechaObj.toLocaleDateString('es-ES') + ' ' + fechaObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
@@ -6368,12 +6369,11 @@
                     `;
                     tbodyHistorial.appendChild(tr);
 
-                    // ── Preview flotante: mostrar fila de la tabla con el cambio superpuesto ──
-                    tr.addEventListener('mouseenter', (e) => {
+                    // ── Preview: clic para mostrar panel con contexto de la fila ──
+                    tr.addEventListener('click', (e) => {
+                        // No activar si se hizo clic en el checkbox o botón restaurar
+                        if (e.target.closest('input[type="checkbox"]') || e.target.closest('.btn-restaurar-historial')) return;
                         _showHistorialPreview(e, data);
-                    });
-                    tr.addEventListener('mouseleave', () => {
-                        _hideHistorialPreview();
                     });
 
                     tr.querySelector('.btn-restaurar-historial').addEventListener('click', async () => {
@@ -6451,101 +6451,146 @@
             });
         }
 
-        // ── Preview flotante del historial ──
+        // ── Preview del historial: panel inline con contexto ──
         let _histPreviewEl = null;
+        let _histPreviewActive = false;
 
         function _getHistPreviewContainer() {
             if (_histPreviewEl) return _histPreviewEl;
             _histPreviewEl = document.createElement('div');
             _histPreviewEl.id = 'historial-preview';
-            _histPreviewEl.style.cssText = 'display:none;position:fixed;z-index:9999;background:white;border:2px solid #2176AC;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.18);max-width:85vw;max-height:220px;overflow-x:auto;overflow-y:hidden;padding:0;pointer-events:none;';
+            _histPreviewEl.style.cssText = 'display:none;position:fixed;left:0;right:0;bottom:0;z-index:9998;background:white;border-top:3px solid #2176AC;box-shadow:0 -4px 20px rgba(0,0,0,0.15);max-height:50vh;overflow:auto;';
+
+            // Barra de título
+            const titleBar = document.createElement('div');
+            titleBar.id = 'historial-preview-title';
+            titleBar.style.cssText = 'position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#2176AC;color:white;font-size:13px;font-weight:600;';
+            titleBar.innerHTML = '<span id="historial-preview-label"></span><button id="btn-close-preview" style="background:none;border:none;color:white;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;">&times;</button>';
+            _histPreviewEl.appendChild(titleBar);
+
+            // Contenedor de la tabla
+            const tableWrap = document.createElement('div');
+            tableWrap.id = 'historial-preview-content';
+            tableWrap.style.cssText = 'overflow-x:auto;overflow-y:auto;';
+            _histPreviewEl.appendChild(tableWrap);
+
             document.body.appendChild(_histPreviewEl);
+
+            // Cerrar con botón X
+            _histPreviewEl.querySelector('#btn-close-preview').addEventListener('click', () => _hideHistorialPreview());
+
+            // Cerrar al hacer clic fuera
+            document.addEventListener('mousedown', (e) => {
+                if (!_histPreviewActive) return;
+                if (_histPreviewEl.contains(e.target)) return;
+                // No cerrar si se hace clic dentro del historial sidebar
+                const sidebar = document.getElementById('history-sidebar');
+                if (sidebar && sidebar.contains(e.target)) return;
+                _hideHistorialPreview();
+            });
+
             return _histPreviewEl;
         }
 
         function _showHistorialPreview(event, histData) {
             const container = _getHistPreviewContainer();
+            const contentEl = container.querySelector('#historial-preview-content');
+            const labelEl = container.querySelector('#historial-preview-label');
 
             // Buscar la fila en la tabla correspondiente
             const tbodyId = histData.coleccion === 'ofertas' ? 'table-body-ofertas' : 'table-body';
             const sourceTr = document.querySelector(`#${tbodyId} tr[data-id="${histData.docId}"]`);
             if (!sourceTr) {
                 container.style.display = 'none';
+                _histPreviewActive = false;
                 return;
             }
 
-            // Clonar la fila y su thead para dar contexto
             const sourceTable = sourceTr.closest('table');
             const theadTr = sourceTable ? sourceTable.querySelector('thead tr') : null;
 
-            // Construir mini-tabla
-            let html = '<table style="border-collapse:collapse;white-space:nowrap;font-size:13px;">';
+            // Obtener filas de contexto: 2 antes + la fila + 2 después
+            const allRows = Array.from(sourceTr.parentElement.querySelectorAll('tr'));
+            const targetIdx = allRows.indexOf(sourceTr);
+            const startIdx = Math.max(0, targetIdx - 2);
+            const endIdx = Math.min(allRows.length - 1, targetIdx + 2);
+            const contextRows = allRows.slice(startIdx, endIdx + 1);
+
+            // Construir tabla
+            let html = '<table style="border-collapse:collapse;white-space:nowrap;font-size:13px;width:max-content;min-width:100%;">';
 
             // Header
             if (theadTr) {
                 html += '<thead><tr>';
                 Array.from(theadTr.children).forEach(th => {
+                    if (th.style.display === 'none') return;
                     const span = th.querySelector('[data-original-text]');
                     const label = span ? span.dataset.originalText : th.textContent.trim();
-                    html += `<th style="padding:6px 10px;background:#f1f5f9;color:#475569;font-weight:600;font-size:12px;border-bottom:2px solid #e2e8f0;position:sticky;top:0;">${escapeHTML(label)}</th>`;
+                    html += '<th style="padding:8px 12px;background:#f1f5f9;color:#475569;font-weight:600;font-size:12px;border-bottom:2px solid #e2e8f0;position:sticky;top:0;z-index:1;white-space:nowrap;">' + escapeHTML(label) + '</th>';
                 });
                 html += '</tr></thead>';
             }
 
-            // Body row con el cambio superpuesto
-            html += '<tbody><tr>';
-            Array.from(sourceTr.children).forEach(td => {
-                const field = td.dataset.field || '';
-                let content = td.textContent.trim();
-                let cellStyle = td.getAttribute('style') || '';
-                let extraStyle = '';
+            // Body
+            html += '<tbody>';
+            contextRows.forEach(row => {
+                const isTarget = row === sourceTr;
+                const rowStyle = isTarget ? 'background:#FFFBEB;' : '';
+                html += '<tr style="' + rowStyle + '">';
 
-                if (field === histData.campo) {
-                    // Esta es la celda del cambio: superponer diff
-                    content = `<span style="color:#ef4444;text-decoration:line-through;font-size:12px;">${escapeHTML(histData.valorAnterior || '-')}</span><br><span style="color:#10b981;font-weight:600;">${escapeHTML(histData.valorNuevo || '-')}</span>`;
-                    extraStyle = 'background-color:#FEF9C3 !important;border:2px solid #F59E0B;';
-                } else {
-                    content = escapeHTML(content);
-                }
+                Array.from(row.children).forEach(td => {
+                    if (td.style.display === 'none') return;
+                    const field = td.dataset.field || '';
+                    let content = td.textContent.trim();
+                    let cellBg = td.style.backgroundColor || '';
+                    let extraStyle = '';
 
-                html += `<td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;${extraStyle}">${content}</td>`;
+                    if (isTarget && field === histData.campo) {
+                        // Celda del cambio: superponer diff
+                        content = '<div style="display:flex;flex-direction:column;gap:2px;min-width:80px;">'
+                            + '<span style="color:#ef4444;text-decoration:line-through;font-size:12px;">' + escapeHTML(histData.valorAnterior || '-') + '</span>'
+                            + '<span style="color:#10b981;font-weight:600;">' + escapeHTML(histData.valorNuevo || '-') + '</span>'
+                            + '</div>';
+                        extraStyle = 'background-color:#FEF9C3 !important;border:2px solid #F59E0B;';
+                    } else {
+                        content = escapeHTML(content);
+                    }
+
+                    const basePad = 'padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;white-space:nowrap;';
+                    const bgStyle = (cellBg && !extraStyle) ? 'background-color:' + cellBg + ';' : '';
+                    html += '<td style="' + basePad + bgStyle + extraStyle + '">' + content + '</td>';
+                });
+                html += '</tr>';
             });
-            html += '</tr></tbody></table>';
+            html += '</tbody></table>';
 
-            // Etiqueta de contexto
-            const numTrabajo = sourceTr.querySelector('td[data-field="num_trabajo"]');
+            contentEl.innerHTML = html;
+
+            // Etiqueta
+            const numTrabajo = sourceTr.querySelector('td[data-field="num_trabajo"], td[data-field="num_gestiona"]');
             const labelTrabajo = numTrabajo ? numTrabajo.textContent.trim() : histData.docId;
-            html = `<div style="padding:6px 12px;background:#2176AC;color:white;font-size:12px;font-weight:600;border-radius:6px 6px 0 0;">Trabajo ${escapeHTML(labelTrabajo)} — Campo: ${escapeHTML(histData.campo)}</div>` + html;
+            const colLabel = histData.coleccion === 'ofertas' ? 'Oferta' : 'Trabajo';
+            labelEl.textContent = colLabel + ' ' + labelTrabajo + '  —  Campo: ' + histData.campo + '  —  Clic fuera para cerrar';
 
-            container.innerHTML = html;
-
-            // Posicionar: a la izquierda del sidebar historial, alineado verticalmente con el row
-            const rect = event.currentTarget.getBoundingClientRect();
-            const sidebar = document.getElementById('history-sidebar');
-            const sidebarRect = sidebar ? sidebar.getBoundingClientRect() : { left: rect.left };
-
-            let top = Math.min(rect.top, window.innerHeight - 240);
-            let left = sidebarRect.left - container.offsetWidth - 12;
-            if (left < 8) left = 8;
-
-            container.style.top = Math.max(8, top) + 'px';
-            container.style.left = left + 'px';
             container.style.display = 'block';
+            _histPreviewActive = true;
 
-            // Hacer scroll horizontal hasta la columna del campo modificado
-            const highlightedTd = container.querySelector('td[style*="FEF9C3"]');
-            if (highlightedTd) {
-                const tableWrapper = container;
-                const tdLeft = highlightedTd.offsetLeft;
-                const tdWidth = highlightedTd.offsetWidth;
-                const containerWidth = tableWrapper.clientWidth;
-                tableWrapper.scrollLeft = Math.max(0, tdLeft - containerWidth / 2 + tdWidth / 2);
-            }
+            // Scroll horizontal automático hasta la celda del cambio
+            requestAnimationFrame(() => {
+                const highlightedTd = contentEl.querySelector('td[style*="FEF9C3"]');
+                if (highlightedTd) {
+                    const tdLeft = highlightedTd.offsetLeft;
+                    const tdWidth = highlightedTd.offsetWidth;
+                    const wrapWidth = contentEl.clientWidth;
+                    contentEl.scrollLeft = Math.max(0, tdLeft - wrapWidth / 2 + tdWidth / 2);
+                }
+            });
         }
 
         function _hideHistorialPreview() {
             const container = _getHistPreviewContainer();
             container.style.display = 'none';
+            _histPreviewActive = false;
         }
 
         // Evento global para botón Deshacer (última acción)
