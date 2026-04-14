@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.1.00</title>
+    <title>Gestor de Proyectos y Ofertas v0.093</title>
 
     <!-- PapaParse para procesamiento de CSV (defer: no bloquea renderizado) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -20,7 +20,7 @@
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, startAfter, deleteDoc, enableMultiTabIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc, enableMultiTabIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
@@ -85,7 +85,7 @@
 
         // Variables Globales base
         let costeHoraActual = 60; // Valor por defecto
-        let currentUserRole = null; // 'admin', 'edicion', 'lectura', 'financiero'
+        let currentUserRole = null; // 'admin', 'edicion', 'lectura', 'financiero', 'consultor'
         let currentUserAcronym = null; // Acrónimo del técnico logueado
 
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
@@ -94,6 +94,7 @@
             edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             ofertador:  { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             lectura:    { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
+            consultor:  { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:true },
             financiero: { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
         };
 
@@ -116,7 +117,7 @@
         const microsoftProvider = new OAuthProvider('microsoft.com');
         microsoftProvider.setCustomParameters({
             prompt: 'select_account',
-            tenant: 'd868a344-c055-4faf-89fa-d5ed7155158e'
+            tenant: 'common'
         });
 
         async function hacerLoginMicrosoft() {
@@ -193,7 +194,7 @@
         const datosOfertasMemoria = [];
         let donutChart = null;
         let barChart = null;
-        let chartsObj = { ofeDonut: null, ofeAgentes: null, ofeAgentesImporte: null, ofeMensual: null, ofeMensualImportes: null, ofeAnual: null, ofeTipoServCount: null, ofeTipoServImporte: null, proGantt: null, proMeses: null };
+        let chartsObj = { ofeDonut: null, ofeAgentes: null, ofeAgentesImporte: null, ofeMensual: null, ofeAnual: null, proGantt: null, proMeses: null };
 
         // Arrays globales listados
         let listaServicios = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
@@ -262,12 +263,8 @@
         // Cargar ajustes y listas globales desde Firestore
         async function cargarSettings() {
             try {
-                console.time('⏱️ cargarSettings');
-                // Settings generales y listas EN PARALELO
-                const [docSnap, listasSnap] = await Promise.all([
-                    getDocs(query(collection(db, "settings"))),
-                    getDocs(query(collection(db, "listas_config")))
-                ]);
+                // Settings generales
+                const docSnap = await getDocs(query(collection(db, "settings")));
                 if (!docSnap.empty) {
                     docSnap.forEach(d => {
                         if (d.id === "global") {
@@ -297,7 +294,7 @@
                 }
 
                 // Cargar listas (Si no existen, se crean con los por defecto)
-                // listasSnap ya cargado en paralelo arriba
+                const listasSnap = await getDocs(query(collection(db, "listas_config")));
                 if (listasSnap.empty) {
                     await setDoc(doc(db, "listas_config", "servicios"), { items: listaServicios });
                     await setDoc(doc(db, "listas_config", "tipos_servicio"), { items: listaTiposServicio });
@@ -330,7 +327,6 @@
 
                 // Renderizar UI Configuración de Listas
                 renderizarListasConfig();
-                console.timeEnd('⏱️ cargarSettings');
 
             } catch (err) {
                 console.error("Error cargando settings y listas:", err);
@@ -540,7 +536,7 @@
 
         const tabDashboard = document.getElementById('tab-dashboard');
                     const tabRendimiento = document.getElementById('tab-dash-rendimiento');
-                    if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
+                    if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion' || currentUserRole === 'consultor') ? '' : 'none';
         const viewDashboard = document.getElementById('view-dashboard');
         tabDashboard.addEventListener('click', (e) => {
             e.preventDefault();
@@ -661,11 +657,11 @@
             XLSX.writeFile(wb, 'Plantilla_Produccion.xlsx');
         });
 
-        // ═══ SUBIR TRABAJOS (CSV/XLSX PRODUCCIÓN) ═══
+        // ═══ SUBIR TRABAJOS (CSV/XLSX PRODUCCIÓN) — Actualiza existentes o crea nuevos ═══
         document.getElementById('csv-import-produccion')?.addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
-            if (!confirm('¿Importar trabajos desde "' + file.name + '"?\nSe crearán nuevos registros en producción.')) { this.value = ''; return; }
+            if (!confirm('¿Importar trabajos desde "' + file.name + '"?\n\n• Si una fila contiene un Nº Trabajo existente, se ACTUALIZARÁ con los datos del Excel.\n• Si no tiene Nº Trabajo, se creará como registro nuevo.\n• Los trabajos que no estén en el archivo no se tocarán.')) { this.value = ''; return; }
             try {
                 let rows;
                 const isExcel = /\.xlsx?$/i.test(file.name);
@@ -680,52 +676,112 @@
                     if (result.errors.length > 0) { alert('Error parseando CSV: ' + result.errors[0].message); this.value = ''; return; }
                     rows = result.data;
                 }
-                if (rows.length === 0) { alert('El CSV no contiene datos.'); this.value = ''; return; }
+                if (rows.length === 0) { alert('El archivo no contiene datos.'); this.value = ''; return; }
                 const colMap = {
+                    'nº trabajo': 'num_trabajo', 'n trabajo': 'num_trabajo', 'num_trabajo': 'num_trabajo', 'num trabajo': 'num_trabajo', 'nº': 'num_trabajo',
                     'oferta gestiona': 'oferta_gestiona', 'ofertas_gestiona': 'oferta_gestiona', 'ofertas gestiona': 'oferta_gestiona',
-                    'expedientes': 'exp_gestiona',
-                    'tipo exp': 'tipo_expediente', 'tipo_expediente': 'tipo_expediente', 'tipo expediente': 'tipo_expediente',
+                    'expedientes': 'exp_gestiona', 'exp_gestiona': 'exp_gestiona',
+                    'tipo exp': 'tipo_expediente', 'tipo_expediente': 'tipo_expediente', 'tipo expediente': 'tipo_expediente', 'tipo exp.': 'tipo_expediente',
                     'f.inicio': 'fecha_inicio', 'fecha_inicio': 'fecha_inicio', 'fecha inicio': 'fecha_inicio',
-                    'f.fin': 'fecha_fin', 'fecha_fin': 'fecha_fin', 'fecha fin': 'fecha_fin',
-                    'técnico rble': 'responsable_g', 'tecnico rble': 'responsable_g', 'responsable_g': 'responsable_g',
+                    'f.fin': 'fecha_fin', 'f. fin': 'fecha_fin', 'fecha_fin': 'fecha_fin', 'fecha fin': 'fecha_fin',
+                    'técnico rble': 'responsable_g', 'tecnico rble': 'responsable_g', 'técnico rble.': 'responsable_g', 'tecnico rble.': 'responsable_g', 'responsable_g': 'responsable_g',
                     'ejecutor (t1)': 'ejecutor_t1', 'ejecutor_t1': 'ejecutor_t1', 'ejecutor t1': 'ejecutor_t1',
+                    'apoyo (am)': 'apoyo_am', 'apoyo_am': 'apoyo_am', 'apoyo am': 'apoyo_am',
+                    'apoyo (an)': 'apoyo_an', 'apoyo_an': 'apoyo_an', 'apoyo an': 'apoyo_an',
                     'servicio': 'servicio',
                     'tipo servicio': 'tipo_servicio', 'tipo_servicio': 'tipo_servicio',
                     'grupo': 'grupo',
                     'cliente': 'cliente',
                     'presupuesto (m)': 'presupuesto_m', 'presupuesto_m': 'presupuesto_m', 'presupuesto': 'presupuesto_m',
-                    'gastos (n)': 'gastos_n', 'gastos_n': 'gastos_n', 'gastos': 'gastos_n'
+                    'gastos (n)': 'gastos_n', 'gastos_n': 'gastos_n', 'gastos': 'gastos_n',
+                    'fecha ap': 'fecha_ap', 'fecha_ap': 'fecha_ap',
+                    'vb cliente': 'visto_vb_cliente', 'visto_vb_cliente': 'visto_vb_cliente',
+                    'fecha ar': 'fecha_ar', 'fecha_ar': 'fecha_ar',
+                    'observaciones': 'observaciones',
+                    'nº fact': 'num_at', 'num_at': 'num_at', 'n fact': 'num_at', 'nº at': 'num_at',
+                    'gestionado': 'gestionado',
+                    'mes facturación': 'mes_facturacion', 'mes facturacion': 'mes_facturacion', 'mes_facturacion': 'mes_facturacion'
                 };
+
+                // Build set of existing num_trabajo for quick lookup
+                const existingNums = new Set();
+                datosProduccionMemoria.forEach(p => {
+                    const nt = String(p.num_trabajo || '').trim();
+                    if (nt) existingNums.add(nt);
+                });
+
                 let maxNum = 0;
                 datosProduccionMemoria.forEach(p => { const n = parseInt(p.num_trabajo); if (n > maxNum) maxNum = n; });
+
                 const batch = writeBatch(db);
-                let count = 0;
+                let countNew = 0;
+                let countUpdate = 0;
+                const usuario = auth.currentUser ? auth.currentUser.email : 'importacion';
+
                 rows.forEach(row => {
-                    const docData = { visible: true, total_horas_historico: '', visto_vb_cliente: 'NO', fecha_ap: '', fecha_ar: '', observaciones: '', num_at: '', mes_facturacion: '', gestionado: 'No' };
+                    // Map columns from Excel to internal field names
+                    const mappedData = {};
                     Object.keys(row).forEach(csvCol => {
                         const key = colMap[csvCol.trim().toLowerCase()];
                         if (key) {
                             let val = row[csvCol];
                             val = (val === null || val === undefined) ? '' : String(val).trim();
-                            // Limpiar símbolos de moneda en campos de importe
                             if (key === 'presupuesto_m' || key === 'gastos_n') {
                                 val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
                             }
-                            // Convertir fechas serial Excel
-                            if ((key === 'fecha_inicio' || key === 'fecha_fin') && /^\d{4,5}$/.test(val)) val = formatearFechaDisplay(val);
-                            docData[key] = val;
+                            if ((key === 'fecha_inicio' || key === 'fecha_fin' || key === 'fecha_ap' || key === 'fecha_ar') && /^\d{4,5}$/.test(val)) {
+                                val = formatearFechaDisplay(val);
+                            }
+                            mappedData[key] = val;
                         }
                     });
-                    if (!docData.tipo_expediente && !docData.servicio && !docData.cliente) return;
-                    maxNum++;
-                    docData.num_trabajo = String(maxNum);
-                    const docRef = doc(db, 'produccion', String(maxNum));
-                    batch.set(docRef, docData);
-                    count++;
+
+                    // Check if this row has a num_trabajo that exists
+                    const numTrabajoRaw = (mappedData.num_trabajo || '').trim();
+                    // Remove non-numeric characters (the export might include formatting)
+                    const numTrabajoClean = numTrabajoRaw.replace(/[^\d]/g, '');
+
+                    if (numTrabajoClean && existingNums.has(numTrabajoClean)) {
+                        // ── UPDATE existing record ──
+                        // Only send non-empty changed fields; skip computed/readonly columns
+                        const updateFields = {};
+                        const skipFields = ['num_trabajo']; // Don't overwrite the ID
+                        Object.keys(mappedData).forEach(field => {
+                            if (skipFields.includes(field)) return;
+                            updateFields[field] = mappedData[field];
+                        });
+                        if (Object.keys(updateFields).length === 0) return;
+                        updateFields._usuario_edicion = usuario;
+                        const docRef = doc(db, 'produccion', numTrabajoClean);
+                        batch.update(docRef, updateFields);
+                        countUpdate++;
+                    } else {
+                        // ── CREATE new record ──
+                        if (!mappedData.tipo_expediente && !mappedData.servicio && !mappedData.cliente) return;
+                        const docData = {
+                            visible: true, total_horas_historico: '', visto_vb_cliente: 'NO',
+                            fecha_ap: '', fecha_ar: '', observaciones: '', num_at: '',
+                            mes_facturacion: '', gestionado: 'No', _usuario_edicion: usuario
+                        };
+                        // Merge mapped fields into defaults
+                        Object.keys(mappedData).forEach(field => {
+                            if (field !== 'num_trabajo') docData[field] = mappedData[field];
+                        });
+                        maxNum++;
+                        docData.num_trabajo = String(maxNum);
+                        const docRef = doc(db, 'produccion', String(maxNum));
+                        batch.set(docRef, docData);
+                        countNew++;
+                    }
                 });
-                if (count === 0) { alert('No se encontraron filas válidas.'); this.value = ''; return; }
+
+                if (countNew === 0 && countUpdate === 0) { alert('No se encontraron filas válidas.'); this.value = ''; return; }
                 await batch.commit();
-                alert(count + ' trabajos importados correctamente.');
+
+                let msg = '✅ Importación completada:\n';
+                if (countUpdate > 0) msg += '• ' + countUpdate + ' trabajo(s) actualizado(s)\n';
+                if (countNew > 0) msg += '• ' + countNew + ' trabajo(s) nuevo(s) creado(s)';
+                alert(msg.trim());
                 this.value = '';
                 await cargarProduccion();
             } catch (err) {
@@ -827,27 +883,20 @@
         });
         async function cargarProduccion() {
             try {
-                console.time('⏱️ cargarProduccion');
                 const colName = isVistaHistorico ? "historico_produccion" : "produccion";
+                const querySnapshot = await getDocs(collection(db, colName));
 
-                // Leer producción y partes_horas EN PARALELO (son colecciones independientes)
+                // Leer y agregar horas de partes_horas (con caché en memoria)
                 const now = Date.now();
-                const needPartes = !_cachedPartesHoras || (now - _cachedPartesHorasTimestamp) > PARTES_CACHE_TTL;
-
-                let querySnapshot, partesSnap;
-                if (needPartes) {
-                    // Ambas lecturas en paralelo
-                    [querySnapshot, partesSnap] = await Promise.all([
-                        getDocs(collection(db, colName)),
-                        getDocs(collection(db, "partes_horas"))
-                    ]);
+                if (!_cachedPartesHoras || (now - _cachedPartesHorasTimestamp) > PARTES_CACHE_TTL) {
+                    const partesSnap = await getDocs(collection(db, "partes_horas"));
                     _cachedPartesHoras = [];
                     partesSnap.forEach(d => _cachedPartesHoras.push(d.data()));
-                    _cachedPartesHorasTimestamp = Date.now();
+                    _cachedPartesHorasTimestamp = now;
+                    // Sincronizar también la caché del dashboard
                     window._partesHorasData = _cachedPartesHoras.map((data, i) => ({ id: 'p' + i, ...data }));
                     console.log("📦 partes_horas cargados desde Firestore (" + _cachedPartesHoras.length + " docs)");
                 } else {
-                    querySnapshot = await getDocs(collection(db, colName));
                     console.log("⚡ partes_horas servidos desde caché (" + _cachedPartesHoras.length + " docs)");
                 }
                 const horasAgregadas = {};
@@ -1070,15 +1119,7 @@
                     fragment.appendChild(tr);
                 });
 
-                // ── Renderizado progresivo: primeras filas inmediatas, resto en batches ──
-                const allRows = Array.from(fragment.children);
-                const BATCH_INITIAL = 80;
-                const BATCH_SIZE = 150;
-
-                // Lote inicial: renderizar las primeras filas de inmediato
-                const firstBatch = document.createDocumentFragment();
-                allRows.slice(0, BATCH_INITIAL).forEach(r => firstBatch.appendChild(r));
-                tbody.appendChild(firstBatch);
+                tbody.appendChild(fragment);
 
                 const tableProdRef = tableProd || document.querySelector('#view-produccion .data-table');
                 if (tableProdRef) { 
@@ -1088,34 +1129,9 @@
                     aplicarVisibilidadColumnas(tableProdRef);
                     updateDynamicStickyColumns(tableProdRef);
                 }
-
-                // Resto: insertar en batches diferidos para no bloquear el hilo principal
-                if (allRows.length > BATCH_INITIAL) {
-                    let offset = BATCH_INITIAL;
-                    const insertBatch = () => {
-                        const batch = document.createDocumentFragment();
-                        const end = Math.min(offset + BATCH_SIZE, allRows.length);
-                        for (let i = offset; i < end; i++) batch.appendChild(allRows[i]);
-                        tbody.appendChild(batch);
-                        offset = end;
-                        if (offset < allRows.length) {
-                            requestAnimationFrame(insertBatch);
-                        } else {
-                            // Re-aplicar filtros y orden tras insertar todo
-                            if (tableProdRef) {
-                                applyTableFilters(tableProdRef);
-                                applyColumnOrder(tableProdRef);
-                                aplicarVisibilidadColumnas(tableProdRef);
-                            }
-                            console.log("✅ Renderizado progresivo completado (" + allRows.length + " filas)");
-                        }
-                    };
-                    requestAnimationFrame(insertBatch);
-                }
             } catch (error) {
                 console.error("Error al obtener documentos: ", error);
             }
-            console.timeEnd('⏱️ cargarProduccion');
         }
 
         // ── Visibilidad de columnas según permisos del rol ──
@@ -2410,17 +2426,14 @@
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
-                        console.time('⏱️ Auth: resolver rol + permisos');
-                        // 0. Cargar técnicos y permisos EN PARALELO (son independientes)
-                        const [tecResult, permResult] = await Promise.allSettled([
-                            getDoc(doc(db, "listas_config", "tecnicos")),
-                            getDoc(doc(db, "configuracion", "permisos_roles"))
-                        ]);
-
-                        if (tecResult.status === 'fulfilled' && tecResult.value.exists()) {
-                            listaTecnicos = tecResult.value.data().items || listaTecnicos;
-                        } else if (tecResult.status === 'rejected') {
-                            console.warn("No se pudo precargar lista de técnicos:", tecResult.reason);
+                        // 0. Asegurar que listaTecnicos está actualizada desde Firestore
+                        try {
+                            const tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
+                            if (tecSnap.exists()) {
+                                listaTecnicos = tecSnap.data().items || listaTecnicos;
+                            }
+                        } catch (tecErr) {
+                            console.warn("No se pudo precargar lista de técnicos:", tecErr);
                         }
 
                         // 1. Resolver técnico y rol desde la tabla de técnicos (fuente principal)
@@ -2462,16 +2475,16 @@
                             console.log("🔑 Rol asignado desde colección usuarios:", currentUserRole, "para", userEmail);
                         }
 
-                        // Aplicar permisos personalizados (ya cargados en paralelo)
-                        if (permResult.status === 'fulfilled' && permResult.value && permResult.value.exists()) {
-                            const saved = permResult.value.data();
-                            ['admin','edicion','ofertador','lectura','financiero'].forEach(rol => {
-                                if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
-                            });
-                        } else if (permResult.status === 'rejected') {
-                            console.error("Error cargando permisos:", permResult.reason);
-                        }
-                        console.timeEnd('⏱️ Auth: resolver rol + permisos');
+                        // Cargar permisos personalizados desde Firestore (si existen)
+                        try {
+                            const permDoc = await getDoc(doc(db, "configuracion", "permisos_roles"));
+                            if (permDoc && permDoc.exists()) {
+                                const saved = permDoc.data();
+                                ['admin','edicion','ofertador','lectura','consultor','financiero'].forEach(rol => {
+                                    if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
+                                });
+                            }
+                        } catch(ep) { console.error("Error cargando permisos:", ep); }
                     } catch (e) {
                         console.error("Error obteniendo rol", e);
                         currentUserRole = 'lectura';
@@ -2503,29 +2516,36 @@
                     const btnExport = document.querySelector('.btn-export');
                     if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? '' : 'none';
 
-                    // Restringir tabs de navegación para financiero
+                    // Restringir tabs de navegación principales
+                    const tabProduccionNav = document.getElementById('tab-produccion');
+                    if (tabProduccionNav) tabProduccionNav.style.display = (currentUserRole === 'consultor') ? 'none' : 'flex';
                     const tabOfertas = document.getElementById('tab-ofertas');
-                    if (tabOfertas) tabOfertas.style.display = tienePermiso('ver_ofertas') ? 'flex' : 'none';
+                    if (tabOfertas) tabOfertas.style.display = (tienePermiso('ver_ofertas') && currentUserRole !== 'consultor') ? 'flex' : 'none';
                     const tabDashboard = document.getElementById('tab-dashboard');
                     const tabRendimiento = document.getElementById('tab-dash-rendimiento');
-                    if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
+                    if (tabRendimiento) tabRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion' || currentUserRole === 'consultor') ? '' : 'none';
                     if (tabDashboard) tabDashboard.style.display = tienePermiso('ver_dashboard') ? 'flex' : 'none';
 
                     // Controlar visibilidad de sub-items de Informes en sidebar
                     const showDash = tienePermiso('ver_dashboard');
-                    ['sidebar-dash-produccion','sidebar-dash-partes'].forEach(id => {
-                        const el = document.getElementById(id);
-                        if (el) el.style.display = showDash ? 'flex' : 'none';
-                    });
-                    // Ofertas dashboard: ocultar para lectura
+                    // Producción dashboard: visible para todos con dashboard excepto financiero
+                    const sidebarDashProduccion = document.getElementById('sidebar-dash-produccion');
+                    if (sidebarDashProduccion) sidebarDashProduccion.style.display = (showDash && currentUserRole !== 'financiero') ? 'flex' : 'none';
+                    // Partes: ocultar para consultor
+                    const sidebarDashPartes = document.getElementById('sidebar-dash-partes');
+                    if (sidebarDashPartes) sidebarDashPartes.style.display = (showDash && currentUserRole !== 'consultor') ? 'flex' : 'none';
+                    const tabDashPartes = document.getElementById('tab-dash-partes');
+                    if (tabDashPartes) tabDashPartes.style.display = (currentUserRole === 'consultor') ? 'none' : '';
+                    // Ofertas dashboard: ocultar para lectura (consultor SÍ lo ve)
                     const sidebarDashOfertas = document.getElementById('sidebar-dash-ofertas');
                     if (sidebarDashOfertas) sidebarDashOfertas.style.display = (showDash && currentUserRole !== 'lectura') ? 'flex' : 'none';
                     const tabDashOfertas = document.getElementById('tab-dash-ofertas');
                     if (tabDashOfertas) tabDashOfertas.style.display = currentUserRole === 'lectura' ? 'none' : '';
+                    // Rendimiento/Productividad: admin, edicion, consultor
                     const sidebarRendimiento = document.getElementById('sidebar-dash-rendimiento');
-                    if (sidebarRendimiento) sidebarRendimiento.style.display = (showDash && (currentUserRole === 'admin' || currentUserRole === 'edicion')) ? 'flex' : 'none';
+                    if (sidebarRendimiento) sidebarRendimiento.style.display = (showDash && (currentUserRole === 'admin' || currentUserRole === 'edicion' || currentUserRole === 'consultor')) ? 'flex' : 'none';
                     const tabDashRendimiento = document.getElementById('tab-dash-rendimiento');
-                    if (tabDashRendimiento) tabDashRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion') ? '' : 'none';
+                    if (tabDashRendimiento) tabDashRendimiento.style.display = (currentUserRole === 'admin' || currentUserRole === 'edicion' || currentUserRole === 'consultor') ? '' : 'none';
 
                     // ── Punto 7: Visibilidad informe Financiero: solo admin y financiero ──
                     const sidebarFinanciero = document.getElementById('sidebar-dash-financiero');
@@ -2554,8 +2574,13 @@
                     if (!isAppInitialized) {
                         isAppInitialized = true;
                         await initAppContent();
-                        // Refrescar visibilidad de botones de cabecera con el rol correcto
-                        switchView('tab-produccion', 'view-produccion');
+                        // Consultor entra directamente a Informes > Producción
+                        if (currentUserRole === 'consultor') {
+                            switchView('tab-dashboard', 'view-dashboard');
+                            navegarInformesSeccion('tab-dash-produccion');
+                        } else {
+                            switchView('tab-produccion', 'view-produccion');
+                        }
                     } else {
                         cargarProduccion();
                         cargarOfertas();
@@ -2656,18 +2681,9 @@
 
             async function initAppContent() {
                 isAppInitialized = false;
-                console.time('⏱️ initAppContent total');
+                await cargarPreferenciasUsuario();
+                await cargarSettings();
 
-                // Fase 1: Cargar preferencias y settings EN PARALELO (son independientes)
-                console.time('⏱️ Fase1: prefs+settings');
-                await Promise.all([
-                    cargarPreferenciasUsuario(),
-                    cargarSettings()
-                ]);
-                console.timeEnd('⏱️ Fase1: prefs+settings');
-
-                // Fase 2: Setup de tabla (depende de settings para listas)
-                console.time('⏱️ Fase2: headers+columnas');
                 inyectarColumnasDinamicas();
                 await setupTableHeaders();
 
@@ -2676,27 +2692,17 @@
                     setupDragAndDropColumns(t);
                     setTimeout(() => updateDynamicStickyColumns(t), 100);
                 });
-                console.timeEnd('⏱️ Fase2: headers+columnas');
 
-                // Fase 3: Cargar producción (vista principal, prioridad alta)
-                console.time('⏱️ Fase3: produccion');
                 await cargarProduccion();
-                console.timeEnd('⏱️ Fase3: produccion');
+                
+                try {
+                    await cargarOfertas();
+                } catch (ofeErr) {
+                    console.error("Error cargando ofertas:", ofeErr);
+                }
 
                 tableProd = document.querySelector('#view-produccion .data-table');
-
-                // Fase 4: Cargar ofertas DIFERIDO (no bloquea la vista principal)
-                // Se carga en background mientras el usuario ya puede trabajar con producción
-                setTimeout(async () => {
-                    console.time('⏱️ Fase4: ofertas (diferido)');
-                    try {
-                        await cargarOfertas();
-                    } catch (ofeErr) {
-                        console.error("Error cargando ofertas:", ofeErr);
-                    }
-                    tableOfe = document.querySelector('#view-ofertas .data-table');
-                    console.timeEnd('⏱️ Fase4: ofertas (diferido)');
-                }, 50);
+                tableOfe = document.querySelector('#view-ofertas .data-table');
 
                 if (document.getElementById('view-dashboard').style.display === 'block') {
                     cargarDashboard();
@@ -2704,7 +2710,6 @@
 
                 initEventosListasConfig();
                 cargarAuditoriaDeNombres();
-                console.timeEnd('⏱️ initAppContent total');
             }
 
             // Evento para colapsar/desplegar el menú lateral
@@ -2824,59 +2829,6 @@
                 btnCloseHistory.addEventListener('click', () => {
                     const hs = document.getElementById('history-sidebar');
                     if (hs) hs.style.display = 'none';
-                });
-            }
-
-            // Botón ampliar/reducir historial
-            const btnExpandHistory = document.getElementById('btn-expand-history');
-            if (btnExpandHistory) {
-                let historyExpanded = false;
-                btnExpandHistory.addEventListener('click', () => {
-                    const hs = document.getElementById('history-sidebar');
-                    if (!hs) return;
-                    historyExpanded = !historyExpanded;
-                    if (historyExpanded) {
-                        hs.dataset.prevWidth = hs.style.width;
-                        hs.style.width = '70%';
-                        hs.style.minWidth = '600px';
-                    } else {
-                        hs.style.width = hs.dataset.prevWidth || '33.33%';
-                        hs.style.minWidth = '400px';
-                    }
-                });
-            }
-
-            // Drag resize del historial
-            const histResizeHandle = document.getElementById('history-resize-handle');
-            if (histResizeHandle) {
-                let isResizing = false;
-                histResizeHandle.addEventListener('mousedown', (e) => {
-                    e.preventDefault();
-                    isResizing = true;
-                    document.body.style.cursor = 'col-resize';
-                    document.body.style.userSelect = 'none';
-
-                    const hs = document.getElementById('history-sidebar');
-                    const parentWidth = hs.parentElement.offsetWidth;
-
-                    const onMouseMove = (ev) => {
-                        if (!isResizing) return;
-                        const newWidth = parentWidth - ev.clientX;
-                        const clampedWidth = Math.max(350, Math.min(newWidth, parentWidth * 0.85));
-                        hs.style.width = clampedWidth + 'px';
-                        hs.style.minWidth = 'unset';
-                    };
-
-                    const onMouseUp = () => {
-                        isResizing = false;
-                        document.body.style.cursor = '';
-                        document.body.style.userSelect = '';
-                        document.removeEventListener('mousemove', onMouseMove);
-                        document.removeEventListener('mouseup', onMouseUp);
-                    };
-
-                    document.addEventListener('mousemove', onMouseMove);
-                    document.addEventListener('mouseup', onMouseUp);
                 });
             }
 
@@ -3200,6 +3152,121 @@
                 tr.classList.add('selected-row');
             });
 
+            // ── Tooltip de enlace a carpeta de red para Ofertas Gestiona ──
+            (function initOfertaFileTooltip() {
+                // Create tooltip element
+                const tip = document.createElement('div');
+                tip.id = 'oferta-file-tooltip';
+                tip.style.cssText = 'display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);padding:10px 14px;font-size:13px;max-width:500px;pointer-events:auto;';
+                document.body.appendChild(tip);
+
+                let hideTimeout = null;
+                let currentTd = null;
+
+                function buildOfertaLinks(textoOferta) {
+                    // Parse one or more offer codes from the cell
+                    // Format: "T OV-20261292" → year=2026, code="T OV-20261292"
+                    // Also handle comma/semicolon/newline separated multiple offers
+                    const raw = (textoOferta || '').trim();
+                    if (!raw) return null;
+
+                    // Split by common separators
+                    const codigos = raw.split(/[,;\n]+/).map(s => s.trim()).filter(s => s.length > 0);
+                    const links = [];
+
+                    codigos.forEach(codigo => {
+                        // Extract year from the code: look for pattern like 2024, 2025, 2026 etc.
+                        // In "T OV-20261292", digits after "OV-" start with the year (2026)
+                        let year = null;
+                        const mYear = codigo.match(/(\d{4})\d{2,}/);
+                        if (mYear) {
+                            const y = parseInt(mYear[1]);
+                            if (y >= 2015 && y <= 2040) year = y;
+                        }
+                        // Fallback: try to find any 4-digit year
+                        if (!year) {
+                            const mFallback = codigo.match(/(20\d{2})/);
+                            if (mFallback) year = parseInt(mFallback[1]);
+                        }
+                        if (!year) return;
+
+                        // Build UNC path → file:// URL
+                        // UNC: \\tesicnor.com\servidor\CLIENTES\TESICNOR\2026\2026 OFERTAS ENVIADAS\T OV-20261292
+                        const uncFolder = '\\\\tesicnor.com\\servidor\\CLIENTES\\TESICNOR\\' + year + '\\' + year + ' OFERTAS ENVIADAS\\' + codigo;
+                        // Convert to file:// URL (replace backslashes with forward slashes)
+                        const fileUrl = 'file://///tesicnor.com/servidor/CLIENTES/TESICNOR/' + year + '/' + year + ' OFERTAS ENVIADAS/' + encodeURIComponent(codigo);
+
+                        links.push({ codigo, year, uncFolder, fileUrl });
+                    });
+
+                    return links.length > 0 ? links : null;
+                }
+
+                function showTooltip(td, e) {
+                    const texto = td.textContent.trim();
+                    const links = buildOfertaLinks(texto);
+                    if (!links) return;
+
+                    let html = '<div style="margin-bottom:4px;font-weight:600;color:#334155;font-size:12px;">📂 Abrir en servidor</div>';
+                    links.forEach(l => {
+                        html += '<a href="' + escapeHTML(l.fileUrl) + '" style="display:block;padding:4px 0;color:#2176AC;text-decoration:none;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + escapeHTML(l.uncFolder) + '">';
+                        html += '<span style="margin-right:4px;">📄</span>' + escapeHTML(l.codigo);
+                        html += ' <span style="color:#94a3b8;font-size:11px;">(' + l.year + ')</span>';
+                        html += '</a>';
+                    });
+                    html += '<div style="margin-top:6px;font-size:11px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:4px;">Clic para abrir · Requiere acceso a la red</div>';
+
+                    tip.innerHTML = html;
+                    tip.style.display = 'block';
+
+                    // Position near the cell
+                    const rect = td.getBoundingClientRect();
+                    let left = rect.left;
+                    let top = rect.bottom + 4;
+                    // Keep within viewport
+                    if (left + 400 > window.innerWidth) left = window.innerWidth - 420;
+                    if (top + tip.offsetHeight > window.innerHeight) top = rect.top - tip.offsetHeight - 4;
+                    tip.style.left = Math.max(4, left) + 'px';
+                    tip.style.top = top + 'px';
+                }
+
+                function hideTooltip() {
+                    hideTimeout = setTimeout(() => {
+                        tip.style.display = 'none';
+                        currentTd = null;
+                    }, 200);
+                }
+
+                // Keep tooltip visible when hovering over it
+                tip.addEventListener('mouseenter', () => { if (hideTimeout) clearTimeout(hideTimeout); });
+                tip.addEventListener('mouseleave', () => { hideTooltip(); });
+
+                tbody.addEventListener('mouseover', (e) => {
+                    const td = e.target.closest('td[data-field="oferta_gestiona"]');
+                    if (!td) {
+                        // If we moved to a different cell, hide
+                        if (currentTd && !e.target.closest('#oferta-file-tooltip')) hideTooltip();
+                        return;
+                    }
+                    if (td === currentTd) return; // Same cell, no change
+                    if (hideTimeout) clearTimeout(hideTimeout);
+                    currentTd = td;
+                    const texto = td.textContent.trim();
+                    if (!texto) return;
+                    showTooltip(td, e);
+                });
+
+                tbody.addEventListener('mouseout', (e) => {
+                    const td = e.target.closest('td[data-field="oferta_gestiona"]');
+                    if (td && td === currentTd) {
+                        // Check if we're moving to the tooltip itself
+                        const related = e.relatedTarget;
+                        if (related && (related.closest('#oferta-file-tooltip') || related.closest('td[data-field="oferta_gestiona"]') === td)) return;
+                        hideTooltip();
+                    }
+                });
+            })();
+
             // Delegación de eventos para la edición inline en Producción
             tbody.addEventListener('dblclick', (e) => {
                 // Bloquear si no tiene ningún permiso de edición y no podría ser responsable de la fila
@@ -3229,7 +3296,22 @@
                 const tipoExpVal = tdTipoExp ? tdTipoExp.textContent.trim().toUpperCase() : '';
                 if (tipoExpVal === 'INTERNO' && !tienePermiso('crear_trabajo_interno')) return;
 
-                // ── Restricción edición eliminada en v0.098: todos los roles con permiso de edición pueden editar cualquier trabajo ──
+                // ── Restricción edición: rol "edicion" y "ofertador" solo pueden editar trabajos donde figuren como técnico ──
+                if ((currentUserRole === 'edicion' || currentUserRole === 'ofertador') && currentUserAcronym) {
+                    const camposFinCheck = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
+                    if (!camposFinCheck.includes(fieldName)) {
+                        // Comprobar si el usuario figura como Rble, T1, T2 o T3
+                        const tdResp = tr.querySelector('td[data-field="responsable_g"]');
+                        const tdT1 = tr.querySelector('td[data-field="ejecutor_t1"]');
+                        const tdAm = tr.querySelector('td[data-field="apoyo_am"]');
+                        const tdAn = tr.querySelector('td[data-field="apoyo_an"]');
+                        const vals = [tdResp, tdT1, tdAm, tdAn].map(t => t ? t.textContent.trim() : '');
+                        const esTecnicoEnFila = vals.some(v => 
+                            v === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === v || t.nombre === v))
+                        );
+                        if (!esTecnicoEnFila) return;
+                    }
+                }
 
                 // Campos financieros redefinidos: fecha_ap, visto_vb_cliente, fecha_ar, observaciones, num_at, mes_facturacion, fecha_fin
                 const camposFinancieros = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
@@ -3795,22 +3877,6 @@
         function cargarDashboardOfertas() {
             const yFil = getMulti('filt-ofe-year'); const mFil = getMulti('filt-ofe-month');
             const licFil = getMulti('filt-ofe-es-lic'); const pertFil = getMulti('filt-ofe-pert-lic');
-            const agenteFil = getMulti('filt-ofe-agente');
-            const srvFil = getMulti('filt-ofe-srv');
-
-            // Populate agente and servicio dropdowns
-            const selAgente = document.getElementById('filt-ofe-agente');
-            const selSrv = document.getElementById('filt-ofe-srv');
-            if (selAgente && selAgente.options.length === 0) {
-                const agentes = new Set();
-                const servicios = new Set();
-                datosOfertasMemoria.forEach(of => {
-                    if (of.agente_comercial) agentes.add(of.agente_comercial.trim());
-                    if (of.servicio) servicios.add(of.servicio.trim());
-                });
-                [...agentes].sort().forEach(a => { const o = document.createElement('option'); o.value = a; o.textContent = a; selAgente.appendChild(o); });
-                if (selSrv) [...servicios].sort().forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; selSrv.appendChild(o); });
-            }
 
             // Helper: comprobar si el usuario figura como agente o T1 en una oferta
             function esUsuarioEnOferta(of) {
@@ -3829,7 +3895,6 @@
             let pptoCurso = 0, pptoAcep = 0, pptoRech = 0;
             let totalLic = 0, totalOfertas = 0;
             const agentesData = {};
-            const tipoServData = {};
             // Mensual data collects ALL data (unfiltered) for evolution chart
             const mensualDataAll = {};
             // Annual summary (unfiltered)
@@ -3873,16 +3938,6 @@
                 const pertLic = normSiNo(of.pertenece_a_licitacion);
                 if (licFil.length > 0 && !licFil.includes(esLic)) return;
                 if (pertFil.length > 0 && !pertFil.includes(pertLic)) return;
-                // Filtro por agente comercial
-                if (agenteFil.length > 0) {
-                    const ag = of.agente_comercial ? of.agente_comercial.trim() : '';
-                    if (!agenteFil.includes(ag)) return;
-                }
-                // Filtro por servicio
-                if (srvFil.length > 0) {
-                    const srv = of.servicio ? of.servicio.trim() : '';
-                    if (!srvFil.includes(srv)) return;
-                }
 
                 const est = (of.estado || 'En curso').trim();
                 const estLower = est.toLowerCase();
@@ -3899,13 +3954,6 @@
                 if (estLower === 'aceptada' || estLower === 'aceptado') { agentesData[ag].acep++; agentesData[ag].pptoAcep += ppto; }
                 else if (estLower === 'rechazada' || estLower === 'rechazado') { agentesData[ag].rech++; agentesData[ag].pptoRech += ppto; }
                 else { agentesData[ag].curso++; agentesData[ag].pptoCurso += ppto; }
-
-                // Acumular por tipo de servicio (para gráficos)
-                const tipoSrv = of.servicio ? of.servicio.trim() : 'Sin Tipo';
-                if (!tipoServData[tipoSrv]) tipoServData[tipoSrv] = { acep: 0, curso: 0, rech: 0, pptoAcep: 0, pptoCurso: 0, pptoRech: 0 };
-                if (estLower === 'aceptada' || estLower === 'aceptado') { tipoServData[tipoSrv].acep++; tipoServData[tipoSrv].pptoAcep += ppto; }
-                else if (estLower === 'rechazada' || estLower === 'rechazado') { tipoServData[tipoSrv].rech++; tipoServData[tipoSrv].pptoRech += ppto; }
-                else { tipoServData[tipoSrv].curso++; tipoServData[tipoSrv].pptoCurso += ppto; }
             });
 
             // Format helper: Spanish number, no decimals unless needed
@@ -4126,56 +4174,6 @@
                             }
                         }
                     }
-                }
-            });
-
-            // ── Tipo de Servicio charts (filtered data) ──
-            const tsLabels = Object.keys(tipoServData).sort((a,b) =>
-                (tipoServData[b].acep+tipoServData[b].curso+tipoServData[b].rech) - (tipoServData[a].acep+tipoServData[a].curso+tipoServData[a].rech)
-            );
-
-            if (chartsObj.ofeTipoServCount) chartsObj.ofeTipoServCount.destroy();
-            chartsObj.ofeTipoServCount = new Chart(document.getElementById('chart-ofe-tiposerv-count'), {
-                type: 'bar',
-                plugins: [innerLabelsPlugin],
-                data: {
-                    labels: tsLabels,
-                    datasets: [
-                        { label: 'Aceptadas', data: tsLabels.map(l => tipoServData[l].acep), backgroundColor: '#10b981', barPercentage: 0.9, categoryPercentage: 0.8 },
-                        { label: 'En curso', data: tsLabels.map(l => tipoServData[l].curso), backgroundColor: '#F38E00', barPercentage: 0.9, categoryPercentage: 0.8 },
-                        { label: 'Rechazadas', data: tsLabels.map(l => tipoServData[l].rech), backgroundColor: '#ef4444', barPercentage: 0.9, categoryPercentage: 0.8 }
-                    ]
-                },
-                options: {
-                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                    scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { crossAlign: 'center' } } },
-                    plugins: {
-                        legend: { position: 'top' },
-                        tooltip: { callbacks: { afterBody: (items) => {
-                            const ts = tsLabels[items[0].dataIndex];
-                            const d = tipoServData[ts];
-                            return ['Total: ' + (d.acep+d.curso+d.rech), 'Importe: ' + fmtE.format(d.pptoAcep + d.pptoCurso + d.pptoRech)];
-                        }}}
-                    }
-                }
-            });
-
-            if (chartsObj.ofeTipoServImporte) chartsObj.ofeTipoServImporte.destroy();
-            chartsObj.ofeTipoServImporte = new Chart(document.getElementById('chart-ofe-tiposerv-importe'), {
-                type: 'bar',
-                plugins: [innerLabelsPlugin],
-                data: {
-                    labels: tsLabels,
-                    datasets: [
-                        { label: 'Aceptadas', data: tsLabels.map(l => tipoServData[l].pptoAcep), backgroundColor: '#10b981', barPercentage: 0.9, categoryPercentage: 0.8 },
-                        { label: 'En curso', data: tsLabels.map(l => tipoServData[l].pptoCurso), backgroundColor: '#F38E00', barPercentage: 0.9, categoryPercentage: 0.8 },
-                        { label: 'Rechazadas', data: tsLabels.map(l => tipoServData[l].pptoRech), backgroundColor: '#ef4444', barPercentage: 0.9, categoryPercentage: 0.8 }
-                    ]
-                },
-                options: {
-                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-                    scales: { x: { stacked: true, ticks: { callback: v => fmtE.format(v) }, grid: { display: false } }, y: { stacked: true, ticks: { crossAlign: 'center' } } },
-                    plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw) } } }
                 }
             });
 
@@ -4666,12 +4664,9 @@
                 if (!td.bySrv[srvLabel]) td.bySrv[srvLabel] = {};
                 td.bySrv[srvLabel][mKey] = (td.bySrv[srvLabel][mKey] || 0) + horas;
                 if (!td.byDay[mKey]) td.byDay[mKey] = {};
-                if (!td.byDay[mKey][dKey]) td.byDay[mKey][dKey] = { total: 0, srvs: {}, obs: {} };
+                if (!td.byDay[mKey][dKey]) td.byDay[mKey][dKey] = { total: 0, srvs: {} };
                 td.byDay[mKey][dKey].total += horas;
                 td.byDay[mKey][dKey].srvs[srvLabel] = (td.byDay[mKey][dKey].srvs[srvLabel] || 0) + horas;
-                // Guardar observaciones_crudas para tooltip
-                if (!td.byDay[mKey][dKey].obs[srvLabel]) td.byDay[mKey][dKey].obs[srvLabel] = [];
-                td.byDay[mKey][dKey].obs[srvLabel].push(obs);
             });
 
             if (yearSel) {
@@ -4838,15 +4833,10 @@
                             sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:' + srvTextColor + ';padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
                         } else {
                             let dayHrs = 0;
-                            let dayObs = '';
                             if (td.byDay[cd.month] && td.byDay[cd.month][cd.day] && td.byDay[cd.month][cd.day].srvs[srv]) {
                                 dayHrs = td.byDay[cd.month][cd.day].srvs[srv];
-                                // Observaciones crudas para tooltip
-                                const obsArr = td.byDay[cd.month][cd.day].obs[srv] || [];
-                                dayObs = obsArr.join(' | ').replace(/"/g, '&quot;');
                             }
-                            const tipAttr = dayObs ? ' title="' + dayObs + '"' : '';
-                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '"' + tipAttr + ' style="text-align:center;font-size:12px;color:' + srvTextColor + ';padding:4px;display:none;' + (dayObs ? 'cursor:help;' : '') + '">' + fmtV(dayHrs) + '</td>';
+                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:12px;color:' + srvTextColor + ';padding:4px;display:none;">' + fmtV(dayHrs) + '</td>';
                         }
                     });
                     sCells += '<td style="text-align:center;font-size:13px;font-weight:600;color:' + (isVbSi ? '#fff' : '#334155') + ';padding:4px;background:' + (isVbSi ? '#0066FF' : isFechaAp ? '#DBEAFE' : '#f8fafc') + ';">' + fmtV(sTotal) + '</td>';
@@ -5787,7 +5777,7 @@
         document.getElementById('btn-update-dash-financiero')?.addEventListener('click', () => cargarDashboardFinanciero());
 
         document.getElementById('btn-clear-dash-ofe')?.addEventListener('click', () => {
-            ['filt-ofe-year', 'filt-ofe-month', 'filt-ofe-es-lic', 'filt-ofe-pert-lic', 'filt-ofe-agente', 'filt-ofe-srv'].forEach(id => {
+            ['filt-ofe-year', 'filt-ofe-month', 'filt-ofe-es-lic', 'filt-ofe-pert-lic'].forEach(id => {
                 const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
             });
             cargarDashboard();
@@ -6126,6 +6116,7 @@
                             <option value="lectura" ${t.rol === 'lectura' ? 'selected' : ''}>lectura</option>
                             <option value="edicion" ${t.rol === 'edicion' ? 'selected' : ''}>edicion</option>
                             <option value="ofertador" ${t.rol === 'ofertador' ? 'selected' : ''}>ofertador</option>
+                            <option value="consultor" ${t.rol === 'consultor' ? 'selected' : ''}>consultor</option>
                             <option value="admin" ${t.rol === 'admin' ? 'selected' : ''}>admin</option>
                             <option value="financiero" ${t.rol === 'financiero' ? 'selected' : ''}>financiero</option>
                         </select>
@@ -6201,6 +6192,7 @@
                             <option value="admin"      ${rolActual === 'admin'      ? 'selected' : ''}>admin</option>
                             <option value="edicion"    ${rolActual === 'edicion'    ? 'selected' : ''}>edicion</option>
                             <option value="ofertador"  ${rolActual === 'ofertador'  ? 'selected' : ''}>ofertador</option>
+                            <option value="consultor"  ${rolActual === 'consultor'  ? 'selected' : ''}>consultor</option>
                             <option value="lectura"    ${rolActual === 'lectura'    ? 'selected' : ''}>lectura</option>
                             <option value="financiero" ${rolActual === 'financiero' ? 'selected' : ''}>financiero</option>
                         </select>
@@ -6306,56 +6298,36 @@
         // ============================================
         // Lógica de Historial y Deshacer
         // ============================================
-        let _historialLastDoc = null;
-        let _historialLastCheckIdx = null; // Para selección por rango
 
-        async function cargarHistorial(append = false) {
+        async function cargarHistorial() {
             const tbodyHistorial = document.getElementById('tbody-historial');
             if (!tbodyHistorial) return;
 
-            const PAGE_SIZE = 25;
-
-            if (!append) {
-                _historialLastDoc = null;
-                _historialLastCheckIdx = null;
-                tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">Cargando historial...</td></tr>';
-            }
+            tbodyHistorial.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">Cargando historial...</td></tr>';
 
             try {
+                // Últimos 30 días
                 const treintaDiasAtras = new Date();
                 treintaDiasAtras.setDate(treintaDiasAtras.getDate() - 30);
                 const fechaLimite = treintaDiasAtras.toISOString();
 
-                let q;
-                if (_historialLastDoc) {
-                    q = query(collection(db, "historial"), where("fecha", ">=", fechaLimite), orderBy("fecha", "desc"), startAfter(_historialLastDoc), limit(PAGE_SIZE));
-                } else {
-                    q = query(collection(db, "historial"), where("fecha", ">=", fechaLimite), orderBy("fecha", "desc"), limit(PAGE_SIZE));
-                }
+                const q = query(collection(db, "historial"), where("fecha", ">=", fechaLimite), orderBy("fecha", "desc"), limit(100));
                 const snapshot = await getDocs(q);
 
-                if (!append) tbodyHistorial.innerHTML = '';
-
-                if (snapshot.empty && !append) {
-                    tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">No hay registros recientes.</td></tr>';
+                if (snapshot.empty) {
+                    tbodyHistorial.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No hay registros recientes.</td></tr>';
                     return;
                 }
 
-                // Remove existing "load more" row
-                const existingLoadMore = tbodyHistorial.querySelector('.tr-load-more');
-                if (existingLoadMore) existingLoadMore.remove();
-
+                tbodyHistorial.innerHTML = '';
                 snapshot.forEach(docSnap => {
                     const data = docSnap.data();
                     const tr = document.createElement('tr');
-                    tr.dataset.histId = docSnap.id;
-                    tr.style.cursor = 'pointer';
 
                     const fechaObj = new Date(data.fecha);
                     const fechaFormat = fechaObj.toLocaleDateString('es-ES') + ' ' + fechaObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
                     tr.innerHTML = `
-                        <td style="text-align:center;padding:4px 6px;"><input type="checkbox" class="chk-historial-row" style="cursor:pointer;"></td>
                         <td>${fechaFormat}</td>
                         <td>${data.usuario || ''}</td>
                         <td style="text-transform: capitalize;">${data.coleccion}</td>
@@ -6369,13 +6341,6 @@
                     `;
                     tbodyHistorial.appendChild(tr);
 
-                    // ── Preview: clic para mostrar panel con contexto de la fila ──
-                    tr.addEventListener('click', (e) => {
-                        // No activar si se hizo clic en el checkbox o botón restaurar
-                        if (e.target.closest('input[type="checkbox"]') || e.target.closest('.btn-restaurar-historial')) return;
-                        _showHistorialPreview(e, data);
-                    });
-
                     tr.querySelector('.btn-restaurar-historial').addEventListener('click', async () => {
                         if (confirm(`¿Restaurar el campo '${data.campo}' al valor anterior ('${data.valorAnterior}')?`)) {
                             try {
@@ -6383,6 +6348,8 @@
                                     [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior,
                                     _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
                                 });
+                                // No borramos el registro del historial: la Cloud Function registrará
+                                // la reversión automáticamente, manteniendo la traza completa (ISO 27001)
                                 alert("Valor restaurado con éxito. La reversión quedará registrada en el historial.");
                                 cargarHistorial();
                                 if (data.coleccion === 'produccion') cargarProduccion();
@@ -6394,203 +6361,10 @@
                     });
                 });
 
-                // Update last document for pagination
-                if (!snapshot.empty) {
-                    _historialLastDoc = snapshot.docs[snapshot.docs.length - 1];
-                }
-
-                // Add "load more" button if we got a full page
-                if (snapshot.size === PAGE_SIZE) {
-                    const trMore = document.createElement('tr');
-                    trMore.className = 'tr-load-more';
-                    trMore.innerHTML = '<td colspan="4" style="text-align:center;padding:12px;"><button id="btn-historial-more" style="padding:8px 20px;background:#2176AC;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">Cargar más registros</button></td>';
-                    tbodyHistorial.appendChild(trMore);
-                    trMore.querySelector('#btn-historial-more').addEventListener('click', () => cargarHistorial(true));
-                }
-
-                // Setup checkbox range selection
-                _setupHistorialCheckboxes();
-
             } catch (err) {
                 console.error("Error cargando historial: ", err);
-                tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #ef4444;">Error cargando historial</td></tr>';
+                tbodyHistorial.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #ef4444;">Error cargando historial</td></tr>';
             }
-        }
-
-        function _setupHistorialCheckboxes() {
-            const chkAll = document.getElementById('chk-historial-all');
-            const tbody = document.getElementById('tbody-historial');
-            if (!chkAll || !tbody) return;
-
-            // Select all / deselect all
-            chkAll.onclick = () => {
-                const boxes = tbody.querySelectorAll('.chk-historial-row');
-                boxes.forEach(b => b.checked = chkAll.checked);
-            };
-
-            // Range selection: click selects one; shift+click selects range
-            tbody.addEventListener('click', (e) => {
-                if (!e.target.classList.contains('chk-historial-row')) return;
-                const boxes = Array.from(tbody.querySelectorAll('.chk-historial-row'));
-                const currentIdx = boxes.indexOf(e.target);
-
-                if (e.shiftKey && _historialLastCheckIdx !== null && _historialLastCheckIdx !== currentIdx) {
-                    const start = Math.min(_historialLastCheckIdx, currentIdx);
-                    const end = Math.max(_historialLastCheckIdx, currentIdx);
-                    for (let i = start; i <= end; i++) {
-                        boxes[i].checked = true;
-                    }
-                }
-                _historialLastCheckIdx = currentIdx;
-
-                // Update "select all" checkbox state
-                const total = boxes.length;
-                const checked = boxes.filter(b => b.checked).length;
-                chkAll.checked = checked === total;
-                chkAll.indeterminate = checked > 0 && checked < total;
-            });
-        }
-
-        // ── Preview del historial: panel inline con contexto ──
-        let _histPreviewEl = null;
-        let _histPreviewActive = false;
-
-        function _getHistPreviewContainer() {
-            if (_histPreviewEl) return _histPreviewEl;
-            _histPreviewEl = document.createElement('div');
-            _histPreviewEl.id = 'historial-preview';
-            _histPreviewEl.style.cssText = 'display:none;position:fixed;left:0;right:0;bottom:0;z-index:9998;background:white;border-top:3px solid #2176AC;box-shadow:0 -4px 20px rgba(0,0,0,0.15);max-height:50vh;overflow:auto;';
-
-            // Barra de título
-            const titleBar = document.createElement('div');
-            titleBar.id = 'historial-preview-title';
-            titleBar.style.cssText = 'position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#2176AC;color:white;font-size:13px;font-weight:600;';
-            titleBar.innerHTML = '<span id="historial-preview-label"></span><button id="btn-close-preview" style="background:none;border:none;color:white;font-size:18px;cursor:pointer;padding:0 4px;line-height:1;">&times;</button>';
-            _histPreviewEl.appendChild(titleBar);
-
-            // Contenedor de la tabla
-            const tableWrap = document.createElement('div');
-            tableWrap.id = 'historial-preview-content';
-            tableWrap.style.cssText = 'overflow-x:auto;overflow-y:auto;';
-            _histPreviewEl.appendChild(tableWrap);
-
-            document.body.appendChild(_histPreviewEl);
-
-            // Cerrar con botón X
-            _histPreviewEl.querySelector('#btn-close-preview').addEventListener('click', () => _hideHistorialPreview());
-
-            // Cerrar al hacer clic fuera
-            document.addEventListener('mousedown', (e) => {
-                if (!_histPreviewActive) return;
-                if (_histPreviewEl.contains(e.target)) return;
-                // No cerrar si se hace clic dentro del historial sidebar
-                const sidebar = document.getElementById('history-sidebar');
-                if (sidebar && sidebar.contains(e.target)) return;
-                _hideHistorialPreview();
-            });
-
-            return _histPreviewEl;
-        }
-
-        function _showHistorialPreview(event, histData) {
-            const container = _getHistPreviewContainer();
-            const contentEl = container.querySelector('#historial-preview-content');
-            const labelEl = container.querySelector('#historial-preview-label');
-
-            // Buscar la fila en la tabla correspondiente
-            const tbodyId = histData.coleccion === 'ofertas' ? 'table-body-ofertas' : 'table-body';
-            const sourceTr = document.querySelector(`#${tbodyId} tr[data-id="${histData.docId}"]`);
-            if (!sourceTr) {
-                container.style.display = 'none';
-                _histPreviewActive = false;
-                return;
-            }
-
-            const sourceTable = sourceTr.closest('table');
-            const theadTr = sourceTable ? sourceTable.querySelector('thead tr') : null;
-
-            // Obtener filas de contexto: 2 antes + la fila + 2 después
-            const allRows = Array.from(sourceTr.parentElement.querySelectorAll('tr'));
-            const targetIdx = allRows.indexOf(sourceTr);
-            const startIdx = Math.max(0, targetIdx - 2);
-            const endIdx = Math.min(allRows.length - 1, targetIdx + 2);
-            const contextRows = allRows.slice(startIdx, endIdx + 1);
-
-            // Construir tabla
-            let html = '<table style="border-collapse:collapse;white-space:nowrap;font-size:13px;width:max-content;min-width:100%;">';
-
-            // Header
-            if (theadTr) {
-                html += '<thead><tr>';
-                Array.from(theadTr.children).forEach(th => {
-                    if (th.style.display === 'none') return;
-                    const span = th.querySelector('[data-original-text]');
-                    const label = span ? span.dataset.originalText : th.textContent.trim();
-                    html += '<th style="padding:8px 12px;background:#f1f5f9;color:#475569;font-weight:600;font-size:12px;border-bottom:2px solid #e2e8f0;position:sticky;top:0;z-index:1;white-space:nowrap;">' + escapeHTML(label) + '</th>';
-                });
-                html += '</tr></thead>';
-            }
-
-            // Body
-            html += '<tbody>';
-            contextRows.forEach(row => {
-                const isTarget = row === sourceTr;
-                const rowStyle = isTarget ? 'background:#FFFBEB;' : '';
-                html += '<tr style="' + rowStyle + '">';
-
-                Array.from(row.children).forEach(td => {
-                    if (td.style.display === 'none') return;
-                    const field = td.dataset.field || '';
-                    let content = td.textContent.trim();
-                    let cellBg = td.style.backgroundColor || '';
-                    let extraStyle = '';
-
-                    if (isTarget && field === histData.campo) {
-                        // Celda del cambio: superponer diff
-                        content = '<div style="display:flex;flex-direction:column;gap:2px;min-width:80px;">'
-                            + '<span style="color:#ef4444;text-decoration:line-through;font-size:12px;">' + escapeHTML(histData.valorAnterior || '-') + '</span>'
-                            + '<span style="color:#10b981;font-weight:600;">' + escapeHTML(histData.valorNuevo || '-') + '</span>'
-                            + '</div>';
-                        extraStyle = 'background-color:#FEF9C3 !important;border:2px solid #F59E0B;';
-                    } else {
-                        content = escapeHTML(content);
-                    }
-
-                    const basePad = 'padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;white-space:nowrap;';
-                    const bgStyle = (cellBg && !extraStyle) ? 'background-color:' + cellBg + ';' : '';
-                    html += '<td style="' + basePad + bgStyle + extraStyle + '">' + content + '</td>';
-                });
-                html += '</tr>';
-            });
-            html += '</tbody></table>';
-
-            contentEl.innerHTML = html;
-
-            // Etiqueta
-            const numTrabajo = sourceTr.querySelector('td[data-field="num_trabajo"], td[data-field="num_gestiona"]');
-            const labelTrabajo = numTrabajo ? numTrabajo.textContent.trim() : histData.docId;
-            const colLabel = histData.coleccion === 'ofertas' ? 'Oferta' : 'Trabajo';
-            labelEl.textContent = colLabel + ' ' + labelTrabajo + '  —  Campo: ' + histData.campo + '  —  Clic fuera para cerrar';
-
-            container.style.display = 'block';
-            _histPreviewActive = true;
-
-            // Scroll horizontal automático hasta la celda del cambio
-            requestAnimationFrame(() => {
-                const highlightedTd = contentEl.querySelector('td[style*="FEF9C3"]');
-                if (highlightedTd) {
-                    const tdLeft = highlightedTd.offsetLeft;
-                    const tdWidth = highlightedTd.offsetWidth;
-                    const wrapWidth = contentEl.clientWidth;
-                    contentEl.scrollLeft = Math.max(0, tdLeft - wrapWidth / 2 + tdWidth / 2);
-                }
-            });
-        }
-
-        function _hideHistorialPreview() {
-            const container = _getHistPreviewContainer();
-            container.style.display = 'none';
-            _histPreviewActive = false;
         }
 
         // Evento global para botón Deshacer (última acción)
@@ -6635,39 +6409,6 @@
             const btnRefrescarHistorial = document.getElementById('btn-refrescar-historial');
             if (btnRefrescarHistorial) {
                 btnRefrescarHistorial.addEventListener('click', () => cargarHistorial());
-            }
-
-            // Botón Rehacer: re-aplicar el valorNuevo de la última entrada del historial
-            const btnRehacer = document.getElementById('btn-rehacer');
-            if (btnRehacer) {
-                btnRehacer.addEventListener('click', async () => {
-                    try {
-                        const q = query(collection(db, "historial"), orderBy("fecha", "desc"), limit(1));
-                        const snapshot = await getDocs(q);
-
-                        if (snapshot.empty) {
-                            alert("No hay acciones recientes para rehacer.");
-                            return;
-                        }
-
-                        const ultimoRegistroDoc = snapshot.docs[0];
-                        const data = ultimoRegistroDoc.data();
-
-                        if (confirm(`¿Rehacer la última acción?\n\nColección: ${data.coleccion}\nCampo: ${data.campo}\nValor actual: ${data.valorAnterior}\nSe aplicará: ${data.valorNuevo}`)) {
-                            await updateDoc(doc(db, data.coleccion, data.docId), {
-                                [data.campo]: data.valorNuevo === '-' ? '' : data.valorNuevo,
-                                _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
-                            });
-
-                            alert("Rehecho correctamente. El cambio quedará registrado en el historial.");
-                            if (data.coleccion === 'produccion') cargarProduccion();
-                            if (data.coleccion === 'ofertas') cargarOfertas();
-                            cargarHistorial();
-                        }
-                    } catch (e) {
-                        manejarErrorFirebase(e, "Error al intentar rehacer la acción.");
-                    }
-                });
             }
 
             // ===================================
@@ -8188,7 +7929,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.1.00</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.093</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
@@ -8267,17 +8008,10 @@
                 </label>
             </div>
 
-            <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="padding: 10px;">
+            <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="margin-right: 16px; padding: 10px;">
                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                </svg>
-            </button>
-
-            <button id="btn-rehacer" class="btn-secondary" title="Rehacer" style="margin-right: 16px; padding: 10px;">
-                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M21 10H11a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" />
                 </svg>
             </button>
 
@@ -8406,7 +8140,7 @@
                     </div>
 
                     <div id="panel-dash-ofertas" style="display: none;">
-                        <div id="dash-ofe-filtros"
+                        <div
                             style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-ofe-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-year').selectedIndex=-1;">✕</button></div></div>
                             <div class="filter-group"><label>Mes</label><div class="filter-wrap">
@@ -8414,8 +8148,6 @@
                                     <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
                                 </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-month').selectedIndex=-1;">✕</button></div>
                             </div>
-                            <div class="filter-group"><label>Agente Comercial</label><div class="filter-wrap"><select id="filt-ofe-agente" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-agente').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>Servicio</label><div class="filter-wrap"><select id="filt-ofe-srv" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-srv').selectedIndex=-1;">✕</button></div></div>
                             <div class="filter-group"><label>Es Licitación</label><div class="filter-wrap"><select id="filt-ofe-es-lic" class="multi-select" multiple>
                                     <option value="Si">Si</option><option value="No">No</option>
                                 </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-es-lic').selectedIndex=-1;">✕</button></div></div>
@@ -8472,14 +8204,6 @@
                         <div class="chart-box" style="margin-bottom: 20px;">
                             <h3 class="chart-title">Evolución Mensual de Importes</h3>
                             <div style="width: 100%; height: 360px; position: relative;"><canvas id="chart-ofe-mensual-importes"></canvas></div>
-                        </div>
-                        <div class="chart-box" style="margin-bottom: 20px;">
-                            <h3 class="chart-title">Nº de Ofertas por Tipo de Servicio</h3>
-                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-ofe-tiposerv-count"></canvas></div>
-                        </div>
-                        <div class="chart-box" style="margin-bottom: 20px;">
-                            <h3 class="chart-title">Importe por Tipo de Servicio (€)</h3>
-                            <div style="width: 100%; height: 450px; position: relative;"><canvas id="chart-ofe-tiposerv-importe"></canvas></div>
                         </div>
                         <div class="chart-box">
                             <h3 class="chart-title">Resumen Anual de Ofertas</h3>
@@ -8922,6 +8646,7 @@
                                         <option value="lectura">lectura</option>
                                         <option value="edicion">edicion</option>
                                         <option value="ofertador">ofertador</option>
+                                        <option value="consultor">consultor</option>
                                         <option value="admin">admin</option>
                                         <option value="financiero">financiero</option>
                                     </select>
@@ -9115,25 +8840,19 @@
 
     <!-- Sidebar Historial Panel Derecho -->
     <aside id="history-sidebar"
-        style="width: 33.33%; min-width: 400px; border-left: 1px solid #e2e8f0; display: none; overflow-y: auto; padding-left: 0; padding-right: 12px; margin-right: -12px; position: relative;">
-        <div id="history-resize-handle" style="position:absolute;left:0;top:0;bottom:0;width:6px;cursor:col-resize;background:transparent;z-index:30;transition:background 0.2s;" onmouseenter="this.style.background='#2176AC40'" onmouseleave="this.style.background='transparent'"></div>
-        <div style="padding-left:24px;">
+        style="width: 33.33%; min-width: 400px; border-left: 1px solid #e2e8f0; display: none; overflow-y: auto; padding-left: 24px; padding-right: 12px; margin-right: -12px;">
         <div
             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; position: sticky; top: 0; background: #f8fafc; padding-top: 0px; z-index: 20; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
             <h2 class="config-section-title" style="margin-bottom: 0; border: none; padding: 0;">Histórico de Cambios
             </h2>
-            <div style="display:flex;gap:6px;align-items:center;">
-                <button id="btn-expand-history" style="padding:6px 10px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;font-size:13px;color:#475569;" title="Ampliar / Reducir">&#x2194;</button>
-                <button id="btn-refrescar-historial" class="btn-secondary"
-                    style="padding: 6px 12px;">Refrescar</button>
-                <button id="btn-close-history" style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;" title="Cerrar historial">&#9650;</button>
-            </div>
+            <button id="btn-refrescar-historial" class="btn-secondary"
+                style="padding: 6px 12px; margin-right: 8px;">Refrescar</button>
+            <button id="btn-close-history" style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;" title="Cerrar historial">&#9650;</button>
         </div>
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
-            <table class="data-table" id="table-historial" style="min-width: 100%; border-collapse: collapse;">
+            <table class="data-table" style="min-width: 100%; border-collapse: collapse;">
                 <thead style="background: #f1f5f9; position: sticky; top: 0; box-shadow: 0 1px 0 #e2e8f0; z-index: 10;">
                     <tr>
-                        <th style="padding: 8px 6px; text-align: center; width: 32px;"><input type="checkbox" id="chk-historial-all" title="Seleccionar todo" style="cursor:pointer;"></th>
                         <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Fecha / Info
                         </th>
                         <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Usuario</th>
@@ -9143,12 +8862,11 @@
                 </thead>
                 <tbody id="tbody-historial">
                     <tr>
-                        <td colspan="4" style="padding: 12px; text-align: center; color: #64748b;">Cargando historial...
+                        <td colspan="3" style="padding: 12px; text-align: center; color: #64748b;">Cargando historial...
                         </td>
                     </tr>
                 </tbody>
             </table>
-        </div>
         </div>
     </aside>
 
