@@ -3207,17 +3207,48 @@
                     const links = buildOfertaLinks(texto);
                     if (!links) return;
 
-                    let html = '<div style="margin-bottom:4px;font-weight:600;color:#334155;font-size:12px;">📂 Abrir en servidor</div>';
-                    links.forEach(l => {
-                        html += '<a href="' + escapeHTML(l.fileUrl) + '" style="display:block;padding:4px 0;color:#2176AC;text-decoration:none;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + escapeHTML(l.uncFolder) + '">';
-                        html += '<span style="margin-right:4px;">📄</span>' + escapeHTML(l.codigo);
-                        html += ' <span style="color:#94a3b8;font-size:11px;">(' + l.year + ')</span>';
-                        html += '</a>';
+                    let html = '<div style="margin-bottom:6px;font-weight:600;color:#334155;font-size:12px;">📂 Ruta en servidor</div>';
+                    links.forEach((l, i) => {
+                        html += '<div class="oferta-path-row" data-unc="' + escapeHTML(l.uncFolder) + '" style="display:flex;align-items:center;gap:8px;padding:5px 8px;margin-bottom:4px;border-radius:6px;cursor:pointer;transition:background 0.15s;" onmouseenter="this.style.background=\'#f1f5f9\'" onmouseleave="this.style.background=\'transparent\'">';
+                        html += '<span style="flex-shrink:0;">📄</span>';
+                        html += '<div style="flex:1;min-width:0;">';
+                        html += '<div style="font-size:13px;font-weight:500;color:#1e293b;">' + escapeHTML(l.codigo) + ' <span style="color:#94a3b8;font-size:11px;">(' + l.year + ')</span></div>';
+                        html += '<div class="oferta-path-unc" style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px;" title="' + escapeHTML(l.uncFolder) + '">' + escapeHTML(l.uncFolder) + '</div>';
+                        html += '</div>';
+                        html += '<span class="oferta-copy-icon" style="flex-shrink:0;font-size:16px;opacity:0.5;" title="Copiar ruta">📋</span>';
+                        html += '</div>';
                     });
-                    html += '<div style="margin-top:6px;font-size:11px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:4px;">Clic para abrir · Requiere acceso a la red</div>';
+                    html += '<div style="margin-top:6px;font-size:11px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:4px;">Clic para seleccionar · Pegar en el explorador de Windows</div>';
 
                     tip.innerHTML = html;
                     tip.style.display = 'block';
+
+                    // Add click handlers to copy UNC path
+                    tip.querySelectorAll('.oferta-path-row').forEach(row => {
+                        row.addEventListener('click', async (ev) => {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            const unc = row.dataset.unc;
+                            try {
+                                await navigator.clipboard.writeText(unc);
+                                const icon = row.querySelector('.oferta-copy-icon');
+                                if (icon) { icon.textContent = '✅'; setTimeout(() => { icon.textContent = '📋'; }, 1500); }
+                                const uncDiv = row.querySelector('.oferta-path-unc');
+                                if (uncDiv) { uncDiv.style.color = '#10b981'; uncDiv.style.fontWeight = '600'; setTimeout(() => { uncDiv.style.color = '#64748b'; uncDiv.style.fontWeight = 'normal'; }, 1500); }
+                            } catch (err) {
+                                // Fallback: select text
+                                const input = document.createElement('input');
+                                input.value = unc;
+                                input.style.cssText = 'position:fixed;left:-9999px;';
+                                document.body.appendChild(input);
+                                input.select();
+                                document.execCommand('copy');
+                                document.body.removeChild(input);
+                                const icon = row.querySelector('.oferta-copy-icon');
+                                if (icon) { icon.textContent = '✅'; setTimeout(() => { icon.textContent = '📋'; }, 1500); }
+                            }
+                        });
+                    });
 
                     // Position near the cell
                     const rect = td.getBoundingClientRect();
