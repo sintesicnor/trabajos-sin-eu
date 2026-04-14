@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Proyectos y Ofertas v0.093</title>
+    <title>Gestor de Proyectos y Ofertas v01.05</title>
 
     <!-- PapaParse para procesamiento de CSV (defer: no bloquea renderizado) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
@@ -3192,7 +3192,7 @@
 
                         // Build UNC path → file:// URL
                         // UNC: \\tesicnor.com\servidor\CLIENTES\TESICNOR\2026\2026 OFERTAS ENVIADAS\T OV-20261292
-                        const uncFolder = '\\\\tesicnor.com\\servidor\\CLIENTES\\TESICNOR\\' + year + '\\' + year + ' OFERTAS ENVIADAS\\' + codigo;
+                        const uncFolder = '\\\\tesicnor.com\\servidor\\CLIENTES\\TESICNOR\\' + year + '\\' + year + ' OFERTAS ENVIADAS\\' + codigo + '.pdf';
                         // Convert to file:// URL (replace backslashes with forward slashes)
                         const fileUrl = 'file://///tesicnor.com/servidor/CLIENTES/TESICNOR/' + year + '/' + year + ' OFERTAS ENVIADAS/' + encodeURIComponent(codigo);
 
@@ -7960,7 +7960,7 @@
                 <span>Configuración</span>
             </a>
             <div id="user-info-container" style="margin-top: auto; padding: 16px; border-top: 1px solid #1e293b; display: none;">
-                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 0.093</p>
+                <p style="margin: 0 0 4px 0; font-size: 11px; color: #475569; font-weight: 500;">Versión 01.05</p>
                 <p id="user-display-email" style="margin: 0; font-size: 12px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></p>
             </div>
             <a href="#" class="nav-item" id="btn-logout" style="color: #ef4444;">
