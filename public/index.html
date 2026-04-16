@@ -661,7 +661,7 @@
         document.getElementById('csv-import-produccion')?.addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
-            if (!confirm('¿Importar trabajos desde "' + file.name + '"?\n\n• Si una fila contiene un Nº Trabajo existente, se ACTUALIZARÁ con los datos del Excel.\n• Si no tiene Nº Trabajo, se creará como registro nuevo.\n• Los trabajos que no estén en el archivo no se tocarán.')) { this.value = ''; return; }
+            if (!confirm('¿Importar trabajos desde "' + file.name + '"?\n\n• Si una fila contiene un Nº Trabajo existente, se ACTUALIZARÁN solo los campos con contenido (las celdas vacías NO borran el valor online).\n• Si no tiene Nº Trabajo, se creará como registro nuevo.\n• Los trabajos que no estén en el archivo no se tocarán.')) { this.value = ''; return; }
             try {
                 let rows;
                 const isExcel = /\.xlsx?$/i.test(file.name);
@@ -743,12 +743,16 @@
 
                     if (numTrabajoClean && existingNums.has(numTrabajoClean)) {
                         // ── UPDATE existing record ──
-                        // Only send non-empty changed fields; skip computed/readonly columns
+                        // Only update fields that have a non-empty value in the Excel.
+                        // Empty cells preserve the current value online (they don't overwrite).
                         const updateFields = {};
                         const skipFields = ['num_trabajo']; // Don't overwrite the ID
                         Object.keys(mappedData).forEach(field => {
                             if (skipFields.includes(field)) return;
-                            updateFields[field] = mappedData[field];
+                            const val = mappedData[field];
+                            // Skip empty strings — preserve existing value online
+                            if (val === '' || val === null || val === undefined) return;
+                            updateFields[field] = val;
                         });
                         if (Object.keys(updateFields).length === 0) return;
                         updateFields._usuario_edicion = usuario;
