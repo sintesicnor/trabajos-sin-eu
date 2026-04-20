@@ -482,33 +482,34 @@
             const btnNuevoTrabajo = document.getElementById('btn-nuevo-trabajo');
             const btnNuevaOferta = document.getElementById('btn-nueva-oferta');
             const btnSubirProd = document.getElementById('btn-subir-produccion');
-            const btnPlantillaOfe = document.getElementById('btn-plantilla-ofertas');
             const btnSubirOfe = document.getElementById('btn-subir-ofertas');
             const btnExport = document.getElementById('btn-export');
+            const btnDeshacer = document.getElementById('btn-deshacer');
 
             const canCreate = tienePermiso('crear_trabajo');
             const canEditOfe = tienePermiso('editar_ofertas');
             const canImport = currentUserRole === 'admin' || currentUserRole === 'edicion';
+            const canExport = tienePermiso('exportar_excel');
 
             if (activeViewId === 'view-produccion') {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = canCreate ? 'flex' : 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
+                if (btnDeshacer) btnDeshacer.style.display = 'flex';
                 if (btnSubirProd) btnSubirProd.style.display = canImport ? 'inline-flex' : 'none';
-                if (btnPlantillaOfe) btnPlantillaOfe.style.display = 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = 'none';
-                if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? '' : 'none';
+                if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
             } else if (activeViewId === 'view-ofertas') {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = canEditOfe ? 'flex' : 'none';
+                if (btnDeshacer) btnDeshacer.style.display = 'flex';
                 if (btnSubirProd) btnSubirProd.style.display = 'none';
-                if (btnPlantillaOfe) btnPlantillaOfe.style.display = canEditOfe ? 'flex' : 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'inline-flex' : 'none';
-                if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? '' : 'none';
+                if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
             } else {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
+                if (btnDeshacer) btnDeshacer.style.display = 'none';
                 if (btnSubirProd) btnSubirProd.style.display = 'none';
-                if (btnPlantillaOfe) btnPlantillaOfe.style.display = 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = 'none';
                 if (btnExport) btnExport.style.display = 'none';
             }
@@ -823,16 +824,6 @@
         });
 
         // ═══ PLANTILLA CSV OFERTAS ═══
-        document.getElementById('btn-plantilla-ofertas')?.addEventListener('click', () => {
-            if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); return; }
-            const headers = ['Oferta Gestiona','Pertenece a Licitación','Es Licitación','Agente Comercial','Oficina','Cliente','Grupo','Objeto','Servicio','Origen','Comentarios','Presupuesto','Gastos Estimados'];
-            const example = ['','No','No','','','','','','','','','0','0'];
-            const wb = XLSX.utils.book_new();
-            const ws = XLSX.utils.aoa_to_sheet([headers, example]);
-            ws['!cols'] = headers.map(h => ({ wch: Math.max(h.length + 2, 16) }));
-            XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
-            XLSX.writeFile(wb, 'Plantilla_Ofertas.xlsx');
-        });
 
         // ═══ SUBIR OFERTAS (CSV/XLSX) ═══
         document.getElementById('csv-import-ofertas')?.addEventListener('change', async function () {
@@ -2631,8 +2622,8 @@
                     const btnHistorialGlobal = document.getElementById('btn-historial-global');
                     if (btnHistorialGlobal) btnHistorialGlobal.style.display = tienePermiso('historial_global') ? 'flex' : 'none';
 
-                    const btnExport = document.querySelector('.btn-export');
-                    if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? '' : 'none';
+                    const btnExport = document.getElementById('btn-export');
+                    if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? 'inline-flex' : 'none';
 
                     // Restringir tabs de navegación principales
                     const tabProduccionNav = document.getElementById('tab-produccion');
@@ -8247,63 +8238,57 @@
 
             <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
                 <select id="toggle-vista-prod" class="filter-select"
-                    style="margin-right: 16px; font-weight: 600; color: #2176AC;">
+                    style="margin-right: 8px; font-weight: 600; color: #2176AC;">
                     <option value="activos">🟢 Trabajos Activos</option>
                     <option value="historico">🗄️ Histórico (Archivados)</option>
                 </select>
+
                 <button id="btn-nuevo-trabajo" class="btn-primary" style="display: flex;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                        width="18" height="18">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                     </svg>
                     Nuevo
                 </button>
 
                 <button id="btn-nueva-oferta" class="btn-primary" style="display: none;">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                        width="18" height="18">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                     </svg>
                     Oferta
                 </button>
 
-                <!-- Botón Importar Producción (solo visible en vista producción) -->
-                <label id="btn-subir-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer;" title="Importar Excel de Producción">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="display: none; padding: 10px;">
+                    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                </button>
+
+                <!-- Importar Producción -->
+                <label id="btn-subir-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer; align-items: center; gap: 6px;" title="Importar Excel de Producción">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#217346" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
                     Importar
                     <input type="file" id="csv-import-produccion" accept=".csv,.xlsx,.xls" style="display:none;" />
                 </label>
 
-                <!-- Botones Plantilla/Subir Ofertas (solo visibles en vista ofertas) -->
-                <button id="btn-plantilla-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px;" title="Descargar plantilla CSV de Ofertas">
-                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                    Plantilla
-                </button>
-                <label id="btn-subir-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer;" title="Subir ofertas desde CSV">
-                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                    Subir Ofertas
+                <!-- Importar Ofertas -->
+                <label id="btn-subir-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer; align-items: center; gap: 6px;" title="Importar ofertas desde CSV/Excel">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#217346" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+                    Importar
                     <input type="file" id="csv-import-ofertas" accept=".csv,.xlsx,.xls" style="display:none;" />
                 </label>
+
+                <!-- Exportar -->
+                <button id="btn-export" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#217346" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+                    Exportar
+                </button>
             </div>
 
-            <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="margin-right: 16px; padding: 10px;">
-                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+            <!-- Historial: solo reloj, sin texto, reloj más grande -->
+            <button id="btn-historial-global" class="btn-secondary" style="display: none; padding: 10px; margin-left: 8px;" title="Historial de cambios">
+                <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-            </button>
-
-            <button id="btn-export" class="btn-export">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3"/></svg>
-                Exportar
-            </button>
-
-            <button id="btn-historial-global" class="btn-secondary" style="display: none; padding: 10px 16px;">
-                <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Historial
             </button>
         </header>
 
