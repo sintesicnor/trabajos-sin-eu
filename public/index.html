@@ -1004,8 +1004,14 @@
                         }
                         if (key === 'fecha_oferta') { fechaOfertaRaw = val; }
                         if (key === 'presupuesto_total' || key === 'gastos_estimados') {
-                            // Robust parse: strip all non-numeric except comma (handles garbled €, dots as thousands sep)
-                            val = val.replace(/[^0-9,\-]/g, '').replace(',', '.');
+                            const rawVal = row[csvCol];
+                            if (typeof rawVal === 'number') {
+                                // XLSX ya lo parseó como número JS (ej: 705.38) — usar directamente
+                                val = String(rawVal);
+                            } else {
+                                // String en formato español (ej: "1.400,12€") → quitar todo excepto dígitos, coma y menos, luego coma→punto
+                                val = val.replace(/[^0-9,\-]/g, '').replace(',', '.');
+                            }
                         }
                         if (val !== '') docData[key] = val;
                     });
