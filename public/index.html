@@ -243,6 +243,32 @@
         // La auditoría se gestiona ahora desde Cloud Functions (backend inmutable).
         // El frontend envía _usuario_edicion en cada updateDoc para identificar al autor.
 
+        // ── Utilidad admin: borrar todas las ofertas de 2026 desde consola ──
+        // Uso: await window._borrarOfertas2026()
+        window._borrarOfertas2026 = async function() {
+            const snap = await getDocs(collection(db, 'ofertas'));
+            const toDelete = [];
+            snap.forEach(d => {
+                const data = d.data();
+                const fg = data.fecha_oferta || '';
+                const ng = data.num_gestiona || '';
+                const yearFecha = fg.match(/(\d{4})/)?.[1];
+                const yearId = ng.match(/(\d{4})/)?.[1];
+                const year = parseInt(yearFecha || yearId || '0');
+                if (year === 2026) toDelete.push(d.ref);
+            });
+            if (toDelete.length === 0) { console.log('No hay ofertas de 2026.'); return; }
+            const answer = prompt(`Se borrarán ${toDelete.length} ofertas de 2026. Escribe CONFIRMAR para continuar:`);
+            if (answer !== 'CONFIRMAR') { console.log('Cancelado.'); return; }
+            let b = writeBatch(db); let n = 0;
+            for (const ref of toDelete) {
+                b.delete(ref); n++;
+                if (n % 500 === 0) { await b.commit(); b = writeBatch(db); }
+            }
+            await b.commit();
+            console.log(`✅ ${toDelete.length} ofertas de 2026 eliminadas.`);
+        };
+
         // ── v0.093: Restaurar escritura de historial desde frontend ──
         // La Cloud Function dejó de registrar cambios. Se restaura la escritura directa.
         async function registrarCambioHistorial(coleccion, docId, campo, valorAnterior, valorNuevo) {
@@ -611,10 +637,64 @@
             try {
                 if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); return; }
                 const enOfertas = document.getElementById('view-ofertas')?.style.display === 'block';
-                const tableSelector = enOfertas ? '#view-ofertas .data-table' : '#view-produccion .data-table';
-                const sheetName = enOfertas ? 'Ofertas' : 'Producción';
-                const fileName = enOfertas ? 'Ofertas_' : 'Produccion_';
-                const table = document.querySelector(tableSelector);
+
+                if (enOfertas) {
+                    // ── Export OFERTAS: 25 columnas, mismo orden que el Excel de producción ──
+                    const headers = [
+                        'N° GESTIONA','AÑO','FECHA OFERTA','CLIENTE','MES',
+                        'OBJETO DE LA OFERTA','ES UNA LICITACION?','TIPO CLIENTE','ZONA','LOTE',
+                        'DEPARTAMENTO','TIPO SERVICIO','SECTOR','APROBACION','GASTOS',
+                        'COMENTARIOS','SERVICIO','PRESUPUESTO','T1','FIN LICITACION',
+                        'INGRESOS 2026','INGRESOS 2027','INGRESOS 2028','INGRESOS 2029','INGRESOS 2030'
+                    ];
+                    const fmtNum = v => {
+                        if (v === '' || v === null || v === undefined) return '';
+                        const n = parseFloat(String(v).replace(',', '.'));
+                        if (isNaN(n)) return v;
+                        return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n) + '€';
+                    };
+                    const rows = datosOfertasMemoria.map(o => [
+                        o.num_gestiona || '',
+                        (() => { const m = String(o.fecha_oferta || '').match(/(\d{4})/); return m ? m[1] : ''; })(),
+                        o.fecha_oferta || '',
+                        o.cliente || '',
+                        '',
+                        o.objeto || '',
+                        o.es_licitacion || '',
+                        o.tipo_cliente || '',
+                        o.zona || '',
+                        o.lote || '',
+                        o.departamento || '',
+                        o.servicio || '',
+                        o.sector || '',
+                        o.estado || '',
+                        fmtNum(o.gastos_estimados),
+                        o.comentarios || '',
+                        o.servicio_p_a_loto || '',
+                        fmtNum(o.presupuesto_total),
+                        o.tecnico_t1 || '',
+                        o.fin_licitacion || '',
+                        fmtNum(o.ingresos_2026),
+                        fmtNum(o.ingresos_2027),
+                        fmtNum(o.ingresos_2028),
+                        fmtNum(o.ingresos_2029),
+                        fmtNum(o.ingresos_2030),
+                    ]);
+                    const wsData = [headers, ...rows];
+                    const wb = XLSX.utils.book_new();
+                    const ws = XLSX.utils.aoa_to_sheet(wsData);
+                    ws['!cols'] = headers.map((h, i) => {
+                        let maxLen = h.length;
+                        rows.forEach(r => { if (r[i] && String(r[i]).length > maxLen) maxLen = String(r[i]).length; });
+                        return { wch: Math.min(maxLen + 2, 50) };
+                    });
+                    XLSX.utils.book_append_sheet(wb, ws, 'Ofertas');
+                    XLSX.writeFile(wb, 'Ofertas_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+                    return;
+                }
+
+                // ── Export PRODUCCIÓN: desde la tabla DOM ──
+                const table = document.querySelector('#view-produccion .data-table');
                 if (!table) { alert('No se encontró la tabla.'); return; }
                 const headers = [];
                 const colIndices = [];
@@ -631,7 +711,6 @@
                     const row = colIndices.map(i => {
                         const cell = cells[i];
                         if (!cell) return '';
-                        // Use data-valor for estado cells (avoids SVG text)
                         if (cell.dataset.valor !== undefined) return cell.dataset.valor;
                         return cell.textContent.trim();
                     });
@@ -645,9 +724,8 @@
                     rows.forEach(r => { if (r[i] && r[i].length > maxLen) maxLen = r[i].length; });
                     return { wch: Math.min(maxLen + 2, 40) };
                 });
-                XLSX.utils.book_append_sheet(wb, ws, sheetName);
-                const fecha = new Date().toISOString().slice(0, 10);
-                XLSX.writeFile(wb, fileName + fecha + '.xlsx');
+                XLSX.utils.book_append_sheet(wb, ws, 'Producción');
+                XLSX.writeFile(wb, 'Produccion_' + new Date().toISOString().slice(0, 10) + '.xlsx');
             } catch (err) {
                 console.error('Error exportando:', err);
                 alert('Error al exportar: ' + err.message);
@@ -854,25 +932,50 @@
                 }
 
                 const colMap = {
-                    'n gestiona': 'num_gestiona', 'oferta gestiona': 'num_gestiona', 'ofertas gestiona': 'num_gestiona',
-                    'oferta gestiona num': 'num_gestiona', 'num gestiona': 'num_gestiona',
+                    // Col 1: Nº GESTIONA
+                    'n gestiona': 'num_gestiona', 'no gestiona': 'num_gestiona',
+                    'oferta gestiona': 'num_gestiona', 'ofertas gestiona': 'num_gestiona',
+                    'num gestiona': 'num_gestiona',
+                    // Col 2: ¿PERTENECE A LICITACION?
                     'pertenece a licitacion': 'pertenece_a_licitacion',
-                    'es licitacion': 'es_licitacion',
+                    // Col 3: ¿ES UNA LICITACION? (fix: la columna dice "es una licitacion")
+                    'es una licitacion': 'es_licitacion', 'es licitacion': 'es_licitacion',
+                    // Col 4: FECHA OFERTA
+                    'fecha oferta': 'fecha_oferta',
+                    // Col 5: MES → ignorado (no se mapea)
+                    // Col 6: AÑO
+                    'ano': '_ano_csv', 'aao': '_ano_csv', 'a o': '_ano_csv', 'year': '_ano_csv',
+                    // Col 7: AGENTE COMERCIAL
                     'agente comercial': 'agente_comercial',
-                    'oficina': 'oficina', 'cliente': 'cliente', 'grupo': 'grupo', 'objeto': 'objeto',
-                    'tipo servicio': 'servicio', 'servicio': 'servicio', 'origen': 'origen',
-                    'comentarios': 'comentarios',
-                    'presupuesto': 'presupuesto_total', 'presupuesto oferta': 'presupuesto_total',
-                    'gastos estimados': 'gastos_estimados', 'gastos': 'gastos_estimados',
+                    // Cols 8-10
+                    'oficina': 'oficina', 'grupo': 'grupo', 'cliente': 'cliente',
+                    // Col 11: OBJETO DE LA OFERTA (fix: antes faltaba la forma larga)
+                    'objeto de la oferta': 'objeto', 'objeto': 'objeto',
+                    // Col 12: TIPO SERVICIO → servicio (LOTO, ATEX, CSTMP...)
+                    'tipo servicio': 'servicio',
+                    // Col 13: ORIGEN
+                    'origen': 'origen',
+                    // Col 14: APROBACION
                     'aprobacion': '_aprobacion_csv', 'aprobado': '_aprobacion_csv',
+                    // Col 15: GASTOS
+                    'gastos': 'gastos_estimados', 'gastos estimados': 'gastos_estimados',
+                    // Col 16: COMENTARIOS
+                    'comentarios': 'comentarios',
+                    // Col 17: SERVICIO (P/A/LOTO) → campo propio (fix: antes machacaba 'servicio')
+                    'servicio': 'servicio_p_a_loto',
+                    // Col 18: PRESUPUESTO
+                    'presupuesto': 'presupuesto_total', 'presupuesto oferta': 'presupuesto_total',
+                    // Col 19: T1
                     't1': 'tecnico_t1', 'tecnico t1': 'tecnico_t1',
+                    // Col 20: Fin Licitación
                     'fin licitacion': 'fin_licitacion',
+                    // Cols 21-25: ingresos por año
                     '2026': 'ingresos_2026', 'ingresos 2026': 'ingresos_2026',
                     '2027': 'ingresos_2027', 'ingresos 2027': 'ingresos_2027',
                     '2028': 'ingresos_2028', 'ingresos 2028': 'ingresos_2028',
                     '2029': 'ingresos_2029', 'ingresos 2029': 'ingresos_2029',
-                    'ano': '_ano_csv', 'year': '_ano_csv', 'a o': '_ano_csv',
-                    'fecha oferta': 'fecha_oferta',
+                    '2030': 'ingresos_2030', 'ingresos 2030': 'ingresos_2030',
+                    // Estado directo (cuando se re-importa un export)
                     'estado': 'estado',
                 };
 
@@ -891,15 +994,18 @@
 
                         if (key === '_ano_csv') { anoRow = val; return; }
                         if (key === '_aprobacion_csv') {
-                            // Map aprobacion field to estado
-                            const ap = val.toUpperCase();
-                            if (ap === 'SI' || ap === 'SÍ' || ap === 'S' || ap === '1' || ap === 'YES') docData['estado'] = 'Aceptada';
-                            else if (ap === 'NO' || ap === 'N' || ap === '0') docData['estado'] = 'Rechazada';
+                            // Map aprobacion field to estado — accepts both CSV format and Firestore format
+                            const ap = val.trim().toLowerCase();
+                            if (['aceptada','aceptado','si','sí','s','1','yes'].includes(ap)) docData['estado'] = 'Aceptada';
+                            else if (ap === 'aceptada parcialmente') docData['estado'] = 'Aceptada parcialmente';
+                            else if (['rechazada','rechazado','no','n','0'].includes(ap)) docData['estado'] = 'Rechazada';
+                            else if (ap === 'en curso') docData['estado'] = 'En curso';
                             return;
                         }
                         if (key === 'fecha_oferta') { fechaOfertaRaw = val; }
                         if (key === 'presupuesto_total' || key === 'gastos_estimados') {
-                            val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
+                            // Robust parse: strip all non-numeric except comma (handles garbled €, dots as thousands sep)
+                            val = val.replace(/[^0-9,\-]/g, '').replace(',', '.');
                         }
                         if (val !== '') docData[key] = val;
                     });
