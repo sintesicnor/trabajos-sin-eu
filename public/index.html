@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestor de Proyectos y Ofertas v01.05</title>
 
+    <!-- DM Sans font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+
     <!-- PapaParse para procesamiento de CSV (defer: no bloquea renderizado) -->
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
 
@@ -476,7 +481,6 @@
             // Mostrar u ocultar botones de la cabecera global
             const btnNuevoTrabajo = document.getElementById('btn-nuevo-trabajo');
             const btnNuevaOferta = document.getElementById('btn-nueva-oferta');
-            const btnPlantillaProd = document.getElementById('btn-plantilla-produccion');
             const btnSubirProd = document.getElementById('btn-subir-produccion');
             const btnPlantillaOfe = document.getElementById('btn-plantilla-ofertas');
             const btnSubirOfe = document.getElementById('btn-subir-ofertas');
@@ -489,7 +493,6 @@
             if (activeViewId === 'view-produccion') {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = canCreate ? 'flex' : 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
-                if (btnPlantillaProd) btnPlantillaProd.style.display = canImport ? 'flex' : 'none';
                 if (btnSubirProd) btnSubirProd.style.display = canImport ? 'inline-flex' : 'none';
                 if (btnPlantillaOfe) btnPlantillaOfe.style.display = 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = 'none';
@@ -497,7 +500,6 @@
             } else if (activeViewId === 'view-ofertas') {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = canEditOfe ? 'flex' : 'none';
-                if (btnPlantillaProd) btnPlantillaProd.style.display = 'none';
                 if (btnSubirProd) btnSubirProd.style.display = 'none';
                 if (btnPlantillaOfe) btnPlantillaOfe.style.display = canEditOfe ? 'flex' : 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'inline-flex' : 'none';
@@ -505,7 +507,6 @@
             } else {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
-                if (btnPlantillaProd) btnPlantillaProd.style.display = 'none';
                 if (btnSubirProd) btnSubirProd.style.display = 'none';
                 if (btnPlantillaOfe) btnPlantillaOfe.style.display = 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = 'none';
@@ -645,65 +646,74 @@
             }
         });
 
-        // ═══ PLANTILLA CSV PRODUCCIÓN ═══
-        document.getElementById('btn-plantilla-produccion')?.addEventListener('click', () => {
-            if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); return; }
-            const headers = ['Oferta Gestiona','Expedientes','Tipo Exp','F.Inicio','F.Fin','Técnico Rble','Ejecutor (T1)','Servicio','Tipo Servicio','Grupo','Cliente','Presupuesto (M)','Gastos (N)'];
-            const example = ['','','ANUAL','01/01/2026','31/12/2026','','','','','','','0','0'];
-            const wb = XLSX.utils.book_new();
-            const ws = XLSX.utils.aoa_to_sheet([headers, example]);
-            ws['!cols'] = headers.map(h => ({ wch: Math.max(h.length + 2, 16) }));
-            XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
-            XLSX.writeFile(wb, 'Plantilla_Produccion.xlsx');
-        });
-
-        // ═══ SUBIR TRABAJOS (CSV/XLSX PRODUCCIÓN) — Actualiza existentes o crea nuevos ═══
+        // ═══ IMPORTAR PRODUCCIÓN (Excel por posición de columna) ═══
+        // Columnas por posición (índice 0):
+        //  A(0)=num_trabajo  B(1)=oferta_gestiona  C(2)=exp_gestiona  D(3)=tipo_expediente
+        //  E(4)=fecha_inicio  F(5)=fecha_fin  G(6)=responsable_g  H(7)=ejecutor_t1
+        //  I(8)=servicio  J(9)=tipo_servicio  K(10)=grupo  L(11)=cliente
+        //  M(12)=presupuesto_m  N(13)=gastos_n
+        //  AM(38)=apoyo_am  AN(39)=apoyo_an
+        //  AP(41)=fecha_ap  AQ(42)=visto_vb_cliente  AR(43)=fecha_ar  AS(44)=observaciones
+        // El resto de columnas se ignoran.
         document.getElementById('csv-import-produccion')?.addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
-            if (!confirm('¿Importar trabajos desde "' + file.name + '"?\n\n• Si una fila contiene un Nº Trabajo existente, se ACTUALIZARÁN solo los campos con contenido (las celdas vacías NO borran el valor online).\n• Si no tiene Nº Trabajo, se creará como registro nuevo.\n• Los trabajos que no estén en el archivo no se tocarán.')) { this.value = ''; return; }
+            if (!confirm('¿Importar desde "' + file.name + '"?\n\n• Si una fila tiene Nº Trabajo existente → se ACTUALIZARÁ (celdas vacías NO borran el valor online).\n• Sin Nº Trabajo → se creará como registro nuevo.\n• Los trabajos no incluidos en el archivo no se tocarán.')) { this.value = ''; return; }
             try {
-                let rows;
-                const isExcel = /\.xlsx?$/i.test(file.name);
-                if (isExcel && typeof XLSX !== 'undefined') {
-                    const data = await file.arrayBuffer();
-                    const wb = XLSX.read(data, { type: 'array' });
-                    const ws = wb.Sheets[wb.SheetNames[0]];
-                    rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-                } else {
-                    const text = await file.text();
-                    const result = Papa.parse(text, { header: true, skipEmptyLines: true });
-                    if (result.errors.length > 0) { alert('Error parseando CSV: ' + result.errors[0].message); this.value = ''; return; }
-                    rows = result.data;
-                }
-                if (rows.length === 0) { alert('El archivo no contiene datos.'); this.value = ''; return; }
-                const colMap = {
-                    'nº trabajo': 'num_trabajo', 'n trabajo': 'num_trabajo', 'num_trabajo': 'num_trabajo', 'num trabajo': 'num_trabajo', 'nº': 'num_trabajo',
-                    'oferta gestiona': 'oferta_gestiona', 'ofertas_gestiona': 'oferta_gestiona', 'ofertas gestiona': 'oferta_gestiona',
-                    'expedientes': 'exp_gestiona', 'exp_gestiona': 'exp_gestiona',
-                    'tipo exp': 'tipo_expediente', 'tipo_expediente': 'tipo_expediente', 'tipo expediente': 'tipo_expediente', 'tipo exp.': 'tipo_expediente',
-                    'f.inicio': 'fecha_inicio', 'fecha_inicio': 'fecha_inicio', 'fecha inicio': 'fecha_inicio',
-                    'f.fin': 'fecha_fin', 'f. fin': 'fecha_fin', 'fecha_fin': 'fecha_fin', 'fecha fin': 'fecha_fin',
-                    'técnico rble': 'responsable_g', 'tecnico rble': 'responsable_g', 'técnico rble.': 'responsable_g', 'tecnico rble.': 'responsable_g', 'responsable_g': 'responsable_g',
-                    'ejecutor (t1)': 'ejecutor_t1', 'ejecutor_t1': 'ejecutor_t1', 'ejecutor t1': 'ejecutor_t1',
-                    'apoyo (am)': 'apoyo_am', 'apoyo_am': 'apoyo_am', 'apoyo am': 'apoyo_am',
-                    'apoyo (an)': 'apoyo_an', 'apoyo_an': 'apoyo_an', 'apoyo an': 'apoyo_an',
-                    'servicio': 'servicio',
-                    'tipo servicio': 'tipo_servicio', 'tipo_servicio': 'tipo_servicio',
-                    'grupo': 'grupo',
-                    'cliente': 'cliente',
-                    'presupuesto (m)': 'presupuesto_m', 'presupuesto_m': 'presupuesto_m', 'presupuesto': 'presupuesto_m',
-                    'gastos (n)': 'gastos_n', 'gastos_n': 'gastos_n', 'gastos': 'gastos_n',
-                    'fecha ap': 'fecha_ap', 'fecha_ap': 'fecha_ap',
-                    'vb cliente': 'visto_vb_cliente', 'visto_vb_cliente': 'visto_vb_cliente',
-                    'fecha ar': 'fecha_ar', 'fecha_ar': 'fecha_ar',
-                    'observaciones': 'observaciones',
-                    'nº fact': 'num_at', 'num_at': 'num_at', 'n fact': 'num_at', 'nº at': 'num_at',
-                    'gestionado': 'gestionado',
-                    'mes facturación': 'mes_facturacion', 'mes facturacion': 'mes_facturacion', 'mes_facturacion': 'mes_facturacion'
+                if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); this.value = ''; return; }
+                const data = await file.arrayBuffer();
+                const wb = XLSX.read(data, { type: 'array', cellDates: false });
+
+                // Use first sheet
+                const ws = wb.Sheets[wb.SheetNames[0]];
+
+                // Read as array-of-arrays (no headers) to access by column index
+                const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+                if (rawRows.length <= 1) { alert('El archivo no contiene datos.'); this.value = ''; return; }
+
+                // Position → Firestore field mapping
+                // (0-based column index)
+                const POS_MAP = {
+                    0:  'num_trabajo',
+                    1:  'oferta_gestiona',
+                    2:  'exp_gestiona',
+                    3:  'tipo_expediente',
+                    4:  'fecha_inicio',
+                    5:  'fecha_fin',
+                    6:  'responsable_g',
+                    7:  'ejecutor_t1',
+                    8:  'servicio',
+                    9:  'tipo_servicio',
+                    10: 'grupo',
+                    11: 'cliente',
+                    12: 'presupuesto_m',
+                    13: 'gastos_n',
+                    38: 'apoyo_am',      // AM
+                    39: 'apoyo_an',      // AN
+                    41: 'fecha_ap',      // AP
+                    42: 'visto_vb_cliente', // AQ
+                    43: 'fecha_ar',      // AR
+                    44: 'observaciones'  // AS
                 };
 
-                // Build set of existing num_trabajo for quick lookup
+                const CURRENCY_FIELDS = new Set(['presupuesto_m', 'gastos_n']);
+                const DATE_FIELDS = new Set(['fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar']);
+
+                function cleanVal(raw, field) {
+                    if (raw === null || raw === undefined) return '';
+                    let val = String(raw).trim();
+                    if (CURRENCY_FIELDS.has(field)) {
+                        val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
+                    }
+                    if (DATE_FIELDS.has(field)) {
+                        // Excel serial date number
+                        if (/^\d{4,5}$/.test(val)) val = formatearFechaDisplay(val);
+                    }
+                    return val;
+                }
+
+                // Build lookup of existing num_trabajo
                 const existingNums = new Set();
                 datosProduccionMemoria.forEach(p => {
                     const nt = String(p.num_trabajo || '').trim();
@@ -716,75 +726,85 @@
                 const batch = writeBatch(db);
                 let countNew = 0;
                 let countUpdate = 0;
+                let countSkipped = 0;
                 const usuario = auth.currentUser ? auth.currentUser.email : 'importacion';
 
-                rows.forEach(row => {
-                    // Map columns from Excel to internal field names
+                // Skip header row (index 0), process from row 1
+                for (let r = 1; r < rawRows.length; r++) {
+                    const row = rawRows[r];
+
+                    // Skip completely empty rows
+                    if (!row || row.every(c => c === '' || c === null || c === undefined)) continue;
+
+                    // Map by position
                     const mappedData = {};
-                    Object.keys(row).forEach(csvCol => {
-                        const key = colMap[csvCol.trim().toLowerCase()];
-                        if (key) {
-                            let val = row[csvCol];
-                            val = (val === null || val === undefined) ? '' : String(val).trim();
-                            if (key === 'presupuesto_m' || key === 'gastos_n') {
-                                val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
-                            }
-                            if ((key === 'fecha_inicio' || key === 'fecha_fin' || key === 'fecha_ap' || key === 'fecha_ar') && /^\d{4,5}$/.test(val)) {
-                                val = formatearFechaDisplay(val);
-                            }
-                            mappedData[key] = val;
-                        }
+                    Object.entries(POS_MAP).forEach(([posStr, field]) => {
+                        const pos = parseInt(posStr);
+                        const raw = row[pos];
+                        mappedData[field] = cleanVal(raw, field);
                     });
 
-                    // Check if this row has a num_trabajo that exists
-                    const numTrabajoRaw = (mappedData.num_trabajo || '').trim();
-                    // Remove non-numeric characters (the export might include formatting)
-                    const numTrabajoClean = numTrabajoRaw.replace(/[^\d]/g, '');
+                    // Identify by num_trabajo (col A)
+                    const numTrabajoClean = (mappedData.num_trabajo || '').replace(/[^\d]/g, '');
 
                     if (numTrabajoClean && existingNums.has(numTrabajoClean)) {
-                        // ── UPDATE existing record ──
-                        // Only update fields that have a non-empty value in the Excel.
-                        // Empty cells preserve the current value online (they don't overwrite).
+                        // ── UPDATE existing ──
                         const updateFields = {};
-                        const skipFields = ['num_trabajo']; // Don't overwrite the ID
-                        Object.keys(mappedData).forEach(field => {
-                            if (skipFields.includes(field)) return;
-                            const val = mappedData[field];
-                            // Skip empty strings — preserve existing value online
-                            if (val === '' || val === null || val === undefined) return;
+                        Object.entries(mappedData).forEach(([field, val]) => {
+                            if (field === 'num_trabajo') return; // never overwrite ID
+                            if (val === '' || val === null || val === undefined) return; // empty = keep online value
                             updateFields[field] = val;
                         });
-                        if (Object.keys(updateFields).length === 0) return;
+                        if (Object.keys(updateFields).length === 0) { countSkipped++; continue; }
                         updateFields._usuario_edicion = usuario;
-                        const docRef = doc(db, 'produccion', numTrabajoClean);
-                        batch.update(docRef, updateFields);
+                        batch.update(doc(db, 'produccion', numTrabajoClean), updateFields);
                         countUpdate++;
-                    } else {
-                        // ── CREATE new record ──
-                        if (!mappedData.tipo_expediente && !mappedData.servicio && !mappedData.cliente) return;
+                    } else if (!numTrabajoClean) {
+                        // ── CREATE new (no num_trabajo in file) ──
+                        // Need at least tipo_expediente or servicio or cliente to be valid
+                        if (!mappedData.tipo_expediente && !mappedData.servicio && !mappedData.cliente) { countSkipped++; continue; }
                         const docData = {
                             visible: true, total_horas_historico: '', visto_vb_cliente: 'NO',
                             fecha_ap: '', fecha_ar: '', observaciones: '', num_at: '',
                             mes_facturacion: '', gestionado: 'No', _usuario_edicion: usuario
                         };
-                        // Merge mapped fields into defaults
-                        Object.keys(mappedData).forEach(field => {
-                            if (field !== 'num_trabajo') docData[field] = mappedData[field];
+                        Object.entries(mappedData).forEach(([field, val]) => {
+                            if (field !== 'num_trabajo') docData[field] = val;
                         });
                         maxNum++;
                         docData.num_trabajo = String(maxNum);
-                        const docRef = doc(db, 'produccion', String(maxNum));
-                        batch.set(docRef, docData);
+                        batch.set(doc(db, 'produccion', String(maxNum)), docData);
                         countNew++;
+                    } else {
+                        // num_trabajo present but not in DB — create with that specific ID
+                        if (!mappedData.tipo_expediente && !mappedData.servicio && !mappedData.cliente) { countSkipped++; continue; }
+                        const docData = {
+                            visible: true, total_horas_historico: '', visto_vb_cliente: 'NO',
+                            fecha_ap: '', fecha_ar: '', observaciones: '', num_at: '',
+                            mes_facturacion: '', gestionado: 'No', _usuario_edicion: usuario
+                        };
+                        Object.entries(mappedData).forEach(([field, val]) => {
+                            docData[field] = val;
+                        });
+                        batch.set(doc(db, 'produccion', numTrabajoClean), docData);
+                        countNew++;
+                        // update maxNum if this ID is higher
+                        const n = parseInt(numTrabajoClean);
+                        if (!isNaN(n) && n > maxNum) maxNum = n;
                     }
-                });
+                }
 
-                if (countNew === 0 && countUpdate === 0) { alert('No se encontraron filas válidas.'); this.value = ''; return; }
+                if (countNew === 0 && countUpdate === 0) {
+                    alert('No se encontraron filas válidas para importar.' + (countSkipped > 0 ? '\n(' + countSkipped + ' filas omitidas por estar vacías o sin datos mínimos)' : ''));
+                    this.value = ''; return;
+                }
+
                 await batch.commit();
 
                 let msg = '✅ Importación completada:\n';
                 if (countUpdate > 0) msg += '• ' + countUpdate + ' trabajo(s) actualizado(s)\n';
-                if (countNew > 0) msg += '• ' + countNew + ' trabajo(s) nuevo(s) creado(s)';
+                if (countNew > 0) msg += '• ' + countNew + ' trabajo(s) nuevo(s) creado(s)\n';
+                if (countSkipped > 0) msg += '• ' + countSkipped + ' fila(s) omitida(s)';
                 alert(msg.trim());
                 this.value = '';
                 await cargarProduccion();
@@ -7048,7 +7068,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         /* ═══ STRUCTURED LUMINARY DESIGN SYSTEM ═══ */
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
 
         :root {
             --tesicnor-blue: #2176AC;
@@ -8066,14 +8085,10 @@
                     Oferta
                 </button>
 
-                <!-- Botones Plantilla/Subir Producción (solo visibles en vista producción) -->
-                <button id="btn-plantilla-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px;" title="Descargar plantilla CSV de Producción">
-                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                    Plantilla
-                </button>
-                <label id="btn-subir-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer;" title="Subir trabajos desde CSV">
-                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                    Subir Trabajos
+                <!-- Botón Importar Producción (solo visible en vista producción) -->
+                <label id="btn-subir-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer;" title="Importar Excel de Producción">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                    Importar
                     <input type="file" id="csv-import-produccion" accept=".csv,.xlsx,.xls" style="display:none;" />
                 </label>
 
@@ -8097,11 +8112,8 @@
             </button>
 
             <button id="btn-export" class="btn-export">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Exportar a Excel
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3"/></svg>
+                Exportar
             </button>
 
             <button id="btn-historial-global" class="btn-secondary" style="display: none; padding: 10px 16px;">
