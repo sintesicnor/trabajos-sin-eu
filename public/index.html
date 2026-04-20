@@ -882,6 +882,7 @@
                     '2029': 'ingresos_2029', 'ingresos 2029': 'ingresos_2029',
                     'ano': '_ano_csv', 'year': '_ano_csv', 'a o': '_ano_csv',
                     'fecha oferta': 'fecha_oferta',
+                    'estado': 'estado',
                 };
 
                 const batch = writeBatch(db);
@@ -933,7 +934,11 @@
                     if (yearDetected && yearDetected !== 2026) { skipped++; return; }
 
                     if (!docData.objeto && !docData.cliente && !docData.servicio && !docData.num_gestiona) return;
-                    if (!docData.estado) docData.estado = 'En curso';
+                    // Only set default estado for NEW records (merge:true preserves existing if not included)
+                    // We only force 'En curso' if the CSV had no estado/aprobacion column at all
+                    // and the docId is clearly new (no num_gestiona means auto-generated → definitely new)
+                    const esRegistroNuevo = !docData.num_gestiona;
+                    if (esRegistroNuevo && !docData.estado) docData.estado = 'En curso';
 
                     const docId = docData.num_gestiona || ('OFE-2026-' + Date.now() + '-' + count + '-' + Math.random().toString(36).substr(2, 4));
                     delete docData.num_gestiona; // stored as docId
