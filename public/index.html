@@ -503,7 +503,7 @@
                 if (btnSubirProd) btnSubirProd.style.display = 'none';
                 if (btnPlantillaOfe) btnPlantillaOfe.style.display = canEditOfe ? 'flex' : 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'inline-flex' : 'none';
-                if (btnExport) btnExport.style.display = 'none';
+                if (btnExport) btnExport.style.display = tienePermiso('exportar_excel') ? '' : 'none';
             } else {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
@@ -609,8 +609,12 @@
         document.getElementById('btn-export')?.addEventListener('click', () => {
             try {
                 if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); return; }
-                const table = document.querySelector('#view-produccion .data-table');
-                if (!table) { alert('No se encontró la tabla de producción.'); return; }
+                const enOfertas = document.getElementById('view-ofertas')?.style.display === 'block';
+                const tableSelector = enOfertas ? '#view-ofertas .data-table' : '#view-produccion .data-table';
+                const sheetName = enOfertas ? 'Ofertas' : 'Producción';
+                const fileName = enOfertas ? 'Ofertas_' : 'Produccion_';
+                const table = document.querySelector(tableSelector);
+                if (!table) { alert('No se encontró la tabla.'); return; }
                 const headers = [];
                 const colIndices = [];
                 table.querySelectorAll('thead th').forEach((th, i) => {
@@ -625,7 +629,10 @@
                     const cells = tr.querySelectorAll('td');
                     const row = colIndices.map(i => {
                         const cell = cells[i];
-                        return cell ? cell.textContent.trim() : '';
+                        if (!cell) return '';
+                        // Use data-valor for estado cells (avoids SVG text)
+                        if (cell.dataset.valor !== undefined) return cell.dataset.valor;
+                        return cell.textContent.trim();
                     });
                     rows.push(row);
                 });
@@ -637,9 +644,9 @@
                     rows.forEach(r => { if (r[i] && r[i].length > maxLen) maxLen = r[i].length; });
                     return { wch: Math.min(maxLen + 2, 40) };
                 });
-                XLSX.utils.book_append_sheet(wb, ws, 'Producción');
+                XLSX.utils.book_append_sheet(wb, ws, sheetName);
                 const fecha = new Date().toISOString().slice(0, 10);
-                XLSX.writeFile(wb, 'Produccion_' + fecha + '.xlsx');
+                XLSX.writeFile(wb, fileName + fecha + '.xlsx');
             } catch (err) {
                 console.error('Error exportando:', err);
                 alert('Error al exportar: ' + err.message);
@@ -831,7 +838,7 @@
         document.getElementById('csv-import-ofertas')?.addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
-            if (!confirm('¿Importar ofertas desde "' + file.name + '"?\nSe crearán nuevos registros en ofertas.')) { this.value = ''; return; }
+            if (!confirm('¿Importar ofertas desde "' + file.name + '"?\nSólo se actualizarán/crearán ofertas del año 2026. Los registros existentes de otros años no se modificarán.')) { this.value = ''; return; }
             try {
                 let rows;
                 const isExcel = /\.xlsx?$/i.test(file.name);
@@ -847,45 +854,96 @@
                     rows = result.data;
                 }
                 if (rows.length === 0) { alert('El CSV no contiene datos.'); this.value = ''; return; }
+
+                // Normalize column names: strip BOM, accents, non-alphanumeric → lowercase
+                function normCol(s) {
+                    return String(s).replace(/^\uFEFF/, '').trim()
+                        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                        .replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+                }
+
                 const colMap = {
-                    'oferta gestiona': 'num_gestiona', 'ofertas gestiona': 'num_gestiona', 'oferta_gestiona': 'num_gestiona', 'num_gestiona': 'num_gestiona',
-                    'pertenece a licitación': 'pertenece_a_licitacion', 'pertenece a licitacion': 'pertenece_a_licitacion',
-                    'es licitación': 'es_licitacion', 'es licitacion': 'es_licitacion',
-                    'agente comercial': 'agente_comercial', 'agente_comercial': 'agente_comercial',
+                    'n gestiona': 'num_gestiona', 'oferta gestiona': 'num_gestiona', 'ofertas gestiona': 'num_gestiona',
+                    'oferta gestiona num': 'num_gestiona', 'num gestiona': 'num_gestiona',
+                    'pertenece a licitacion': 'pertenece_a_licitacion',
+                    'es licitacion': 'es_licitacion',
+                    'agente comercial': 'agente_comercial',
                     'oficina': 'oficina', 'cliente': 'cliente', 'grupo': 'grupo', 'objeto': 'objeto',
-                    'servicio': 'servicio', 'origen': 'origen', 'comentarios': 'comentarios',
-                    'presupuesto': 'presupuesto_total', 'presupuesto_oferta': 'presupuesto_total', 'presupuesto_total': 'presupuesto_total',
-                    'gastos estimados': 'gastos_estimados', 'gastos_estimados': 'gastos_estimados'
+                    'tipo servicio': 'servicio', 'servicio': 'servicio', 'origen': 'origen',
+                    'comentarios': 'comentarios',
+                    'presupuesto': 'presupuesto_total', 'presupuesto oferta': 'presupuesto_total',
+                    'gastos estimados': 'gastos_estimados', 'gastos': 'gastos_estimados',
+                    'aprobacion': '_aprobacion_csv', 'aprobado': '_aprobacion_csv',
+                    't1': 'tecnico_t1', 'tecnico t1': 'tecnico_t1',
+                    'fin licitacion': 'fin_licitacion',
+                    '2026': 'ingresos_2026', 'ingresos 2026': 'ingresos_2026',
+                    '2027': 'ingresos_2027', 'ingresos 2027': 'ingresos_2027',
+                    '2028': 'ingresos_2028', 'ingresos 2028': 'ingresos_2028',
+                    '2029': 'ingresos_2029', 'ingresos 2029': 'ingresos_2029',
+                    'ano': '_ano_csv', 'year': '_ano_csv', 'a o': '_ano_csv',
+                    'fecha oferta': 'fecha_oferta',
                 };
+
                 const batch = writeBatch(db);
                 let count = 0;
+                let skipped = 0;
                 rows.forEach(row => {
-                    const docData = {
-                        estado: 'En curso',
-                        fecha_oferta: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                    };
+                    const docData = {};
+                    let anoRow = null;
+                    let fechaOfertaRaw = '';
+
                     Object.keys(row).forEach(csvCol => {
-                        const key = colMap[csvCol.trim().toLowerCase()];
-                        if (key) {
-                            let val = row[csvCol];
-                            // Convertir a string si es número u otro tipo
-                            val = (val === null || val === undefined) ? '' : String(val).trim();
-                            // Limpiar símbolos de moneda en campos de importe
-                            if (key === 'presupuesto_total' || key === 'gastos_estimados') {
-                                val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
-                            }
-                            docData[key] = val;
+                        const key = colMap[normCol(csvCol)];
+                        if (!key) return;
+                        let val = (row[csvCol] === null || row[csvCol] === undefined) ? '' : String(row[csvCol]).trim();
+
+                        if (key === '_ano_csv') { anoRow = val; return; }
+                        if (key === '_aprobacion_csv') {
+                            // Map aprobacion field to estado
+                            const ap = val.toUpperCase();
+                            if (ap === 'SI' || ap === 'SÍ' || ap === 'S' || ap === '1' || ap === 'YES') docData['estado'] = 'Aceptada';
+                            else if (ap === 'NO' || ap === 'N' || ap === '0') docData['estado'] = 'Rechazada';
+                            return;
                         }
+                        if (key === 'fecha_oferta') { fechaOfertaRaw = val; }
+                        if (key === 'presupuesto_total' || key === 'gastos_estimados') {
+                            val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
+                        }
+                        if (val !== '') docData[key] = val;
                     });
-                    if (!docData.objeto && !docData.cliente && !docData.servicio) return;
-                    const docId = docData.num_gestiona || ('OFE-' + Date.now() + '-' + count + '-' + Math.random().toString(36).substr(2, 4));
+
+                    // Determine year: from _ano_csv column, or from fecha_oferta year, or from num_gestiona
+                    let yearDetected = null;
+                    if (anoRow) {
+                        const y = parseInt(anoRow);
+                        if (!isNaN(y)) yearDetected = y;
+                    }
+                    if (!yearDetected && fechaOfertaRaw) {
+                        // Try to extract year from date string (YYYY-MM-DD or DD/MM/YYYY)
+                        const matchY = fechaOfertaRaw.match(/(\d{4})/);
+                        if (matchY) yearDetected = parseInt(matchY[1]);
+                    }
+                    if (!yearDetected && docData.num_gestiona) {
+                        // Some IDs embed the year: e.g. "2026/0001"
+                        const matchId = docData.num_gestiona.match(/(\d{4})/);
+                        if (matchId) yearDetected = parseInt(matchId[1]);
+                    }
+
+                    // Only import 2026 records
+                    if (yearDetected && yearDetected !== 2026) { skipped++; return; }
+
+                    if (!docData.objeto && !docData.cliente && !docData.servicio && !docData.num_gestiona) return;
+                    if (!docData.estado) docData.estado = 'En curso';
+
+                    const docId = docData.num_gestiona || ('OFE-2026-' + Date.now() + '-' + count + '-' + Math.random().toString(36).substr(2, 4));
+                    delete docData.num_gestiona; // stored as docId
                     const docRef = doc(db, 'ofertas', docId);
-                    batch.set(docRef, docData);
+                    batch.set(docRef, docData, { merge: true }); // merge: preserve existing fields (e.g. aceptaciones)
                     count++;
                 });
-                if (count === 0) { alert('No se encontraron filas válidas.'); this.value = ''; return; }
+                if (count === 0) { alert('No se encontraron filas válidas de 2026.' + (skipped > 0 ? ' (' + skipped + ' filas de otros años omitidas)' : '')); this.value = ''; return; }
                 await batch.commit();
-                alert(count + ' ofertas importadas correctamente.');
+                alert(count + ' ofertas de 2026 importadas/actualizadas correctamente.' + (skipped > 0 ? '\n(' + skipped + ' filas de otros años omitidas)' : ''));
                 this.value = '';
                 await cargarOfertas();
             } catch (err) {
@@ -1332,11 +1390,17 @@
                 const inputT1 = document.getElementById('modal-input-t1');
                 const inputFechaInicio = document.getElementById('modal-input-fecha-inicio');
                 const inputFechaFin = document.getElementById('modal-input-fecha-fin');
+                const checkParcial = document.getElementById('modal-check-parcial');
+                const seccionParcial = document.getElementById('modal-parcial-section');
+                const inputImporteParcial = document.getElementById('modal-input-importe-parcial');
                 const btnAceptar = document.getElementById('modal-btn-aceptar');
                 const btnCancelar = document.getElementById('modal-btn-cancelar');
 
                 inputExpediente.value = '';
                 inputT1.value = '';
+                if (checkParcial) { checkParcial.checked = false; }
+                if (seccionParcial) { seccionParcial.style.display = 'none'; }
+                if (inputImporteParcial) { inputImporteParcial.value = ''; }
                 // Default dates to today
                 const hoy = new Date();
                 const hoyStr = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0') + '-' + String(hoy.getDate()).padStart(2,'0');
@@ -1344,10 +1408,16 @@
                 inputFechaFin.value = '';
                 modal.style.display = 'flex';
 
+                const onCheckParcial = () => {
+                    if (seccionParcial) seccionParcial.style.display = checkParcial.checked ? 'block' : 'none';
+                };
+                if (checkParcial) checkParcial.addEventListener('change', onCheckParcial);
+
                 const closeModal = () => {
                     modal.style.display = 'none';
                     btnAceptar.removeEventListener('click', onAceptar);
                     btnCancelar.removeEventListener('click', onCancelar);
+                    if (checkParcial) checkParcial.removeEventListener('change', onCheckParcial);
                 };
 
                 const onAceptar = () => {
@@ -1356,6 +1426,13 @@
                     if (!expediente || !t1) {
                         alert("Expediente y T1 son obligatorios.");
                         return;
+                    }
+                    const parcial = checkParcial ? checkParcial.checked : false;
+                    let importeParcial = null;
+                    if (parcial) {
+                        const val = parseFloat((inputImporteParcial ? inputImporteParcial.value : '').replace(',', '.'));
+                        if (isNaN(val) || val <= 0) { alert("Introduce un importe válido para la aceptación parcial."); return; }
+                        importeParcial = val;
                     }
                     // Parse dates to DD/MM/YYYY
                     let fechaInicio = '', fechaFin = '';
@@ -1368,7 +1445,7 @@
                         if (!isNaN(d)) fechaFin = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
                     }
                     closeModal();
-                    resolve({ expediente, t1, fechaInicio, fechaFin });
+                    resolve({ expediente, t1, fechaInicio, fechaFin, parcial, importeParcial });
                 };
 
                 const onCancelar = () => {
@@ -1941,6 +2018,8 @@
                 return `<svg style="color: #ef4444; width: 20px; height: 20px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>`;
             } else if (e === 'en curso') {
                 return `<svg style="color: #f97316; width: 20px; height: 20px;" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>`;
+            } else if (e === 'aceptada parcialmente') {
+                return `<svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" fill="none" stroke="#10b981" stroke-width="2"/><path d="M12 3 A9 9 0 0 1 12 21 Z" fill="#10b981"/></svg>`;
             } else {
                 return `<span style="color: #94a3b8; font-size: 12px; font-weight: 500;">${estado || '-'}</span>`;
             }
@@ -2000,12 +2079,22 @@
 
                     const estadoVal = (data.estado || '').trim().toLowerCase();
                     if (estadoVal === 'aceptada' || estadoVal === 'aceptado') tr.style.backgroundColor = '#dcfce7'; // verde suave
+                    else if (estadoVal === 'aceptada parcialmente') tr.style.backgroundColor = '#d1fae5'; // verde claro parcial
                     else if (estadoVal === 'en curso') tr.style.backgroundColor = '#ffedd5'; // naranja suave
                     else if (estadoVal === 'rechazada' || estadoVal === 'rechazado') tr.style.backgroundColor = '#fee2e2'; // rojo suave
 
+                    // Build tooltip for aceptaciones
+                    let tooltipTitle = 'Cambiar estado';
+                    if (Array.isArray(data.aceptaciones) && data.aceptaciones.length > 0) {
+                        tooltipTitle = data.aceptaciones.map(a => {
+                            const imp = a.importe ? new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(a.importe) : '';
+                            return (a.num_trabajo ? 'Nº' + a.num_trabajo : '') + (imp ? ' — ' + imp : '');
+                        }).join('\n');
+                    }
+
                     tr.innerHTML = `
                         <td class="estado-cell" data-field="estado" data-id="${escapeHTML(docId)}" data-valor="${escapeHTML(data.estado || 'En curso')}" style="text-align: center;">
-                            <div style="cursor: pointer; display: inline-flex; justify-content: center; align-items: center; width: 100%; height: 100%;" title="Cambiar estado">
+                            <div style="cursor: pointer; display: inline-flex; justify-content: center; align-items: center; width: 100%; height: 100%;" title="${escapeHTML(tooltipTitle)}">
                                 ${getEstadoIcon(data.estado)}
                             </div>
                         </td>
@@ -2871,6 +2960,7 @@
 
             const opcionesEstado = [
                 { label: 'Aceptada', color: '#10b981' },
+                { label: 'Aceptada parcialmente', color: '#059669' },
                 { label: 'Rechazada', color: '#ef4444' },
                 { label: 'En curso', color: '#f97316' }
             ];
@@ -2897,32 +2987,38 @@
 
                     if (docId && td) {
                         try {
-                            // Obtener data de oferta actual desde memoria
-                            const ofertaData = datosOfertasMemoria.find(o => (o.num_gestiona || docId) === docId || o.id === docId); // As we use num_gestiona as docId basically
+                            const ofertaData = datosOfertasMemoria.find(o => (o.num_gestiona || o._docId) === docId);
                             const currentState = ofertaData ? ofertaData.estado : '';
+                            const _usuario = auth.currentUser ? auth.currentUser.email : 'Desconocido';
 
-                            if (opt.label === 'Aceptada' && currentState !== 'Aceptada') {
-                                const confirmacion = confirm("¿Aceptar esta oferta y crear un nuevo trabajo en Producción?");
-                                if (!confirmacion) {
-                                    menuEstado.style.display = 'none';
-                                    return;
-                                }
+                            const isAceptarFull = opt.label === 'Aceptada';
+                            const isAceptarParcial = opt.label === 'Aceptada parcialmente';
+                            const isRevertir = (opt.label === 'Rechazada' || opt.label === 'En curso') &&
+                                              (currentState === 'Aceptada' || currentState === 'Aceptada parcialmente');
+
+                            if (isAceptarFull || isAceptarParcial) {
+                                const confirmacion = confirm(isAceptarParcial
+                                    ? "¿Añadir una aceptación parcial y crear un nuevo trabajo en Producción?"
+                                    : "¿Aceptar esta oferta y crear un nuevo trabajo en Producción?");
+                                if (!confirmacion) { menuEstado.style.display = 'none'; return; }
 
                                 const datosExtra = await solicitarDatosModalAceptar();
-                                if (!datosExtra) {
-                                    menuEstado.style.display = 'none';
-                                    return;
-                                }
+                                if (!datosExtra) { menuEstado.style.display = 'none'; return; }
 
                                 const nuevoId = await getSiguienteIdTrabajo();
                                 const prespTotal = ofertaData ? ofertaData.presupuesto_total : "";
+
+                                // Determine presupuesto_m for new produccion record
+                                const presupM = isAceptarParcial && datosExtra.importeParcial
+                                    ? datosExtra.importeParcial.toString()
+                                    : prespTotal;
 
                                 const nuevoDoc = {
                                     num_trabajo: nuevoId.toString(),
                                     cliente: ofertaData ? (ofertaData.cliente || "") : "",
                                     servicio: ofertaData ? (ofertaData.servicio || "") : "",
                                     responsable_g: "",
-                                    presupuesto_m: prespTotal,
+                                    presupuesto_m: presupM,
                                     visible: true,
                                     fecha_inicio: datosExtra.fechaInicio || "", fecha_fin: datosExtra.fechaFin || "", gastos_n: "",
                                     ejecutor_t1: datosExtra.t1, apoyo_am: "", apoyo_an: "",
@@ -2933,14 +3029,58 @@
                                 };
 
                                 await setDoc(doc(db, "produccion", nuevoId.toString()), nuevoDoc);
-                                await updateDoc(doc(db, "ofertas", docId), { estado: 'Aceptada', timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
-                                registrarCambioHistorial('ofertas', docId, 'estado', currentState, 'Aceptada');
 
-                                if (ofertaData) ofertaData.estado = 'Aceptada'; // update local mem
-                                td.firstElementChild.innerHTML = getEstadoIcon('Aceptada');
+                                // Build updated aceptaciones array
+                                const prevAceptaciones = Array.isArray(ofertaData && ofertaData.aceptaciones) ? ofertaData.aceptaciones : [];
+                                const nuevaAceptacion = {
+                                    num_trabajo: nuevoId.toString(),
+                                    importe: isAceptarParcial && datosExtra.importeParcial ? datosExtra.importeParcial : (parseFloat(prespTotal) || 0),
+                                    expediente: datosExtra.expediente,
+                                    t1: datosExtra.t1,
+                                    fecha_inicio: datosExtra.fechaInicio || "",
+                                    fecha_fin: datosExtra.fechaFin || "",
+                                    fecha_aceptacion: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                                };
+                                const todasAceptaciones = [...prevAceptaciones, nuevaAceptacion];
+
+                                // Determine final estado: if sum >= presupuesto_total → Aceptada
+                                const sumAceptaciones = todasAceptaciones.reduce((s, a) => s + (parseFloat(a.importe) || 0), 0);
+                                const presupTotalNum = parseFloat(String(prespTotal).replace(',', '.')) || 0;
+                                let nuevoEstado;
+                                if (isAceptarFull || (presupTotalNum > 0 && sumAceptaciones >= presupTotalNum)) {
+                                    nuevoEstado = 'Aceptada';
+                                } else {
+                                    nuevoEstado = 'Aceptada parcialmente';
+                                }
+
+                                await updateDoc(doc(db, "ofertas", docId), {
+                                    estado: nuevoEstado,
+                                    aceptaciones: todasAceptaciones,
+                                    timestamp_estado: new Date().toISOString(),
+                                    _usuario_edicion: _usuario
+                                });
+                                registrarCambioHistorial('ofertas', docId, 'estado', currentState, nuevoEstado);
+
+                                if (ofertaData) { ofertaData.estado = nuevoEstado; ofertaData.aceptaciones = todasAceptaciones; }
+                                td.dataset.valor = nuevoEstado;
+                                td.firstElementChild.innerHTML = getEstadoIcon(nuevoEstado);
+
+                                // Update tooltip
+                                const tooltipStr = todasAceptaciones.map(a => {
+                                    const imp = a.importe ? new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(a.importe) : '';
+                                    return (a.num_trabajo ? 'Nº' + a.num_trabajo : '') + (imp ? ' — ' + imp : '');
+                                }).join('\n');
+                                td.firstElementChild.title = tooltipStr;
+
                                 menuEstado.style.display = 'none';
 
-                                alert(`Oferta aceptada. Se creó el trabajo Nº ${nuevoId} en Producción.`);
+                                // Update row background
+                                const trRow = td.closest('tr');
+                                if (trRow) {
+                                    trRow.style.backgroundColor = nuevoEstado === 'Aceptada' ? '#dcfce7' : '#d1fae5';
+                                }
+
+                                alert(`Trabajo Nº ${nuevoId} creado en Producción. Estado oferta: ${nuevoEstado}.`);
                                 cargarProduccion();
 
                                 // Contadores
@@ -2953,36 +3093,38 @@
                                     await updateDoc(doc(db, "metadata", "contadores_nombres"), updateObj);
                                 }
 
-                            } else if ((opt.label === 'Rechazada' || opt.label === 'En curso') && currentState === 'Aceptada') {
-                                const confirmRevert = confirm("¿Deseas cambiar el estado? Se ocultará el trabajo relacionado en Producción.");
-                                if (!confirmRevert) {
-                                    menuEstado.style.display = 'none';
-                                    return;
-                                }
+                            } else if (isRevertir) {
+                                const confirmRevert = confirm("¿Deseas cambiar el estado? Se ocultarán los trabajos relacionados en Producción.");
+                                if (!confirmRevert) { menuEstado.style.display = 'none'; return; }
 
-                                await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
+                                await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: _usuario });
                                 registrarCambioHistorial('ofertas', docId, 'estado', currentState, opt.label);
                                 if (ofertaData) ofertaData.estado = opt.label;
+                                td.dataset.valor = opt.label;
                                 td.firstElementChild.innerHTML = getEstadoIcon(opt.label);
                                 menuEstado.style.display = 'none';
+
+                                const trRow = td.closest('tr');
+                                if (trRow) trRow.style.backgroundColor = opt.label === 'Rechazada' ? '#fee2e2' : '#ffedd5';
 
                                 const q = query(collection(db, "produccion"), where("oferta_gestiona", "==", docId));
                                 const snapshot = await getDocs(q);
                                 if (!snapshot.empty) {
-                                    snapshot.forEach(async (docP) => {
-                                        await updateDoc(docP.ref, { visible: false, _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
-                                    });
-                                    alert(`Oferta cambiada a ${opt.label} y trabajo ocultado en Producción.`);
+                                    const hideOps = [];
+                                    snapshot.forEach(docP => hideOps.push(updateDoc(docP.ref, { visible: false, _usuario_edicion: _usuario })));
+                                    await Promise.all(hideOps);
+                                    alert(`Oferta cambiada a ${opt.label} y ${hideOps.length} trabajo(s) ocultado(s) en Producción.`);
                                     cargarProduccion();
                                 } else {
-                                    alert(`Oferta cambiada a ${opt.label}. No se encontró trabajo en Producción para ocultar.`);
+                                    alert(`Oferta cambiada a ${opt.label}. No se encontraron trabajos en Producción para ocultar.`);
                                 }
 
                             } else {
-                                // Simple update
-                                await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido' });
+                                // Simple update (no side effects)
+                                await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: _usuario });
                                 registrarCambioHistorial('ofertas', docId, 'estado', currentState, opt.label);
                                 if (ofertaData) ofertaData.estado = opt.label;
+                                td.dataset.valor = opt.label;
                                 td.firstElementChild.innerHTML = getEstadoIcon(opt.label);
                                 menuEstado.style.display = 'none';
                             }
@@ -3482,6 +3624,26 @@
                         // ── v0.093: Registrar cambio en historial ──
                         registrarCambioHistorial('produccion', docId, fieldName, currentValue, newValue);
 
+                        // Sync presupuesto_m → offer aceptaciones importe
+                        if (fieldName === 'presupuesto_m') {
+                            try {
+                                const ofertaTd = tr.querySelector('td[data-field="oferta_gestiona"]');
+                                const ofertaId = ofertaTd ? ofertaTd.textContent.trim() : '';
+                                if (ofertaId) {
+                                    const ofertaDoc = await getDocs(query(collection(db, 'ofertas'), where('__name__', '==', ofertaId)));
+                                    if (!ofertaDoc.empty) {
+                                        const ofData = ofertaDoc.docs[0].data();
+                                        const prevAcepts = Array.isArray(ofData.aceptaciones) ? ofData.aceptaciones : [];
+                                        const idx = prevAcepts.findIndex(a => a.num_trabajo === docId);
+                                        if (idx !== -1) {
+                                            prevAcepts[idx].importe = parseFloat(newValue) || 0;
+                                            await updateDoc(doc(db, 'ofertas', ofertaId), { aceptaciones: prevAcepts });
+                                        }
+                                    }
+                                }
+                            } catch (_e) { console.warn('Sync presupuesto_m→oferta failed', _e); }
+                        }
+
                         // Actualización ligera de los contadores para cliente/grupo
                         if ((fieldName === 'cliente' || fieldName === 'grupo') && newValue !== currentValue) {
                             const campoBase = fieldName === 'cliente' ? 'clientes' : 'grupos';
@@ -3750,8 +3912,23 @@
                         registrarCambioHistorial('ofertas', docId, fieldName, currentValue, parsedValue);
 
                         // Ofertas mem sync
-                        const memItem = datosOfertasMemoria.find(o => (o.num_gestiona || docId) === docId || o.id === docId);
+                        const memItem = datosOfertasMemoria.find(o => (o.num_gestiona || o._docId) === docId);
                         if (memItem) memItem[fieldName] = parsedValue;
+
+                        // Sync presupuesto_total → single linked produccion record
+                        if (fieldName === 'presupuesto_total') {
+                            try {
+                                const memOferta = memItem || {};
+                                const tieneAceptaciones = Array.isArray(memOferta.aceptaciones) && memOferta.aceptaciones.length > 0;
+                                if (!tieneAceptaciones) {
+                                    const qProd = query(collection(db, 'produccion'), where('oferta_gestiona', '==', docId));
+                                    const snapProd = await getDocs(qProd);
+                                    if (snapProd.size === 1) {
+                                        await updateDoc(snapProd.docs[0].ref, { presupuesto_m: parsedValue });
+                                    }
+                                }
+                            } catch (_e) { console.warn('Sync presupuesto_total→produccion failed', _e); }
+                        }
 
                         if (camposMoneda.includes(fieldName) && parsedValue !== '' && parsedValue !== 0) {
                             finalValue = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: (parsedValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(parsedValue);
@@ -8990,7 +9167,7 @@
                     style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;" required>
             </div>
 
-            <div style="display: flex; gap: 12px; margin-bottom: 24px;">
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
                 <div style="flex: 1;">
                     <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Fecha Inicio</label>
                     <input type="date" id="modal-input-fecha-inicio"
@@ -9000,6 +9177,19 @@
                     <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Fecha Fin</label>
                     <input type="date" id="modal-input-fecha-fin"
                         style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                </div>
+            </div>
+
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; margin-bottom: 24px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: #334155; cursor: pointer;">
+                    <input type="checkbox" id="modal-check-parcial" style="width: 16px; height: 16px; cursor: pointer;">
+                    Aceptación parcial (importe específico)
+                </label>
+                <div id="modal-parcial-section" style="display: none; margin-top: 12px;">
+                    <label style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: #475569;">Importe de esta aceptación (€)</label>
+                    <input type="number" id="modal-input-importe-parcial" min="0" step="0.01"
+                        style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box;"
+                        placeholder="0.00">
                 </div>
             </div>
 
