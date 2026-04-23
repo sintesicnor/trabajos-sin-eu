@@ -245,16 +245,29 @@
 
         // ── Utilidad admin: borrar todas las ofertas de 2026 desde consola ──
         // Uso: await window._borrarOfertas2026()
+        window._debugOfertas = async function(n = 20) {
+            const snap = await getDocs(collection(db, 'ofertas'));
+            console.log(`Total ofertas en BD: ${snap.size}`);
+            let i = 0;
+            snap.forEach(d => {
+                if (i++ >= n) return;
+                const data = d.data();
+                console.log(d.id, '| fecha_oferta:', data.fecha_oferta, '| num_gestiona:', data.num_gestiona, '| año:', data.año || data.anyo || data.year || '-');
+            });
+        };
+
         window._borrarOfertas2026 = async function() {
             const snap = await getDocs(collection(db, 'ofertas'));
             const toDelete = [];
             snap.forEach(d => {
                 const data = d.data();
-                const fg = data.fecha_oferta || '';
-                const ng = data.num_gestiona || '';
+                const fg = String(data.fecha_oferta || '');
+                const ng = String(data.num_gestiona || '');
+                const ano = String(data.año || data.anyo || data.year || '');
                 const yearFecha = fg.match(/(\d{4})/)?.[1];
                 const yearId = ng.match(/(\d{4})/)?.[1];
-                const year = parseInt(yearFecha || yearId || '0');
+                const yearCampo = ano.match(/(\d{4})/)?.[1];
+                const year = parseInt(yearFecha || yearId || yearCampo || '0');
                 if (year === 2026) toDelete.push(d.ref);
             });
             if (toDelete.length === 0) { console.log('No hay ofertas de 2026.'); return; }
