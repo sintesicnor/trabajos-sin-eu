@@ -759,7 +759,7 @@
                 if (rawRows.length <= 1) { alert('El archivo no contiene datos.'); this.value = ''; return; }
 
                 // Position → Firestore field mapping
-                // (0-based column index)
+                // (0-based column index — matches production Excel/CSV layout)
                 const POS_MAP = {
                     0:  'num_trabajo',
                     1:  'oferta_gestiona',
@@ -775,12 +775,16 @@
                     11: 'cliente',
                     12: 'presupuesto_m',
                     13: 'gastos_n',
-                    38: 'apoyo_am',      // AM
-                    39: 'apoyo_an',      // AN
-                    41: 'fecha_ap',      // AP
-                    42: 'visto_vb_cliente', // AQ
-                    43: 'fecha_ar',      // AR
-                    44: 'observaciones'  // AS
+                    // cols 14-36 = hours breakdown (ignored)
+                    37: 'apoyo_am',         // T2
+                    38: 'apoyo_an',         // T3
+                    39: 'tipo_pedido',      // PEDIDO
+                    40: 'fecha_ap',         // FECHA FINALIZACIÓN
+                    41: 'visto_vb_cliente', // VB CLIE.
+                    42: 'fecha_ar',         // FECHA FACTURACION
+                    43: 'observaciones',    // Columna1
+                    44: 'num_factura',      // Nº Fact
+                    45: 'mes_facturacion'   // Mes
                 };
 
                 const CURRENCY_FIELDS = new Set(['presupuesto_m', 'gastos_n']);
@@ -788,13 +792,20 @@
 
                 function cleanVal(raw, field) {
                     if (raw === null || raw === undefined) return '';
+                    // XLSX may return currency cells as JS numbers — use directly
+                    if (CURRENCY_FIELDS.has(field) && typeof raw === 'number') {
+                        return String(raw);
+                    }
                     let val = String(raw).trim();
                     if (CURRENCY_FIELDS.has(field)) {
-                        val = val.replace(/[€$\s]/g, '').replace(/\./g, '').replace(',', '.');
+                        // Strip all non-numeric chars (handles garbled â¬, €, spaces),
+                        // then remove thousands dots, then comma→dot decimal
+                        val = val.replace(/[^0-9,.\-]/g, '').replace(/\./g, '').replace(',', '.');
                     }
                     if (DATE_FIELDS.has(field)) {
-                        // Excel serial date number
+                        // Excel serial date number → DD/MM/YYYY
                         if (/^\d{4,5}$/.test(val)) val = formatearFechaDisplay(val);
+                        // DD/MM/YYYY strings pass through unchanged (already correct format)
                     }
                     return val;
                 }
