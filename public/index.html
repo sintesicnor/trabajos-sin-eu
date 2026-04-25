@@ -1733,11 +1733,9 @@
                             (t.acronimo && t.acronimo === originalText)
                         );
                     }
-                    // Detectar fecha_ap / fecha_ar por data-field (independiente del nombre de cabecera)
                     const _colIdxDate = Array.from(th.parentNode.children).indexOf(th);
-                    const _sampleTdDate = table.querySelector(`tbody tr:first-child td:nth-child(${_colIdxDate + 1})`);
-                    const isDateYearMonthFilter = !isOfertasTable && !!_sampleTdDate &&
-                        (_sampleTdDate.dataset.field === 'fecha_ap' || _sampleTdDate.dataset.field === 'fecha_ar');
+                    const isDateYearMonthFilter = !isOfertasTable &&
+                        (originalText === 'Fecha AP' || originalText === 'Fecha AR');
                     const isNoFilter = !isDateYearMonthFilter && (isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t)));
 
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
@@ -1899,21 +1897,6 @@
 
                         const tblIdDate = table.dataset.tableId;
                         if (!tableFilters[tblIdDate]) tableFilters[tblIdDate] = {};
-                        const savedFilterDate = Array.isArray(tableFilters[tblIdDate][colIdxDate]) ? tableFilters[tblIdDate][colIdxDate] : [];
-
-                        // Collect year→months from current cell values
-                        const ymMap = {};
-                        table.querySelectorAll('tbody tr').forEach(tr => {
-                            const cell = tr.children[colIdxDate];
-                            if (!cell) return;
-                            const v = (cell.dataset.valor || cell.textContent).trim();
-                            const parts = v.split('/');
-                            if (parts.length === 3 && parts[2].length === 4) {
-                                const y = parts[2], m = parts[1].padStart(2, '0');
-                                if (!ymMap[y]) ymMap[y] = new Set();
-                                ymMap[y].add(m);
-                            }
-                        });
 
                         const actualizarFiltroFecha = () => {
                             const vals = Array.from(popup.querySelectorAll('input.cb-mes-ym:checked')).map(cb => cb.dataset.ym);
@@ -1931,55 +1914,74 @@
                             guardarPreferenciasUsuario();
                         };
 
-                        Object.keys(ymMap).sort().forEach(year => {
-                            const months = [...ymMap[year]].sort();
-                            const allYMYear = months.map(m => `${year}-${m}`);
-
-                            const yearWrap = document.createElement('div');
-                            yearWrap.style.marginBottom = '4px';
-
-                            const yearLbl = document.createElement('label');
-                            yearLbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;padding:2px 0;';
-                            const yearCb = document.createElement('input');
-                            yearCb.type = 'checkbox';
-                            yearCb.style.cssText = 'width:14px;height:14px;cursor:pointer;';
-                            yearCb.checked = allYMYear.every(ym => savedFilterDate.includes(ym));
-                            yearLbl.appendChild(yearCb);
-                            yearLbl.appendChild(document.createTextNode(year));
-                            yearWrap.appendChild(yearLbl);
-
-                            const monthsWrap = document.createElement('div');
-                            monthsWrap.style.cssText = 'padding-left:20px;display:flex;flex-direction:column;gap:1px;';
-
-                            months.forEach(m => {
-                                const ym = `${year}-${m}`;
-                                const mLbl = document.createElement('label');
-                                mLbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:1px 0;';
-                                const mCb = document.createElement('input');
-                                mCb.type = 'checkbox';
-                                mCb.className = 'cb-mes-ym';
-                                mCb.dataset.ym = ym;
-                                mCb.style.cssText = 'width:13px;height:13px;cursor:pointer;';
-                                mCb.checked = savedFilterDate.includes(ym);
-                                mCb.addEventListener('change', () => {
-                                    yearCb.checked = Array.from(monthsWrap.querySelectorAll('input.cb-mes-ym')).every(cb => cb.checked);
+                        // Lazy population: build/rebuild checkboxes each time popup opens
+                        popup._poblarFecha = () => {
+                            const savedFilterDate = Array.isArray(tableFilters[tblIdDate][colIdxDate]) ? tableFilters[tblIdDate][colIdxDate] : [];
+                            popup.innerHTML = '';
+                            const ymMap = {};
+                            table.querySelectorAll('tbody tr').forEach(tr => {
+                                const cell = tr.children[colIdxDate];
+                                if (!cell) return;
+                                const v = (cell.dataset.valor || cell.textContent).trim();
+                                const parts = v.split('/');
+                                if (parts.length === 3 && parts[2].length === 4) {
+                                    const y = parts[2], m = parts[1].padStart(2, '0');
+                                    if (!ymMap[y]) ymMap[y] = new Set();
+                                    ymMap[y].add(m);
+                                }
+                            });
+                            if (Object.keys(ymMap).length === 0) {
+                                const empty = document.createElement('div');
+                                empty.style.cssText = 'font-size:12px;color:#94a3b8;padding:4px 0;';
+                                empty.textContent = 'Sin fechas disponibles';
+                                popup.appendChild(empty);
+                                return;
+                            }
+                            Object.keys(ymMap).sort().forEach(year => {
+                                const months = [...ymMap[year]].sort();
+                                const allYMYear = months.map(m => `${year}-${m}`);
+                                const yearWrap = document.createElement('div');
+                                yearWrap.style.marginBottom = '4px';
+                                const yearLbl = document.createElement('label');
+                                yearLbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;padding:2px 0;';
+                                const yearCb = document.createElement('input');
+                                yearCb.type = 'checkbox';
+                                yearCb.style.cssText = 'width:14px;height:14px;cursor:pointer;';
+                                yearCb.checked = allYMYear.every(ym => savedFilterDate.includes(ym));
+                                yearLbl.appendChild(yearCb);
+                                yearLbl.appendChild(document.createTextNode(year));
+                                yearWrap.appendChild(yearLbl);
+                                const monthsWrap = document.createElement('div');
+                                monthsWrap.style.cssText = 'padding-left:20px;display:flex;flex-direction:column;gap:1px;';
+                                months.forEach(m => {
+                                    const ym = `${year}-${m}`;
+                                    const mLbl = document.createElement('label');
+                                    mLbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:1px 0;';
+                                    const mCb = document.createElement('input');
+                                    mCb.type = 'checkbox';
+                                    mCb.className = 'cb-mes-ym';
+                                    mCb.dataset.ym = ym;
+                                    mCb.style.cssText = 'width:13px;height:13px;cursor:pointer;';
+                                    mCb.checked = savedFilterDate.includes(ym);
+                                    mCb.addEventListener('change', () => {
+                                        yearCb.checked = Array.from(monthsWrap.querySelectorAll('input.cb-mes-ym')).every(cb => cb.checked);
+                                        actualizarFiltroFecha();
+                                    });
+                                    mLbl.appendChild(mCb);
+                                    mLbl.appendChild(document.createTextNode(MESES_ES[parseInt(m, 10) - 1]));
+                                    monthsWrap.appendChild(mLbl);
+                                });
+                                yearCb.addEventListener('change', () => {
+                                    monthsWrap.querySelectorAll('input.cb-mes-ym').forEach(cb => { cb.checked = yearCb.checked; });
                                     actualizarFiltroFecha();
                                 });
-                                mLbl.appendChild(mCb);
-                                mLbl.appendChild(document.createTextNode(MESES_ES[parseInt(m, 10) - 1]));
-                                monthsWrap.appendChild(mLbl);
+                                yearWrap.appendChild(monthsWrap);
+                                popup.appendChild(yearWrap);
                             });
+                        };
 
-                            yearCb.addEventListener('change', () => {
-                                monthsWrap.querySelectorAll('input.cb-mes-ym').forEach(cb => { cb.checked = yearCb.checked; });
-                                actualizarFiltroFecha();
-                            });
-
-                            yearWrap.appendChild(monthsWrap);
-                            popup.appendChild(yearWrap);
-                        });
-
-                        if (savedFilterDate.length > 0) {
+                        const savedInit = Array.isArray(tableFilters[tblIdDate][colIdxDate]) ? tableFilters[tblIdDate][colIdxDate] : [];
+                        if (savedInit.length > 0) {
                             iconContainer.dataset.active = 'true';
                             iconContainer.innerHTML = activeSvg;
                             iconContainer.style.color = '#ef4444';
@@ -2134,13 +2136,11 @@
                             iconContainer.innerHTML = normalSvg;
                             iconContainer.style.color = '';
 
-                            if (isHybridFilter || isMulti) {
+                            if (isHybridFilter || isMulti || isDateYearMonthFilter) {
                                 popup.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-                                // Limpiar buscador del híbrido
                                 if (isHybridFilter) {
                                     const si = popup.querySelector('input[type="text"]');
                                     if (si) si.value = '';
-                                    // Mostrar todos los labels
                                     popup.querySelectorAll('label').forEach(lbl => lbl.style.display = '');
                                 }
                             } else {
@@ -2151,7 +2151,7 @@
                             const tblId = table.dataset.tableId;
                             const colIndex = Array.from(th.parentNode.children).indexOf(th);
                             if (tableFilters[tblId]) {
-                                tableFilters[tblId][colIndex] = (isHybridFilter || isMulti) ? [] : '';
+                                tableFilters[tblId][colIndex] = (isHybridFilter || isMulti || isDateYearMonthFilter) ? [] : '';
                                 applyTableFilters(table);
                                 guardarPreferenciasUsuario();
                             }
@@ -2162,11 +2162,13 @@
                         const isVisible = popup.style.display === 'flex' || popup.style.display === 'block';
                         document.querySelectorAll('.filter-popup').forEach(p => p.style.display = 'none');
                         if (!isVisible) {
-                            // ── Al abrir: poblar checkboxes con valores actuales de la tabla ──
                             if (isHybridFilter && typeof popup._poblarCheckboxes === 'function') {
                                 popup._poblarCheckboxes();
                             }
-                            popup.style.display = (isHybridFilter || isMulti) ? 'flex' : 'block';
+                            if (isDateYearMonthFilter && typeof popup._poblarFecha === 'function') {
+                                popup._poblarFecha();
+                            }
+                            popup.style.display = (isHybridFilter || isMulti || isDateYearMonthFilter) ? 'flex' : 'block';
                             if (isHybridFilter) {
                                 const si = popup.querySelector('input[type="text"]');
                                 if (si) si.focus();
@@ -3062,6 +3064,25 @@
                 });
 
                 theadTr.dataset.injected = 'true';
+            }
+
+            function reinjectarColumnasDinamicas() {
+                const theadTr = document.querySelector('#view-produccion thead tr');
+                if (!theadTr) return;
+                const getOrigTxt = (th) => {
+                    const span = th.querySelector('[data-original-text]');
+                    return span ? span.dataset.originalText : th.textContent.trim();
+                };
+                let afterHist = false;
+                const toRemove = [];
+                Array.from(theadTr.children).forEach(th => {
+                    if (getOrigTxt(th).includes('Total Hrs Hist.')) { afterHist = true; return; }
+                    if (afterHist && getOrigTxt(th) === 'Fecha AP') { afterHist = false; return; }
+                    if (afterHist) toRemove.push(th);
+                });
+                toRemove.forEach(th => th.remove());
+                theadTr.dataset.injected = '';
+                inyectarColumnasDinamicas();
             }
 
             async function initAppContent() {
@@ -6605,6 +6626,8 @@
                 tr.querySelector('.check-prod').addEventListener('change', async (e) => {
                     t.prod = e.target.checked;
                     await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
+                    reinjectarColumnasDinamicas();
+                    cargarProduccion();
                 });
 
                 tr.querySelector('.btn-edit-list-tec').addEventListener('click', () => {
@@ -6689,6 +6712,8 @@
                         listaTecnicos.splice(index, 1);
                         await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
                         renderListaTecnicos();
+                        reinjectarColumnasDinamicas();
+                        cargarProduccion();
                     }
                 });
 
@@ -6789,6 +6814,8 @@
                         const prodChk = document.getElementById('input-tec-prod');
                         if (prodChk) prodChk.checked = true;
                         renderListaTecnicos();
+                        reinjectarColumnasDinamicas();
+                        cargarProduccion();
                     } else {
                         alert("El nombre y el acrónimo son requeridos.");
                     }
