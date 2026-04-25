@@ -1272,7 +1272,7 @@
                     const respgLabel = respObj ? ((preferenciaTecnicos === 'nombre_pila' && respObj.nombre_pila) ? respObj.nombre_pila : respObj.acronimo) : (data['responsable_g'] || '');
 
                     let techHtml = '';
-                    listaTecnicos.forEach(t => {
+                    listaTecnicos.filter(t => t.prod !== false).forEach(t => {
                         const hTec = (horasAgregadas[numTrabajoId] && horasAgregadas[numTrabajoId].tecnicos[t.acronimo]) ? horasAgregadas[numTrabajoId].tecnicos[t.acronimo] : '';
                         const bgColor = t.color || legacyColors[t.acronimo] || '#ffffff';
                         techHtml += `<td data-field="tec_${t.acronimo}" style="text-align: center; color: #475569; font-weight: ${hTec ? '600' : '400'}; background-color: ${bgColor};">${hTec ? formatHours(hTec) : ''}</td>`;
@@ -2938,7 +2938,7 @@
                 theadTr.insertBefore(thPct, thTotal.nextSibling);
 
                 let lastTh = thPct;
-                listaTecnicos.forEach(t => {
+                listaTecnicos.filter(t => t.prod !== false).forEach(t => {
                     const labelTec = (preferenciaTecnicos === 'nombre_pila' && t.nombre_pila) ? t.nombre_pila : t.acronimo;
                     const thTec = crearTh(labelTec, `Horas de ${t.nombre}`);
                     theadTr.insertBefore(thTec, lastTh.nextSibling);
@@ -6472,6 +6472,9 @@
                     <td class="tec-color" style="padding: 6px 12px; border-bottom: 1px solid #f1f5f9; text-align: center;">
                         <div style="width: 20px; height: 20px; background-color: ${c}; border: 1px solid #cbd5e1; border-radius: 4px; display: inline-block;"></div>
                     </td>
+                    <td class="tec-prod" style="padding: 6px 12px; border-bottom: 1px solid #f1f5f9; text-align: center;">
+                        <input type="checkbox" class="check-prod" ${t.prod !== false ? 'checked' : ''} style="width: 15px; height: 15px; cursor: pointer;" title="Mostrar en tabla de Producción">
+                    </td>
                     <td style="padding: 6px 12px; text-align: right; border-bottom: 1px solid #f1f5f9; display: flex; gap: 8px; justify-content: flex-end;">
                          <button class="btn-edit-list-tec" data-idx="${index}" style="background: none; border: none; color: #2176AC; cursor: pointer; padding: 4px;" title="Editar">
                             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
@@ -6482,6 +6485,11 @@
                     </td>
                 `;
                 tbody.appendChild(tr);
+
+                tr.querySelector('.check-prod').addEventListener('change', async (e) => {
+                    t.prod = e.target.checked;
+                    await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
+                });
 
                 tr.querySelector('.btn-edit-list-tec').addEventListener('click', () => {
                     const tdNom = tr.querySelector('.tec-nombre');
@@ -6648,8 +6656,9 @@
                     const rol = document.getElementById('input-tec-rol').value;
                     const color = document.getElementById('input-tec-color').value;
 
+                    const prod = document.getElementById('input-tec-prod')?.checked !== false;
                     if (nombre && acronimo) {
-                        listaTecnicos.push({ nombre, acronimo, id_tec, email, color, rol });
+                        listaTecnicos.push({ nombre, acronimo, id_tec, email, color, rol, prod });
                         await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
                         // Sincronizar con usuarios/{email} y usuarios_activos si hay email
                         if (email && email.includes('@')) {
@@ -6661,6 +6670,8 @@
                         document.getElementById('input-tec-id').value = '';
                         document.getElementById('input-tec-email').value = '';
                         document.getElementById('input-tec-color').value = '#ffffff';
+                        const prodChk = document.getElementById('input-tec-prod');
+                        if (prodChk) prodChk.checked = true;
                         renderListaTecnicos();
                     } else {
                         alert("El nombre y el acrónimo son requeridos.");
@@ -9070,6 +9081,9 @@
                                         <option value="admin">admin</option>
                                         <option value="financiero">financiero</option>
                                     </select>
+                                    <label style="display: flex; align-items: center; gap: 4px; font-size: 13px; white-space: nowrap; cursor: pointer;" title="Mostrar en tabla de Producción">
+                                        <input type="checkbox" id="input-tec-prod" checked style="width: 15px; height: 15px; cursor: pointer;"> Prod
+                                    </label>
                                     <button id="btn-add-tecnico" class="btn-primary"
                                         style="padding: 6px 12px; font-size: 13px;">Añadir</button>
                                 </div>
@@ -9099,6 +9113,10 @@
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 50px;">
                                                     Color</th>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 50px;"
+                                                    title="Mostrar columna en tabla de Producción">
+                                                    Prod</th>
                                                 <th style="padding: 6px 12px; width: 60px;"></th>
                                             </tr>
                                         </thead>
