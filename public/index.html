@@ -1236,11 +1236,9 @@
                         let num = typeof val === 'number' ? val : parseSpanishNum(val);
                         if (isNaN(num) || num === 0 || val === '') return '';
                         return new Intl.NumberFormat('es-ES', {
-                            style: 'currency',
-                            currency: 'EUR',
                             minimumFractionDigits: (num % 1 === 0 ? 0 : 2),
                             maximumFractionDigits: 2
-                        }).format(num);
+                        }).format(num) + '€';
                     };
 
                     function formatHours(val) {
@@ -1631,6 +1629,16 @@
                         const filterVal = tableFilters[tblId][cIdx];
                         if (Array.isArray(filterVal)) {
                             if (filterVal.length > 0) {
+                                const thEl = table.querySelector(`thead tr th:nth-child(${parseInt(cIdx) + 1})`);
+                                if (thEl && thEl.dataset.filterType === 'date-yearmonth') {
+                                    // Date year/month filter: rawText is DD/MM/YYYY
+                                    const parts = rawText.split('/');
+                                    if (parts.length === 3 && parts[2].length === 4) {
+                                        const ym = `${parts[2]}-${parts[1].padStart(2, '0')}`;
+                                        if (!filterVal.includes(ym)) show = false;
+                                    }
+                                    // rows with empty/unparseable date are not filtered out
+                                } else {
                                 // Comparación case-insensitive + resolución de acrónimos de técnicos
                                 const rawUpper = rawText.toUpperCase();
                                 const match = filterVal.some(fv => {
@@ -1644,6 +1652,7 @@
                                     return !!tec;
                                 });
                                 if (!match) show = false;
+                                }
                             }
                         } else if (filterVal && !rawText.toLowerCase().includes(filterVal)) {
                             show = false;
@@ -1724,7 +1733,12 @@
                             (t.acronimo && t.acronimo === originalText)
                         );
                     }
-                    const isNoFilter = isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t));
+                    // Detectar fecha_ap / fecha_ar por data-field (independiente del nombre de cabecera)
+                    const _colIdxDate = Array.from(th.parentNode.children).indexOf(th);
+                    const _sampleTdDate = table.querySelector(`tbody tr:first-child td:nth-child(${_colIdxDate + 1})`);
+                    const isDateYearMonthFilter = !isOfertasTable && !!_sampleTdDate &&
+                        (_sampleTdDate.dataset.field === 'fecha_ap' || _sampleTdDate.dataset.field === 'fecha_ar');
+                    const isNoFilter = !isDateYearMonthFilter && (isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t)));
 
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
 
@@ -1864,6 +1878,108 @@
                         const tblIdInit = table.dataset.tableId;
                         const savedFilterInit = (tableFilters[tblIdInit] && Array.isArray(tableFilters[tblIdInit][colIdx])) ? tableFilters[tblIdInit][colIdx] : [];
                         if (savedFilterInit.length > 0) {
+                            iconContainer.dataset.active = 'true';
+                            iconContainer.innerHTML = activeSvg;
+                            iconContainer.style.color = '#ef4444';
+                        }
+
+                    } else if (isDateYearMonthFilter) {
+                        const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+                        const colIdxDate = _colIdxDate;
+                        th.dataset.filterType = 'date-yearmonth';
+
+                        popup.style.display = 'none';
+                        popup.style.flexDirection = 'column';
+                        popup.style.gap = '2px';
+                        popup.style.padding = '8px';
+                        popup.style.minWidth = '190px';
+                        popup.style.maxHeight = '320px';
+                        popup.style.overflowY = 'auto';
+                        popup.addEventListener('click', e => e.stopPropagation());
+
+                        const tblIdDate = table.dataset.tableId;
+                        if (!tableFilters[tblIdDate]) tableFilters[tblIdDate] = {};
+                        const savedFilterDate = Array.isArray(tableFilters[tblIdDate][colIdxDate]) ? tableFilters[tblIdDate][colIdxDate] : [];
+
+                        // Collect year→months from current cell values
+                        const ymMap = {};
+                        table.querySelectorAll('tbody tr').forEach(tr => {
+                            const cell = tr.children[colIdxDate];
+                            if (!cell) return;
+                            const v = (cell.dataset.valor || cell.textContent).trim();
+                            const parts = v.split('/');
+                            if (parts.length === 3 && parts[2].length === 4) {
+                                const y = parts[2], m = parts[1].padStart(2, '0');
+                                if (!ymMap[y]) ymMap[y] = new Set();
+                                ymMap[y].add(m);
+                            }
+                        });
+
+                        const actualizarFiltroFecha = () => {
+                            const vals = Array.from(popup.querySelectorAll('input.cb-mes-ym:checked')).map(cb => cb.dataset.ym);
+                            tableFilters[tblIdDate][colIdxDate] = vals;
+                            if (vals.length > 0) {
+                                iconContainer.dataset.active = 'true';
+                                iconContainer.innerHTML = activeSvg;
+                                iconContainer.style.color = '#ef4444';
+                            } else {
+                                iconContainer.dataset.active = 'false';
+                                iconContainer.innerHTML = normalSvg;
+                                iconContainer.style.color = '';
+                            }
+                            applyTableFilters(table);
+                            guardarPreferenciasUsuario();
+                        };
+
+                        Object.keys(ymMap).sort().forEach(year => {
+                            const months = [...ymMap[year]].sort();
+                            const allYMYear = months.map(m => `${year}-${m}`);
+
+                            const yearWrap = document.createElement('div');
+                            yearWrap.style.marginBottom = '4px';
+
+                            const yearLbl = document.createElement('label');
+                            yearLbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;padding:2px 0;';
+                            const yearCb = document.createElement('input');
+                            yearCb.type = 'checkbox';
+                            yearCb.style.cssText = 'width:14px;height:14px;cursor:pointer;';
+                            yearCb.checked = allYMYear.every(ym => savedFilterDate.includes(ym));
+                            yearLbl.appendChild(yearCb);
+                            yearLbl.appendChild(document.createTextNode(year));
+                            yearWrap.appendChild(yearLbl);
+
+                            const monthsWrap = document.createElement('div');
+                            monthsWrap.style.cssText = 'padding-left:20px;display:flex;flex-direction:column;gap:1px;';
+
+                            months.forEach(m => {
+                                const ym = `${year}-${m}`;
+                                const mLbl = document.createElement('label');
+                                mLbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:1px 0;';
+                                const mCb = document.createElement('input');
+                                mCb.type = 'checkbox';
+                                mCb.className = 'cb-mes-ym';
+                                mCb.dataset.ym = ym;
+                                mCb.style.cssText = 'width:13px;height:13px;cursor:pointer;';
+                                mCb.checked = savedFilterDate.includes(ym);
+                                mCb.addEventListener('change', () => {
+                                    yearCb.checked = Array.from(monthsWrap.querySelectorAll('input.cb-mes-ym')).every(cb => cb.checked);
+                                    actualizarFiltroFecha();
+                                });
+                                mLbl.appendChild(mCb);
+                                mLbl.appendChild(document.createTextNode(MESES_ES[parseInt(m, 10) - 1]));
+                                monthsWrap.appendChild(mLbl);
+                            });
+
+                            yearCb.addEventListener('change', () => {
+                                monthsWrap.querySelectorAll('input.cb-mes-ym').forEach(cb => { cb.checked = yearCb.checked; });
+                                actualizarFiltroFecha();
+                            });
+
+                            yearWrap.appendChild(monthsWrap);
+                            popup.appendChild(yearWrap);
+                        });
+
+                        if (savedFilterDate.length > 0) {
                             iconContainer.dataset.active = 'true';
                             iconContainer.innerHTML = activeSvg;
                             iconContainer.style.color = '#ef4444';
@@ -3879,7 +3995,7 @@
                         if (['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an'].includes(fieldName)) {
                             td.innerHTML = getTecnicoLabelForValue(newValue);
                         } else if (fieldName === 'presupuesto_m' || fieldName === 'gastos_n') {
-                            td.innerHTML = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: (newValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(newValue);
+                            td.innerHTML = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (newValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(newValue) + '€';
                         } else {
                             td.innerHTML = finalValue;
                         }
@@ -4015,7 +4131,7 @@
 
                     if (newValue == currentValue) {
                         if (camposMoneda.includes(fieldName) && newValue !== '' && newValue !== 0) {
-                            finalValue = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: (newValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(newValue);
+                            finalValue = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (newValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(newValue) + '€';
                         }
                         td.innerHTML = finalValue;
                         return;
@@ -4087,7 +4203,7 @@
                         }
 
                         if (camposMoneda.includes(fieldName) && parsedValue !== '' && parsedValue !== 0) {
-                            finalValue = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: (parsedValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(parsedValue);
+                            finalValue = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (parsedValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(parsedValue) + '€';
                         }
 
                         td.innerHTML = finalValue;
@@ -4095,7 +4211,7 @@
                         manejarErrorFirebase(err, "Error guardando el cambio en Ofertas.");
                         if (camposMoneda.includes(fieldName) && currentValue !== '' && currentValue != 0) {
                             const num = parseSpanishNum(currentValue);
-                            currentValue = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: (num % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(num);
+                            currentValue = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (num % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(num) + '€';
                         }
                         td.innerHTML = currentValue;
                     }
@@ -4107,7 +4223,7 @@
                     } else if (ev.key === 'Escape') {
                         if (camposMoneda.includes(fieldName) && currentValue !== '' && currentValue != 0) {
                             const num = parseSpanishNum(currentValue);
-                            currentValue = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: (num % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(num);
+                            currentValue = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (num % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(num) + '€';
                         }
                         td.innerHTML = currentValue;
                     }
