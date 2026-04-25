@@ -256,6 +256,20 @@
             });
         };
 
+        window._borrarTodasOfertas = async function() {
+            const snap = await getDocs(collection(db, 'ofertas'));
+            if (snap.size === 0) { console.log('No hay ofertas en la base de datos.'); return; }
+            const answer = prompt(`⚠️ Se borrarán TODAS las ${snap.size} ofertas. Escribe CONFIRMAR para continuar:`);
+            if (answer !== 'CONFIRMAR') { console.log('Cancelado.'); return; }
+            let b = writeBatch(db); let n = 0;
+            snap.forEach(d => {
+                b.delete(d.ref); n++;
+                if (n % 500 === 0) { b.commit(); b = writeBatch(db); }
+            });
+            await b.commit();
+            console.log(`✅ ${snap.size} ofertas eliminadas.`);
+        };
+
         window._borrarOfertas2026 = async function() {
             const snap = await getDocs(collection(db, 'ofertas'));
             const toDelete = [];
