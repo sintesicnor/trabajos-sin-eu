@@ -273,16 +273,18 @@
         window._borrarOfertas2026 = async function() {
             const snap = await getDocs(collection(db, 'ofertas'));
             const toDelete = [];
+            let logged = 0;
             snap.forEach(d => {
                 const data = d.data();
-                // num_gestiona is deleted from doc data and stored as the doc ID
                 const docIdStr = String(d.id || '');
                 const fg = String(data.fecha_oferta || '');
                 const yearId = docIdStr.match(/(\d{4})/)?.[1];
                 const yearFecha = fg.match(/(\d{4})/)?.[1];
                 const year = parseInt(yearId || yearFecha || '0');
+                if (logged < 5) { console.log('DEBUG borrar →', docIdStr, '| yearId:', yearId, '| yearFecha:', yearFecha, '| year:', year); logged++; }
                 if (year === 2026) toDelete.push(d.ref);
             });
+            console.log('Total a borrar:', toDelete.length, '/ total en BD:', snap.size);
             if (toDelete.length === 0) { console.log('No hay ofertas de 2026.'); return; }
             const answer = prompt(`Se borrarán ${toDelete.length} ofertas de 2026. Escribe CONFIRMAR para continuar:`);
             if (answer !== 'CONFIRMAR') { console.log('Cancelado.'); return; }
