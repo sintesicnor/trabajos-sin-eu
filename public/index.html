@@ -204,6 +204,7 @@
         // Arrays globales listados
         let listaServicios = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
         let listaTiposServicio = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
+        let _sincronizarCabecerasTecnicos = () => {};
         let listaTecnicos = [
             { nombre: "Torralba García, Tomás", acronimo: "TTG", nombre_pila: "Tomás" },
             { nombre: "Mendia Rezola, Jokin", acronimo: "JMR", nombre_pila: "Jokin" },
@@ -1120,6 +1121,7 @@
             });
         });
         async function cargarProduccion() {
+            _sincronizarCabecerasTecnicos();
             try {
                 const colName = isVistaHistorico ? "historico_produccion" : "produccion";
                 const querySnapshot = await getDocs(collection(db, colName));
@@ -3034,11 +3036,18 @@
                 });
             }
 
+            function _getThOriginalText(th) {
+                const span = th.querySelector('[data-original-text]');
+                return span ? span.dataset.originalText : th.textContent.trim();
+            }
+
             function inyectarColumnasDinamicas() {
                 const theadTr = document.querySelector('#view-produccion thead tr');
                 if (!theadTr || theadTr.dataset.injected) return;
 
-                let targetTh = Array.from(theadTr.children).find(th => th.textContent.includes('Total Hrs Hist.'));
+                let targetTh = Array.from(theadTr.children).find(th =>
+                    _getThOriginalText(th).includes('Total Hrs Hist.')
+                );
                 if (!targetTh) return;
 
                 const crearTh = (texto, title) => {
@@ -3069,20 +3078,37 @@
             function reinjectarColumnasDinamicas() {
                 const theadTr = document.querySelector('#view-produccion thead tr');
                 if (!theadTr) return;
-                const getOrigTxt = (th) => {
-                    const span = th.querySelector('[data-original-text]');
-                    return span ? span.dataset.originalText : th.textContent.trim();
-                };
                 let afterHist = false;
                 const toRemove = [];
                 Array.from(theadTr.children).forEach(th => {
-                    if (getOrigTxt(th).includes('Total Hrs Hist.')) { afterHist = true; return; }
-                    if (afterHist && getOrigTxt(th) === 'Fecha AP') { afterHist = false; return; }
+                    const t = _getThOriginalText(th);
+                    if (t.includes('Total Hrs Hist.')) { afterHist = true; return; }
+                    if (afterHist && t === 'Fecha AP') { afterHist = false; return; }
                     if (afterHist) toRemove.push(th);
                 });
                 toRemove.forEach(th => th.remove());
                 theadTr.dataset.injected = '';
                 inyectarColumnasDinamicas();
+            }
+
+            _sincronizarCabecerasTecnicos = function() {
+                const theadTr = document.querySelector('#view-produccion thead tr');
+                if (!theadTr) return;
+                const expectedLabels = listaTecnicos
+                    .filter(t => t.prod !== false)
+                    .map(t => (preferenciaTecnicos === 'nombre_pila' && t.nombre_pila) ? t.nombre_pila : t.acronimo);
+                const skipSet = new Set(['Total Horas', '% Uso', 'Total Hrs']);
+                const currentTechs = [];
+                let afterHist = false;
+                Array.from(theadTr.children).forEach(th => {
+                    const txt = _getThOriginalText(th);
+                    if (txt.includes('Total Hrs Hist.')) { afterHist = true; return; }
+                    if (afterHist && txt === 'Fecha AP') { afterHist = false; return; }
+                    if (afterHist && !skipSet.has(txt)) currentTechs.push(txt);
+                });
+                const matches = currentTechs.length === expectedLabels.length &&
+                    currentTechs.every((t, i) => t === expectedLabels[i]);
+                if (!matches) reinjectarColumnasDinamicas();
             }
 
             async function initAppContent() {
