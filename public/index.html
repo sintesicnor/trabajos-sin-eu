@@ -245,6 +245,15 @@
 
         // ── Utilidad admin: borrar todas las ofertas de 2026 desde consola ──
         // Uso: await window._borrarOfertas2026()
+        window._borrarOfertasPorId = async function(...ids) {
+            if (!ids.length) { console.log('Uso: _borrarOfertasPorId("id1", "id2", ...)'); return; }
+            const answer = prompt(`Se borrarán ${ids.length} oferta(s):\n${ids.join('\n')}\n\nEscribe CONFIRMAR para continuar:`);
+            if (answer !== 'CONFIRMAR') { console.log('Cancelado.'); return; }
+            for (const id of ids) {
+                await deleteDoc(doc(db, 'ofertas', id));
+                console.log(`✅ Borrada: ${id}`);
+            }
+        };
         window._debugOfertas = async function(n = 20) {
             const snap = await getDocs(collection(db, 'ofertas'));
             console.log(`Total ofertas en BD: ${snap.size}`);
