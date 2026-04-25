@@ -275,13 +275,12 @@
             const toDelete = [];
             snap.forEach(d => {
                 const data = d.data();
+                // num_gestiona is deleted from doc data and stored as the doc ID
+                const docIdStr = String(d.id || '');
                 const fg = String(data.fecha_oferta || '');
-                const ng = String(data.num_gestiona || '');
-                const ano = String(data.año || data.anyo || data.year || '');
+                const yearId = docIdStr.match(/(\d{4})/)?.[1];
                 const yearFecha = fg.match(/(\d{4})/)?.[1];
-                const yearId = ng.match(/(\d{4})/)?.[1];
-                const yearCampo = ano.match(/(\d{4})/)?.[1];
-                const year = parseInt(yearFecha || yearId || yearCampo || '0');
+                const year = parseInt(yearId || yearFecha || '0');
                 if (year === 2026) toDelete.push(d.ref);
             });
             if (toDelete.length === 0) { console.log('No hay ofertas de 2026.'); return; }
