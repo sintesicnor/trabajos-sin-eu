@@ -3078,13 +3078,25 @@
             function reinjectarColumnasDinamicas() {
                 const theadTr = document.querySelector('#view-produccion thead tr');
                 if (!theadTr) return;
-                let afterHist = false;
+
+                // Build set of ALL possible tech labels (both acronimo and nombre_pila)
+                const techLabels = new Set();
+                listaTecnicos.forEach(t => {
+                    if (t.acronimo) techLabels.add(t.acronimo);
+                    if (t.nombre_pila) techLabels.add(t.nombre_pila);
+                });
+
+                let afterHist = false, pastFechaAP = false;
                 const toRemove = [];
                 Array.from(theadTr.children).forEach(th => {
                     const t = _getThOriginalText(th);
                     if (t.includes('Total Hrs Hist.')) { afterHist = true; return; }
-                    if (afterHist && t === 'Fecha AP') { afterHist = false; return; }
-                    if (afterHist) toRemove.push(th);
+                    if (afterHist && t === 'Fecha AP') { afterHist = false; pastFechaAP = true; return; }
+                    if (afterHist) { toRemove.push(th); return; }
+                    // Remove orphaned injected ths that applyColumnOrder may have moved past Fecha AP
+                    if (pastFechaAP && (techLabels.has(t) || t === 'Total Horas' || t === '% Uso')) {
+                        toRemove.push(th);
+                    }
                 });
                 toRemove.forEach(th => th.remove());
                 theadTr.dataset.injected = '';
@@ -3097,16 +3109,27 @@
                 const expectedLabels = listaTecnicos
                     .filter(t => t.prod !== false)
                     .map(t => (preferenciaTecnicos === 'nombre_pila' && t.nombre_pila) ? t.nombre_pila : t.acronimo);
+
+                const techLabels = new Set();
+                listaTecnicos.forEach(t => {
+                    if (t.acronimo) techLabels.add(t.acronimo);
+                    if (t.nombre_pila) techLabels.add(t.nombre_pila);
+                });
+
                 const skipSet = new Set(['Total Horas', '% Uso', 'Total Hrs']);
                 const currentTechs = [];
-                let afterHist = false;
+                let afterHist = false, pastFechaAP = false, hasOrphan = false;
                 Array.from(theadTr.children).forEach(th => {
                     const txt = _getThOriginalText(th);
                     if (txt.includes('Total Hrs Hist.')) { afterHist = true; return; }
-                    if (afterHist && txt === 'Fecha AP') { afterHist = false; return; }
-                    if (afterHist && !skipSet.has(txt)) currentTechs.push(txt);
+                    if (afterHist && txt === 'Fecha AP') { afterHist = false; pastFechaAP = true; return; }
+                    if (afterHist && !skipSet.has(txt)) { currentTechs.push(txt); return; }
+                    if (pastFechaAP && (techLabels.has(txt) || txt === 'Total Horas' || txt === '% Uso')) {
+                        hasOrphan = true;
+                    }
                 });
-                const matches = currentTechs.length === expectedLabels.length &&
+                const matches = !hasOrphan &&
+                    currentTechs.length === expectedLabels.length &&
                     currentTechs.every((t, i) => t === expectedLabels[i]);
                 if (!matches) reinjectarColumnasDinamicas();
             }
