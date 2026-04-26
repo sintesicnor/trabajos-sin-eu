@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.36</title>
+    <title>Proyectos SIN v1.37</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -5226,8 +5226,6 @@
             const errContainer = document.getElementById('partes-errores-tabla');
             if (!container) return;
 
-            const yearFilter = parseInt(document.getElementById('filt-partes-year')?.value || '2026', 10);
-            const minDate = new Date(2026, 0, 1);
             const yearSel = document.getElementById('filt-partes-year');
 
             if (!window._partesHorasData) {
@@ -5264,6 +5262,21 @@
             function parseFecha(raw) {
                 return parseFechaUniversal(raw);
             }
+
+            // Populate year filter from actual partes data (once)
+            if (yearSel && yearSel.options.length === 0) {
+                const pyears = new Set();
+                rawData.forEach(p => { const f = parseFecha(p.fecha); if (f) pyears.add(f.getFullYear()); });
+                if (pyears.size === 0) pyears.add(new Date().getFullYear());
+                [...pyears].sort().reverse().forEach(y => {
+                    const opt = document.createElement('option');
+                    opt.value = y; opt.textContent = y;
+                    if (y === new Date().getFullYear()) opt.selected = true;
+                    yearSel.appendChild(opt);
+                });
+            }
+            const yearFilter = parseInt(yearSel?.value || new Date().getFullYear(), 10);
+            const minDate = new Date(yearFilter, 0, 1);
 
             function getServicioLabel(obs) {
                 const match = (obs || '').trim().match(/^(\d{3,6})/);
@@ -5574,7 +5587,7 @@
                 }
             }
 
-            // Populate year filter
+            // Populate year filter (once)
             const yearSel = document.getElementById('filt-prod-carga-year');
             if (yearSel && yearSel.options.length === 0) {
                 const years = new Set();
@@ -5588,11 +5601,56 @@
                 });
             }
 
-            // Read multi-select filters
             const selYears = Array.from(document.getElementById('filt-prod-carga-year')?.selectedOptions || []).map(o => parseInt(o.value));
-            const selMonths = Array.from(document.getElementById('filt-prod-carga-month')?.selectedOptions || []).map(o => parseInt(o.value));
             const filtYears = selYears.length > 0 ? selYears : [curYear];
+
+            // Populate month filter with only months that have fecha_ap data in the selected years
+            const monthSel = document.getElementById('filt-prod-carga-month');
+            if (monthSel) {
+                const MESES_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                const availMonths = new Set();
+                datosProduccionMemoria.forEach(p => {
+                    const f = parseFechaUniversal((p.fecha_ap || '').trim());
+                    if (!f) return;
+                    if (!filtYears.includes(f.getFullYear())) return;
+                    availMonths.add(f.getMonth() + 1);
+                });
+                const prevSel = new Set(Array.from(monthSel.selectedOptions).map(o => parseInt(o.value)));
+                monthSel.innerHTML = '';
+                [...availMonths].sort((a, b) => a - b).forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m; opt.textContent = MESES_SHORT[m - 1];
+                    if (prevSel.has(m)) opt.selected = true;
+                    monthSel.appendChild(opt);
+                });
+            }
+
+            const selMonths = Array.from(document.getElementById('filt-prod-carga-month')?.selectedOptions || []).map(o => parseInt(o.value));
             const filtMonths = selMonths.length > 0 ? selMonths : null;
+
+            // Helpers: determine how many months in the filter period are "billed"
+            // A month is billed when the current date is past the 6th working day (Mon–Fri) of the following month
+            function _getNthWD(y, mo, n) {
+                const d = new Date(y, mo - 1, 1);
+                let cnt = 0;
+                for (let i = 0; i < 35; i++) {
+                    const dow = d.getDay();
+                    if (dow >= 1 && dow <= 5) { cnt++; if (cnt === n) return new Date(d); }
+                    d.setDate(d.getDate() + 1);
+                }
+                return null;
+            }
+            function _isMesBilled(y, mo) {
+                const nm = mo === 12 ? 1 : mo + 1, ny = mo === 12 ? y + 1 : y;
+                const wd6 = _getNthWD(ny, nm, 6);
+                if (!wd6) return false;
+                const threshold = new Date(wd6); threshold.setDate(threshold.getDate() + 1);
+                const today = new Date(); today.setHours(0, 0, 0, 0);
+                return today >= threshold;
+            }
+            const monthsToEval = filtMonths ? filtMonths : [1,2,3,4,5,6,7,8,9,10,11,12];
+            let mesesFacturados = 0;
+            filtYears.forEach(y => { monthsToEval.forEach(m => { if (_isMesBilled(y, m)) mesesFacturados++; }); });
 
             function matchFilt(fecha) {
                 if (!fecha) return false;
@@ -5698,7 +5756,12 @@
 
                     const tooltip = 'Facturado: ' + fmtE.format(Math.round(d.facturado)) + '\\nPor facturar: ' + fmtE.format(Math.round(d.porFacturar)) + '\\nPendiente: ' + fmtE.format(Math.round(pendAmt));
 
-                    html += '<div style="margin-bottom:8px;" title="' + tooltip + '">';
+                    const factMesStr = (mesesFacturados > 0 && d.facturado > 0)
+                        ? fmtE.format(Math.round(d.facturado / mesesFacturados))
+                        : '—';
+
+                    html += '<div style="margin-bottom:8px;display:flex;align-items:center;gap:12px;" title="' + tooltip + '">';
+                    html += '<div style="flex:1;min-width:0;">';
                     html += '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:500;color:#1e293b;margin-bottom:3px;">';
                     html += '<span>' + d.label + '</span>';
                     html += '<span style="font-weight:400;font-size:12px;color:#64748b;">' + fmtE.format(Math.round(total)) + ' total</span>';
@@ -5718,7 +5781,13 @@
                         html += '<div style="height:100%;width:' + pctPend + '%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;overflow:hidden;white-space:nowrap;min-width:0;">' + lbl + '</div>';
                     }
 
-                    html += '</div></div>';
+                    html += '</div>';  // close bar
+                    html += '</div>';  // close flex:1 bar column
+                    html += '<div style="width:80px;text-align:right;flex-shrink:0;">';
+                    html += '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px;">Fact/mes</div>';
+                    html += '<div style="font-size:13px;font-weight:600;color:#10b981;">' + factMesStr + '</div>';
+                    html += '</div>';
+                    html += '</div>';  // close outer row
                 });
 
                 if (cargaKeys.length === 0) html += '<p style="color:#64748b;font-size:13px;">No hay datos para el periodo seleccionado.</p>';
@@ -6187,13 +6256,25 @@
                 }
             }
 
-            // Populate tech filter
+            // Populate tech filter with only techs that have ANUAL/PUNTUAL billed data
             const tecSel = document.getElementById('filt-mensual-tec');
-            if (tecSel && tecSel.options.length === 0) {
-                listaTecnicos.forEach(t => {
+            if (tecSel) {
+                const tecsWithData = new Set();
+                datosProduccionMemoria.forEach(p => {
+                    const tipoExp = (p.tipo_expediente || '').trim().toUpperCase();
+                    if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                    if (!(p.fecha_ap || '').trim()) return;
+                    const tecField = (p.ejecutor_t1 || p.responsable_g || '').trim();
+                    const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
+                    if (tec) tecsWithData.add(tec.acronimo);
+                });
+                const prevSel = new Set(Array.from(tecSel.selectedOptions).map(o => o.value));
+                tecSel.innerHTML = '';
+                listaTecnicos.filter(t => tecsWithData.has(t.acronimo)).forEach(t => {
                     const opt = document.createElement('option');
                     opt.value = t.acronimo;
                     opt.textContent = t.nombre_pila || t.acronimo;
+                    if (prevSel.has(t.acronimo)) opt.selected = true;
                     tecSel.appendChild(opt);
                 });
             }
@@ -9213,11 +9294,7 @@
                                     <select id="filt-prod-carga-year" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;min-height:36px;"></select>
                                 </div>
                                 <div class="filter-group"><label>Mes</label>
-                                    <select id="filt-prod-carga-month" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;min-height:36px;">
-                                        <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option>
-                                        <option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option>
-                                        <option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
-                                    </select>
+                                    <select id="filt-prod-carga-month" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;min-height:36px;"></select>
                                 </div>
                                 <button id="btn-update-productividad" class="btn-primary" style="height: 36px;">Aplicar</button>
                                 <button id="btn-clear-productividad" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar filtros</button>
@@ -9246,9 +9323,7 @@
                     <div id="panel-dash-partes" style="display: none;">
                         <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label>
-                                <select id="filt-partes-year" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;">
-                                    <option value="2026" selected>2026</option>
-                                </select>
+                                <select id="filt-partes-year" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;"></select>
                             </div>
                             <button id="btn-update-dash-partes" class="btn-primary" style="height: 38px;">Aplicar</button>
                         </div>
