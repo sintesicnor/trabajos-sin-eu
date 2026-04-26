@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.30</title>
+    <title>Proyectos SIN v1.31</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -7061,57 +7061,123 @@
             }
         }
 
-        async function _mostrarDetalleHistorial(data) {
-            const panel = document.getElementById('historial-detalle-panel');
-            const contenido = document.getElementById('historial-detalle-contenido');
-            if (!panel || !contenido) return;
+        function _mostrarDetalleHistorial(data) {
+            const modal = document.getElementById('modal-historial-diff');
+            if (!modal) return;
 
-            panel.style.display = 'block';
-            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            contenido.innerHTML = '<p style="color:#64748b;font-size:13px;">Cargando...</p>';
+            // Título
+            document.getElementById('modal-diff-title').textContent =
+                `Campo "${data.campo}":  "${data.valorAnterior}"  →  "${data.valorNuevo}"`;
+            document.getElementById('modal-diff-subtitle').textContent =
+                `${data.coleccion} · ${data.docId}`;
 
-            // Cabecera: campo modificado
-            let html = `
-                <div style="font-size:12px; color:#64748b; margin-bottom:10px;">${data.coleccion} · <strong>${data.docId}</strong></div>
-                <div style="font-size:12px; color:#475569; margin-bottom:10px;">Campo: <strong>${data.campo}</strong></div>
-                <div style="display:flex; gap:10px; margin-bottom:14px;">
-                    <div style="flex:1; background:#fef2f2; border:1px solid #fca5a5; border-radius:4px; padding:10px;">
-                        <div style="font-size:10px; font-weight:700; color:#ef4444; margin-bottom:4px;">ANTES</div>
-                        <div style="font-size:13px; word-break:break-word;">${data.valorAnterior}</div>
-                    </div>
-                    <div style="flex:1; background:#f0fdf4; border:1px solid #86efac; border-radius:4px; padding:10px;">
-                        <div style="font-size:10px; font-weight:700; color:#10b981; margin-bottom:4px;">DESPUÉS</div>
-                        <div style="font-size:13px; word-break:break-word;">${data.valorNuevo}</div>
-                    </div>
-                </div>`;
+            const antesEl   = document.getElementById('modal-diff-antes');
+            const despuesEl = document.getElementById('modal-diff-despues');
+            antesEl.innerHTML   = '<p style="padding:12px;color:#64748b;font-size:13px;">Buscando fila en la tabla…</p>';
+            despuesEl.innerHTML = '<p style="padding:12px;color:#64748b;font-size:13px;">Buscando fila en la tabla…</p>';
+            modal.style.display = 'flex';
 
-            contenido.innerHTML = html + '<p style="color:#64748b;font-size:12px;">Cargando estado actual del registro...</p>';
+            // Encontrar la tabla en el DOM
+            const tableSelector = data.coleccion === 'produccion'
+                ? '#view-produccion .data-table'
+                : '#view-ofertas .data-table';
+            const table = document.querySelector(tableSelector);
 
-            // Cargar el documento actual desde Firestore
-            try {
-                const snap = await getDoc(doc(db, data.coleccion, data.docId));
-                if (snap.exists()) {
-                    const fields = snap.data();
-                    const skipFields = new Set(['_usuario_edicion', '_timestamp']);
-                    let tableHtml = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-                    Object.entries(fields).forEach(([k, v]) => {
-                        if (k.startsWith('_') || skipFields.has(k)) return;
-                        const isChanged = k === data.campo;
-                        const bg = isChanged ? '#fef3c7' : 'transparent';
-                        const valStr = (v === null || v === undefined) ? '-' : String(v);
-                        tableHtml += `<tr style="background:${bg}; border-bottom:1px solid #f1f5f9;">
-                            <td style="padding:4px 6px; font-weight:600; color:#475569; width:45%; word-break:break-word;">${k}</td>
-                            <td style="padding:4px 6px; word-break:break-word;">${valStr || '-'}</td>
-                        </tr>`;
-                    });
-                    tableHtml += '</table>';
-                    contenido.innerHTML = html + '<div style="font-size:11px;color:#64748b;margin-bottom:6px;">Estado actual del registro (campo modificado en amarillo):</div>' + tableHtml;
-                } else {
-                    contenido.innerHTML = html + '<p style="color:#94a3b8;font-size:12px;">El registro ya no existe en la colección.</p>';
-                }
-            } catch (e) {
-                contenido.innerHTML = html + '<p style="color:#ef4444;font-size:12px;">No se pudo cargar el registro actual.</p>';
+            if (!table) {
+                const msg = `<p style="padding:12px;color:#64748b;font-size:13px;">
+                    La tabla de <em>${data.coleccion}</em> no está cargada. Ábrela primero.
+                </p>`;
+                antesEl.innerHTML = msg;
+                despuesEl.innerHTML = msg;
+                return;
             }
+
+            // Localizar la fila objetivo y 2 filas de contexto arriba/abajo
+            const allRows = Array.from(table.querySelectorAll('tbody tr'));
+            const targetIdx = allRows.findIndex(tr => tr.dataset.id === data.docId);
+
+            if (targetIdx === -1) {
+                const msg = `<p style="padding:12px;color:#64748b;font-size:13px;">
+                    La fila no está visible (puede estar filtrada o archivada).
+                </p>`;
+                antesEl.innerHTML = msg;
+                despuesEl.innerHTML = msg;
+                return;
+            }
+
+            // Índice de la columna del campo modificado (por data-field en las celdas)
+            const targetRow = allRows[targetIdx];
+            const tdsTarget = Array.from(targetRow.querySelectorAll('td'));
+            const fieldColIdx = tdsTarget.findIndex(td => td.dataset.field === data.campo);
+
+            const ctxStart = Math.max(0, targetIdx - 2);
+            const ctxEnd   = Math.min(allRows.length - 1, targetIdx + 2);
+            const ctxRows  = allRows.slice(ctxStart, ctxEnd + 1);
+            const rowOffsetInCtx = targetIdx - ctxStart;
+
+            // Clonar el thead eliminando controles interactivos (filtros, resizers)
+            function cloneThead() {
+                const cloned = table.querySelector('thead').cloneNode(true);
+                cloned.querySelectorAll('.header-filter-popup, .col-resizer, .header-filter-icon').forEach(el => el.remove());
+                cloned.querySelectorAll('input[type="checkbox"]').forEach(el => el.remove());
+                cloned.querySelectorAll('th').forEach(th => {
+                    const span = th.querySelector('[data-original-text]');
+                    if (span) th.textContent = span.dataset.originalText;
+                    th.style.cssText = 'padding:6px 8px; font-size:12px; font-weight:600; background:#f1f5f9; color:#334155; white-space:nowrap; border-bottom:1px solid #e2e8f0;';
+                });
+                return cloned;
+            }
+
+            // Construir una versión ANTES o DESPUÉS de las filas de contexto
+            function buildSection(isAntes) {
+                const t = document.createElement('table');
+                t.style.cssText = 'border-collapse:collapse; font-size:12px; white-space:nowrap;';
+                t.appendChild(cloneThead());
+
+                const tbody = document.createElement('tbody');
+                ctxRows.forEach((row, idx) => {
+                    const cloned = row.cloneNode(true);
+                    const isTarget = idx === rowOffsetInCtx;
+
+                    // Limpiar controles interactivos clonados
+                    cloned.querySelectorAll('button').forEach(b => b.remove());
+                    cloned.querySelectorAll('input[type="checkbox"]').forEach(c => c.remove());
+
+                    if (isTarget) {
+                        cloned.style.background = isAntes ? '#fff1f2' : '#f0fdf4';
+                        if (fieldColIdx >= 0) {
+                            const cell = cloned.querySelectorAll('td')[fieldColIdx];
+                            if (cell) {
+                                const val = isAntes ? data.valorAnterior : data.valorNuevo;
+                                cell.textContent = val === '-' ? '' : val;
+                                cell.style.background    = isAntes ? '#fca5a5' : '#86efac';
+                                cell.style.fontWeight    = '700';
+                                cell.style.outline       = isAntes
+                                    ? '2px solid #ef4444'
+                                    : '2px solid #10b981';
+                            }
+                        }
+                    } else {
+                        cloned.style.opacity = '0.55';
+                    }
+
+                    // Estilo de celdas
+                    cloned.querySelectorAll('td').forEach(td => {
+                        td.style.padding     = td.style.padding || '5px 8px';
+                        td.style.borderBottom = '1px solid #f1f5f9';
+                    });
+
+                    tbody.appendChild(cloned);
+                });
+
+                t.appendChild(tbody);
+                return t;
+            }
+
+            antesEl.innerHTML   = '';
+            despuesEl.innerHTML = '';
+            antesEl.appendChild(buildSection(true));
+            despuesEl.appendChild(buildSection(false));
         }
 
         // Evento global para botón Deshacer (última acción)
@@ -7196,6 +7262,14 @@
             document.getElementById('btn-cerrar-detalle-historial')?.addEventListener('click', () => {
                 const p = document.getElementById('historial-detalle-panel');
                 if (p) p.style.display = 'none';
+            });
+
+            // Cerrar modal diff de historial
+            document.getElementById('btn-cerrar-modal-diff')?.addEventListener('click', () => {
+                document.getElementById('modal-historial-diff').style.display = 'none';
+            });
+            document.getElementById('modal-historial-diff')?.addEventListener('click', (e) => {
+                if (e.target === e.currentTarget) e.currentTarget.style.display = 'none';
             });
 
             // ===================================
@@ -9703,6 +9777,29 @@
     </aside>
 
     </main>
+    </div>
+
+    <!-- Modal Histórico Diff: muestra las filas reales de la tabla antes/después del cambio -->
+    <div id="modal-historial-diff" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:10000; justify-content:center; align-items:center;">
+        <div style="background:#fff; border-radius:10px; padding:24px; max-width:94vw; max-height:88vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 24px 64px rgba(0,0,0,0.25); min-width:360px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; flex-shrink:0; gap:16px;">
+                <div>
+                    <div id="modal-diff-title" style="font-size:14px; font-weight:700; color:#0f172a;"></div>
+                    <div id="modal-diff-subtitle" style="font-size:12px; color:#64748b; margin-top:3px;"></div>
+                </div>
+                <button id="btn-cerrar-modal-diff" style="flex-shrink:0; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; cursor:pointer; font-size:13px; color:#475569; padding:6px 12px; white-space:nowrap;">✕ Cerrar</button>
+            </div>
+            <div style="overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+                <div>
+                    <div style="font-size:11px; font-weight:700; color:#ef4444; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.05em;">▲ Antes del cambio</div>
+                    <div id="modal-diff-antes" style="overflow-x:auto; border:2px solid #fca5a5; border-radius:6px;"></div>
+                </div>
+                <div>
+                    <div style="font-size:11px; font-weight:700; color:#10b981; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.05em;">▼ Estado actual</div>
+                    <div id="modal-diff-despues" style="overflow-x:auto; border:2px solid #86efac; border-radius:6px;"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Modal Aceptar Oferta -->
