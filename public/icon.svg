@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Top-left bracket -->
+  <rect x="0" y="0" width="24" height="10" fill="#2B7AAF"/>
+  <rect x="0" y="0" width="10" height="24" fill="#2B7AAF"/>
+  <!-- Top-right bracket -->
+  <rect x="76" y="0" width="24" height="10" fill="#2B7AAF"/>
+  <rect x="90" y="0" width="10" height="24" fill="#2B7AAF"/>
+  <!-- Bottom-left bracket -->
+  <rect x="0" y="90" width="24" height="10" fill="#2B7AAF"/>
+  <rect x="0" y="76" width="10" height="24" fill="#2B7AAF"/>
+  <!-- Bottom-right bracket -->
+  <rect x="76" y="90" width="24" height="10" fill="#2B7AAF"/>
+  <rect x="90" y="76" width="10" height="24" fill="#2B7AAF"/>
+  <!-- Orange center square -->
+  <rect x="22" y="22" width="56" height="56" fill="#F5A000"/>
+</svg>
