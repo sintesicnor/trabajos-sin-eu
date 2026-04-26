@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.31</title>
+    <title>Proyectos SIN v1.32</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -1737,9 +1737,8 @@
                         );
                     }
                     const _colIdxDate = Array.from(th.parentNode.children).indexOf(th);
-                    const isDateYearMonthFilter = !isOfertasTable &&
-                        (originalText === 'Fecha AP' || originalText === 'Fecha AR');
-                    const isNoFilter = !isDateYearMonthFilter && (isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t)));
+                    const isDateYearMonthFilter = originalText.toLowerCase().startsWith('fecha');
+                    const isNoFilter = isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t));
 
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
 
@@ -8450,6 +8449,7 @@
             font-weight: normal;
             text-transform: none;
             min-width: 150px;
+            text-align: left;
         }
 
         .filter-popup input {
