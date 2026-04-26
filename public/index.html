@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.35</title>
+    <title>Proyectos SIN v1.36</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -1637,8 +1637,10 @@
                                     if (parts.length === 3 && parts[2].length === 4) {
                                         const ym = `${parts[2]}-${parts[1].padStart(2, '0')}`;
                                         if (!filterVal.includes(ym)) show = false;
+                                    } else {
+                                        // Empty or unparseable date: hide when a date filter is active
+                                        show = false;
                                     }
-                                    // rows with empty/unparseable date are not filtered out
                                 } else {
                                 // Comparación case-insensitive + resolución de acrónimos de técnicos
                                 const rawUpper = rawText.toUpperCase();
@@ -8469,6 +8471,14 @@
             text-transform: none;
             min-width: 150px;
             text-align: left;
+        }
+
+        /* Force left-alignment inside all filter popup labels —
+           th elements have browser-default text-align:center which
+           bleeds into anonymous text nodes inside flex labels. */
+        .filter-popup label {
+            text-align: left;
+            justify-content: flex-start;
         }
 
         .filter-popup input {
