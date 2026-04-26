@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.28</title>
+    <title>Proyectos SIN v1.29</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -6960,7 +6960,23 @@
             const tbodyHistorial = document.getElementById('tbody-historial');
             if (!tbodyHistorial) return;
 
-            tbodyHistorial.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">Cargando historial...</td></tr>';
+            tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">Cargando historial...</td></tr>';
+
+            // Reset detalle y selección
+            const detallePanel = document.getElementById('historial-detalle-panel');
+            if (detallePanel) detallePanel.style.display = 'none';
+            const btnRestaurarSel = document.getElementById('btn-restaurar-seleccionados');
+            if (btnRestaurarSel) { btnRestaurarSel.style.display = 'none'; btnRestaurarSel.textContent = 'Restaurar (0)'; }
+            const checkAll = document.getElementById('check-historial-all');
+            if (checkAll) checkAll.checked = false;
+
+            function _actualizarBotonRestaurar() {
+                const checks = tbodyHistorial.querySelectorAll('input[type="checkbox"]:checked');
+                if (btnRestaurarSel) {
+                    btnRestaurarSel.style.display = checks.length > 0 ? 'inline-block' : 'none';
+                    btnRestaurarSel.textContent = `Restaurar (${checks.length})`;
+                }
+            }
 
             try {
                 // Últimos 30 días
@@ -6972,7 +6988,7 @@
                 const snapshot = await getDocs(q);
 
                 if (snapshot.empty) {
-                    tbodyHistorial.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b;">No hay registros recientes.</td></tr>';
+                    tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">No hay registros recientes.</td></tr>';
                     return;
                 }
 
@@ -6980,33 +6996,54 @@
                 snapshot.forEach(docSnap => {
                     const data = docSnap.data();
                     const tr = document.createElement('tr');
+                    tr.style.cursor = 'pointer';
 
                     const fechaObj = new Date(data.fecha);
                     const fechaFormat = fechaObj.toLocaleDateString('es-ES') + ' ' + fechaObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-                    tr.innerHTML = `
-                        <td>${fechaFormat}</td>
-                        <td>${data.usuario || ''}</td>
-                        <td style="text-transform: capitalize;">${data.coleccion}</td>
-                        <td>${data.docId}</td>
-                        <td>${data.campo}</td>
-                        <td style="color: #ef4444; text-decoration: line-through;">${data.valorAnterior}</td>
-                        <td style="color: #10b981;">${data.valorNuevo}</td>
-                        <td style="text-align: center;">
-                            <button class="btn-restaurar-historial" data-id="${docSnap.id}" style="padding: 4px 8px; font-size: 12px; background-color: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer;">Restaurar</button>
-                        </td>
-                    `;
+                    // Celda de checkbox
+                    const tdCheck = document.createElement('td');
+                    tdCheck.style.cssText = 'padding: 6px 8px; text-align: center; width: 32px;';
+                    const chk = document.createElement('input');
+                    chk.type = 'checkbox';
+                    chk.dataset.id = docSnap.id;
+                    chk.dataset.coleccion = data.coleccion;
+                    chk.dataset.docid = data.docId;
+                    chk.dataset.campo = data.campo;
+                    chk.dataset.valorAnterior = data.valorAnterior;
+                    tdCheck.appendChild(chk);
+                    tr.appendChild(tdCheck);
+                    chk.addEventListener('change', _actualizarBotonRestaurar);
+                    chk.addEventListener('click', e => e.stopPropagation());
+
+                    // Celdas de datos (resumidas en 3 columnas)
+                    const tdFecha = document.createElement('td');
+                    tdFecha.style.cssText = 'padding: 6px 8px; font-size: 12px;';
+                    tdFecha.innerHTML = `<div style="font-weight:600;">${fechaFormat}</div><div style="color:#64748b;font-size:11px;">${data.coleccion} · ${data.docId}</div>`;
+                    tr.appendChild(tdFecha);
+
+                    const tdUsuario = document.createElement('td');
+                    tdUsuario.style.cssText = 'padding: 6px 8px; font-size: 12px; color:#475569;';
+                    tdUsuario.textContent = (data.usuario || '').split('@')[0];
+                    tr.appendChild(tdUsuario);
+
+                    const tdMod = document.createElement('td');
+                    tdMod.style.cssText = 'padding: 6px 8px; font-size: 12px;';
+                    tdMod.innerHTML = `<span style="font-weight:600;">${data.campo}</span><br><span style="color:#ef4444;text-decoration:line-through;">${data.valorAnterior}</span> → <span style="color:#10b981;">${data.valorNuevo}</span>`;
+                    tr.appendChild(tdMod);
+
                     tbodyHistorial.appendChild(tr);
 
-                    tr.querySelector('.btn-restaurar-historial').addEventListener('click', async () => {
+                    // Restaurar individual (click en fila abre detalle; doble click restaura)
+                    tr.addEventListener('click', () => _mostrarDetalleHistorial(data));
+                    tr.addEventListener('dblclick', async (e) => {
+                        e.stopPropagation();
                         if (confirm(`¿Restaurar el campo '${data.campo}' al valor anterior ('${data.valorAnterior}')?`)) {
                             try {
                                 await updateDoc(doc(db, data.coleccion, data.docId), {
                                     [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior,
                                     _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
                                 });
-                                // No borramos el registro del historial: la Cloud Function registrará
-                                // la reversión automáticamente, manteniendo la traza completa (ISO 27001)
                                 alert("Valor restaurado con éxito. La reversión quedará registrada en el historial.");
                                 cargarHistorial();
                                 if (data.coleccion === 'produccion') cargarProduccion();
@@ -7020,7 +7057,59 @@
 
             } catch (err) {
                 console.error("Error cargando historial: ", err);
-                tbodyHistorial.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #ef4444;">Error cargando historial</td></tr>';
+                tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #ef4444;">Error cargando historial</td></tr>';
+            }
+        }
+
+        async function _mostrarDetalleHistorial(data) {
+            const panel = document.getElementById('historial-detalle-panel');
+            const contenido = document.getElementById('historial-detalle-contenido');
+            if (!panel || !contenido) return;
+
+            panel.style.display = 'block';
+            contenido.innerHTML = '<p style="color:#64748b;font-size:13px;">Cargando...</p>';
+
+            // Cabecera: campo modificado
+            let html = `
+                <div style="font-size:12px; color:#64748b; margin-bottom:10px;">${data.coleccion} · <strong>${data.docId}</strong></div>
+                <div style="font-size:12px; color:#475569; margin-bottom:10px;">Campo: <strong>${data.campo}</strong></div>
+                <div style="display:flex; gap:10px; margin-bottom:14px;">
+                    <div style="flex:1; background:#fef2f2; border:1px solid #fca5a5; border-radius:4px; padding:10px;">
+                        <div style="font-size:10px; font-weight:700; color:#ef4444; margin-bottom:4px;">ANTES</div>
+                        <div style="font-size:13px; word-break:break-word;">${data.valorAnterior}</div>
+                    </div>
+                    <div style="flex:1; background:#f0fdf4; border:1px solid #86efac; border-radius:4px; padding:10px;">
+                        <div style="font-size:10px; font-weight:700; color:#10b981; margin-bottom:4px;">DESPUÉS</div>
+                        <div style="font-size:13px; word-break:break-word;">${data.valorNuevo}</div>
+                    </div>
+                </div>`;
+
+            contenido.innerHTML = html + '<p style="color:#64748b;font-size:12px;">Cargando estado actual del registro...</p>';
+
+            // Cargar el documento actual desde Firestore
+            try {
+                const snap = await getDoc(doc(db, data.coleccion, data.docId));
+                if (snap.exists()) {
+                    const fields = snap.data();
+                    const skipFields = new Set(['_usuario_edicion', '_timestamp']);
+                    let tableHtml = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+                    Object.entries(fields).forEach(([k, v]) => {
+                        if (k.startsWith('_') || skipFields.has(k)) return;
+                        const isChanged = k === data.campo;
+                        const bg = isChanged ? '#fef3c7' : 'transparent';
+                        const valStr = (v === null || v === undefined) ? '-' : String(v);
+                        tableHtml += `<tr style="background:${bg}; border-bottom:1px solid #f1f5f9;">
+                            <td style="padding:4px 6px; font-weight:600; color:#475569; width:45%; word-break:break-word;">${k}</td>
+                            <td style="padding:4px 6px; word-break:break-word;">${valStr || '-'}</td>
+                        </tr>`;
+                    });
+                    tableHtml += '</table>';
+                    contenido.innerHTML = html + '<div style="font-size:11px;color:#64748b;margin-bottom:6px;">Estado actual del registro (campo modificado en amarillo):</div>' + tableHtml;
+                } else {
+                    contenido.innerHTML = html + '<p style="color:#94a3b8;font-size:12px;">El registro ya no existe en la colección.</p>';
+                }
+            } catch (e) {
+                contenido.innerHTML = html + '<p style="color:#ef4444;font-size:12px;">No se pudo cargar el registro actual.</p>';
             }
         }
 
@@ -7067,6 +7156,46 @@
             if (btnRefrescarHistorial) {
                 btnRefrescarHistorial.addEventListener('click', () => cargarHistorial());
             }
+
+            // Seleccionar todos / ninguno en historial
+            document.getElementById('check-historial-all')?.addEventListener('change', function() {
+                const checks = document.querySelectorAll('#tbody-historial input[type="checkbox"]');
+                checks.forEach(c => { c.checked = this.checked; });
+                const btnRest = document.getElementById('btn-restaurar-seleccionados');
+                if (btnRest) {
+                    const n = this.checked ? checks.length : 0;
+                    btnRest.style.display = n > 0 ? 'inline-block' : 'none';
+                    btnRest.textContent = `Restaurar (${n})`;
+                }
+            });
+
+            // Restaurar múltiples seleccionados
+            document.getElementById('btn-restaurar-seleccionados')?.addEventListener('click', async function() {
+                const checks = Array.from(document.querySelectorAll('#tbody-historial input[type="checkbox"]:checked'));
+                if (!checks.length) return;
+                if (!confirm(`¿Restaurar ${checks.length} campo(s) a sus valores anteriores?`)) return;
+                let ok = 0, err = 0;
+                for (const chk of checks) {
+                    try {
+                        const val = chk.dataset.valorAnterior;
+                        await updateDoc(doc(db, chk.dataset.coleccion, chk.dataset.docid), {
+                            [chk.dataset.campo]: val === '-' ? '' : val,
+                            _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
+                        });
+                        ok++;
+                    } catch (e) { err++; }
+                }
+                alert(`Restaurados: ${ok}${err ? ` · Errores: ${err}` : ''}`);
+                cargarHistorial();
+                cargarProduccion();
+                cargarOfertas();
+            });
+
+            // Cerrar panel de detalle de historial
+            document.getElementById('btn-cerrar-detalle-historial')?.addEventListener('click', () => {
+                const p = document.getElementById('historial-detalle-panel');
+                if (p) p.style.display = 'none';
+            });
 
             // ===================================
             // Panel de Permisos por Rol
@@ -9539,8 +9668,8 @@
         style="width: 33.33%; min-width: 400px; border-left: 1px solid #e2e8f0; display: none; overflow-y: auto; padding-left: 24px; padding-right: 12px; margin-right: -12px;">
         <div
             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; position: sticky; top: 0; background: #f8fafc; padding-top: 0px; z-index: 20; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-            <h2 class="config-section-title" style="margin-bottom: 0; border: none; padding: 0;">Histórico de Cambios
-            </h2>
+            <h2 class="config-section-title" style="margin-bottom: 0; border: none; padding: 0; white-space: nowrap;">Histórico de Cambios</h2>
+            <button id="btn-restaurar-seleccionados" class="btn-secondary" style="display:none; padding: 4px 10px; margin-right: 6px; font-size: 12px; background:#f59e0b; color:#fff; border:none; border-radius:4px; cursor:pointer;">Restaurar (0)</button>
             <button id="btn-refrescar-historial" class="btn-secondary"
                 style="padding: 6px 12px; margin-right: 8px;">Refrescar</button>
             <button id="btn-close-history" style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;" title="Cerrar historial">&#9650;</button>
@@ -9549,20 +9678,26 @@
             <table class="data-table" style="min-width: 100%; border-collapse: collapse;">
                 <thead style="background: #f1f5f9; position: sticky; top: 0; box-shadow: 0 1px 0 #e2e8f0; z-index: 10;">
                     <tr>
-                        <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Fecha / Info
-                        </th>
+                        <th style="padding: 8px; width: 32px; text-align: center;"><input type="checkbox" id="check-historial-all" title="Seleccionar todos"></th>
+                        <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Fecha / Info</th>
                         <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Usuario</th>
-                        <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Modificación
-                        </th>
+                        <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Modificación</th>
                     </tr>
                 </thead>
                 <tbody id="tbody-historial">
                     <tr>
-                        <td colspan="3" style="padding: 12px; text-align: center; color: #64748b;">Cargando historial...
-                        </td>
+                        <td colspan="4" style="padding: 12px; text-align: center; color: #64748b;">Cargando historial...</td>
                     </tr>
                 </tbody>
             </table>
+        </div>
+        <!-- Panel de detalle de cambio (se muestra al hacer clic en una fila) -->
+        <div id="historial-detalle-panel" style="display:none; margin-top:16px; background:#fff; border:1px solid #e2e8f0; border-radius:6px; padding:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span style="font-size:13px; font-weight:600; color:#0f172a;">Detalle del cambio</span>
+                <button id="btn-cerrar-detalle-historial" style="background:none; border:none; cursor:pointer; font-size:16px; color:#94a3b8;">&#10005;</button>
+            </div>
+            <div id="historial-detalle-contenido"></div>
         </div>
     </aside>
 
