@@ -2463,18 +2463,19 @@
 
                     if (prefs.orden_columnas) {
                         Object.keys(prefs.orden_columnas).forEach(tblId => {
-                            const order = prefs.orden_columnas[tblId];
-                            // For the production table, discard stale orders that are missing
-                            // any current prod tech (prevents applyColumnOrder from moving
-                            // Fecha AP before newly-added tech columns, which causes misalignment)
+                            let order = prefs.orden_columnas[tblId];
+                            // For the production table, strip any dynamically-injected labels
+                            // from the stored order before writing to localStorage.
+                            // This ensures that even a previously-saved wrong order (e.g. with
+                            // Fecha AP before the inject zone) cannot displace Harold or other
+                            // tech columns when applyColumnOrder runs.
                             if (tblId === 'table-produccion') {
-                                const prodTechs = listaTecnicos.filter(t => t.prod !== false);
-                                const orderSet = new Set(order);
-                                const allRepresented = prodTechs.every(t =>
-                                    (t.acronimo && orderSet.has(t.acronimo)) ||
-                                    (t.nombre_pila && orderSet.has(t.nombre_pila))
-                                );
-                                if (!allRepresented) return; // skip stale order
+                                const injected = new Set(['Total Horas', '% Uso']);
+                                listaTecnicos.forEach(t => {
+                                    if (t.acronimo) injected.add(t.acronimo);
+                                    if (t.nombre_pila) injected.add(t.nombre_pila);
+                                });
+                                order = order.filter(label => !injected.has(label));
                             }
                             localStorage.setItem('gestor_col_order_' + tblId, JSON.stringify(order));
                         });
@@ -2533,11 +2534,24 @@
             if (!tblId) return;
 
             const ths = Array.from(table.querySelectorAll('thead th'));
-            // Save the current textual headers in visual order
-            const order = ths.map(th => {
+            let order = ths.map(th => {
                 const span = th.querySelector('span');
                 return span ? span.textContent.trim() : th.textContent.trim();
             });
+
+            // For the production table, never persist dynamically-injected column
+            // labels (tech hours, Total Horas, % Uso). They are always rebuilt by
+            // inyectarColumnasDinamicas at a fixed position and must not enter the
+            // saved order or they will corrupt column alignment on reload.
+            if (tblId === 'table-produccion') {
+                const injected = new Set(['Total Horas', '% Uso']);
+                listaTecnicos.forEach(t => {
+                    if (t.acronimo) injected.add(t.acronimo);
+                    if (t.nombre_pila) injected.add(t.nombre_pila);
+                });
+                order = order.filter(label => !injected.has(label));
+            }
+
             localStorage.setItem('gestor_col_order_' + tblId, JSON.stringify(order));
         }
 
@@ -2563,13 +2577,40 @@
                 const isOfertas = table.id === 'table-ofertas' || table.closest('#view-ofertas');
                 const pinnedArr = isOfertas ? pinnedColsOfer : pinnedColsProd;
 
+                // For the production table, build the set of dynamically-injected column
+                // labels. applyColumnOrder must never move these columns — they are always
+                // placed by inyectarColumnasDinamicas in a fixed zone after "Total Hrs Hist."
+                const isProdTable = (tblId === 'table-produccion');
+                const injectedSet = new Set();
+                if (isProdTable) {
+                    injectedSet.add('Total Horas');
+                    injectedSet.add('% Uso');
+                    listaTecnicos.forEach(t => {
+                        if (t.acronimo) injectedSet.add(t.acronimo);
+                        if (t.nombre_pila) injectedSet.add(t.nombre_pila);
+                    });
+                }
+
                 // Reorder THs
                 savedOrder.forEach((headerText, newIdx) => {
+                    // Never move dynamically-injected columns
+                    if (injectedSet.has(headerText)) return;
+
                     const currentThIdx = ths.findIndex(th => {
                         const span = th.querySelector('span');
                         const text = span ? span.textContent.trim() : th.textContent.trim();
                         return text === headerText;
                     });
+
+                    // Never move any column into a position currently occupied by an
+                    // injected column — this prevents a stale savedOrder (with Fecha AP
+                    // before the inject zone) from displacing Harold or other tech columns
+                    if (isProdTable && newIdx < ths.length) {
+                        const destTh = ths[newIdx];
+                        const destSpan = destTh ? destTh.querySelector('[data-original-text]') : null;
+                        const destText = destSpan ? destSpan.dataset.originalText : (destTh ? destTh.textContent.trim() : '');
+                        if (injectedSet.has(destText)) return;
+                    }
 
                     const isPinnedSrc = pinnedArr.includes(currentThIdx);
                     const isPinnedDst = pinnedArr.includes(newIdx);
