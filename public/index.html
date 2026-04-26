@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.34</title>
+    <title>Proyectos SIN v1.35</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -957,7 +957,7 @@
         document.getElementById('csv-import-ofertas')?.addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
-            if (!confirm('¿Importar ofertas desde "' + file.name + '"?\nSólo se actualizarán/crearán ofertas del año 2026. Los registros existentes de otros años no se modificarán.')) { this.value = ''; return; }
+            if (!confirm('¿Importar ofertas desde "' + file.name + '"?\nSe actualizarán/crearán las ofertas encontradas. Los registros existentes no se eliminarán.')) { this.value = ''; return; }
             try {
                 let rows;
                 const isExcel = /\.xlsx?$/i.test(file.name);
@@ -1083,9 +1083,6 @@
                         if (matchId) yearDetected = parseInt(matchId[1]);
                     }
 
-                    // Only import 2026 records
-                    if (yearDetected && yearDetected !== 2026) { skipped++; return; }
-
                     if (!docData.objeto && !docData.cliente && !docData.servicio && !docData.num_gestiona) return;
                     // Only set default estado for NEW records (merge:true preserves existing if not included)
                     // We only force 'En curso' if the CSV had no estado/aprobacion column at all
@@ -1093,15 +1090,16 @@
                     const esRegistroNuevo = !docData.num_gestiona;
                     if (esRegistroNuevo && !docData.estado) docData.estado = 'En curso';
 
-                    const docId = docData.num_gestiona || ('OFE-2026-' + Date.now() + '-' + count + '-' + Math.random().toString(36).substr(2, 4));
+                    const yearForId = yearDetected || new Date().getFullYear();
+                    const docId = docData.num_gestiona || ('OFE-' + yearForId + '-' + Date.now() + '-' + count + '-' + Math.random().toString(36).substr(2, 4));
                     delete docData.num_gestiona; // stored as docId
                     const docRef = doc(db, 'ofertas', docId);
                     batch.set(docRef, docData, { merge: true }); // merge: preserve existing fields (e.g. aceptaciones)
                     count++;
                 });
-                if (count === 0) { alert('No se encontraron filas válidas de 2026.' + (skipped > 0 ? ' (' + skipped + ' filas de otros años omitidas)' : '')); this.value = ''; return; }
+                if (count === 0) { alert('No se encontraron filas válidas en el archivo.'); this.value = ''; return; }
                 await batch.commit();
-                alert(count + ' ofertas de 2026 importadas/actualizadas correctamente.' + (skipped > 0 ? '\n(' + skipped + ' filas de otros años omitidas)' : ''));
+                alert(count + ' ofertas importadas/actualizadas correctamente.');
                 this.value = '';
                 await cargarOfertas();
             } catch (err) {
@@ -2324,15 +2322,27 @@
                     datosOfertasMemoria.push(data);
                 });
 
-                // Función auxiliar para parsear fecha DD/MM/YYYY a timestamp
+                // Parsea fechas en varios formatos: DD/MM/YYYY, YYYY-MM-DD, YYYY/MM/DD
                 const parseFechaEs = (fechaStr) => {
-                    if (!fechaStr || !fechaStr.includes('/')) return 0;
-                    const p = fechaStr.split('/');
-                    return p.length === 3 ? new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0])).getTime() : 0;
+                    if (!fechaStr) return 0;
+                    const s = String(fechaStr).trim();
+                    const sep = s.includes('/') ? '/' : s.includes('-') ? '-' : null;
+                    if (!sep) return 0;
+                    const p = s.split(sep);
+                    if (p.length !== 3) return 0;
+                    // Detect YYYY-first (ISO) vs DD-first (Spanish)
+                    if (p[0].length === 4) return new Date(+p[0], +p[1] - 1, +p[2]).getTime();
+                    return new Date(+p[2], +p[1] - 1, +p[0]).getTime();
                 };
 
-                // Ordenar datos en memoria ANTES de renderizar (evita reflow doble)
-                datosOfertasMemoria.sort((a, b) => parseFechaEs(b.fecha_oferta) - parseFechaEs(a.fecha_oferta));
+                // Ordenar de más reciente a más antigua.
+                // Primario: fecha_oferta. Secundario: doc ID descendente (contiene año/número).
+                datosOfertasMemoria.sort((a, b) => {
+                    const fa = parseFechaEs(a.fecha_oferta);
+                    const fb = parseFechaEs(b.fecha_oferta);
+                    if (fb !== fa) return fb - fa;
+                    return (b._docId || '').localeCompare(a._docId || '');
+                });
 
                 // Funciones de formato (definidas una sola vez fuera del loop)
                 const currencyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 2 });
