@@ -2463,7 +2463,20 @@
 
                     if (prefs.orden_columnas) {
                         Object.keys(prefs.orden_columnas).forEach(tblId => {
-                            localStorage.setItem('gestor_col_order_' + tblId, JSON.stringify(prefs.orden_columnas[tblId]));
+                            const order = prefs.orden_columnas[tblId];
+                            // For the production table, discard stale orders that are missing
+                            // any current prod tech (prevents applyColumnOrder from moving
+                            // Fecha AP before newly-added tech columns, which causes misalignment)
+                            if (tblId === 'table-produccion') {
+                                const prodTechs = listaTecnicos.filter(t => t.prod !== false);
+                                const orderSet = new Set(order);
+                                const allRepresented = prodTechs.every(t =>
+                                    (t.acronimo && orderSet.has(t.acronimo)) ||
+                                    (t.nombre_pila && orderSet.has(t.nombre_pila))
+                                );
+                                if (!allRepresented) return; // skip stale order
+                            }
+                            localStorage.setItem('gestor_col_order_' + tblId, JSON.stringify(order));
                         });
                     }
 
@@ -3078,6 +3091,10 @@
             function reinjectarColumnasDinamicas() {
                 const theadTr = document.querySelector('#view-produccion thead tr');
                 if (!theadTr) return;
+
+                // Clear any cached column order so applyColumnOrder doesn't re-apply a
+                // stale savedOrder that would push new tech columns out of the inject zone
+                localStorage.removeItem('gestor_col_order_table-produccion');
 
                 // Build set of ALL possible tech labels (both acronimo and nombre_pila)
                 const techLabels = new Set();
