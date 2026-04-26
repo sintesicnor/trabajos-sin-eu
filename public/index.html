@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.39</title>
+    <title>Proyectos SIN v1.40</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -1306,11 +1306,12 @@
                     let btnArchiveHtml = '<span style="color: #94a3b8; font-size: 12px; font-weight: 500;">Archivado</span>';
                     if (!isVistaHistorico) {
                         let canArchive = false;
-                        let archiveReason = "Falta fecha de facturación, o es del año en curso.";
-                        // Solo se requiere que fecha_ap (facturación) exista y sea anterior al año en curso
-                        if (f_ap) {
+                        const f_fin = (data['fecha_fin'] || '').trim();
+                        const vb = (data['visto_vb_cliente'] || '').trim().toUpperCase();
+                        const primerDiaAnioActual = new Date(new Date().getFullYear(), 0, 1);
+                        let archiveReason = "Requiere: Fecha Finalización, VB Cliente = SI y Fecha Facturación anterior al " + primerDiaAnioActual.toLocaleDateString('es-ES') + ".";
+                        if (f_fin && vb === 'SI' && f_ap) {
                             const fechaApDate = parseFechaUniversal(f_ap);
-                            const primerDiaAnioActual = new Date(new Date().getFullYear(), 0, 1);
                             if (fechaApDate && fechaApDate < primerDiaAnioActual) {
                                 canArchive = true;
                             } else {
