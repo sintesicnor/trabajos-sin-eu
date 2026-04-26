@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.29</title>
+    <title>Proyectos SIN v1.30</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -7067,6 +7067,7 @@
             if (!panel || !contenido) return;
 
             panel.style.display = 'block';
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             contenido.innerHTML = '<p style="color:#64748b;font-size:13px;">Cargando...</p>';
 
             // Cabecera: campo modificado
