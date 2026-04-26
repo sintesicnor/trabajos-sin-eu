@@ -5255,9 +5255,14 @@
                 if (!td.bySrv[srvLabel]) td.bySrv[srvLabel] = {};
                 td.bySrv[srvLabel][mKey] = (td.bySrv[srvLabel][mKey] || 0) + horas;
                 if (!td.byDay[mKey]) td.byDay[mKey] = {};
-                if (!td.byDay[mKey][dKey]) td.byDay[mKey][dKey] = { total: 0, srvs: {} };
+                if (!td.byDay[mKey][dKey]) td.byDay[mKey][dKey] = { total: 0, srvs: {}, obs: [], srvObs: {} };
                 td.byDay[mKey][dKey].total += horas;
                 td.byDay[mKey][dKey].srvs[srvLabel] = (td.byDay[mKey][dKey].srvs[srvLabel] || 0) + horas;
+                if (obs) { td.byDay[mKey][dKey].obs.push(obs); }
+                if (obs) {
+                    if (!td.byDay[mKey][dKey].srvObs[srvLabel]) td.byDay[mKey][dKey].srvObs[srvLabel] = [];
+                    td.byDay[mKey][dKey].srvObs[srvLabel].push(obs);
+                }
             });
 
             if (yearSel) {
@@ -5373,8 +5378,10 @@
                     if (cd.type === 'month') {
                         tecCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-weight:600;color:#1e293b;padding:6px;">' + fmtV(td.byMonth[cd.month]) + '</td>';
                     } else {
-                        const dayVal = td.byDay[cd.month] && td.byDay[cd.month][cd.day] ? td.byDay[cd.month][cd.day].total : 0;
-                        tecCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:13px;color:#334155;padding:4px;display:none;">' + fmtV(dayVal) + '</td>';
+                        const dayData = td.byDay[cd.month] && td.byDay[cd.month][cd.day] ? td.byDay[cd.month][cd.day] : null;
+                        const dayVal = dayData ? dayData.total : 0;
+                        const dayTitle = dayData && dayData.obs.length ? dayData.obs.join('\n').replace(/"/g, '&quot;') : '';
+                        tecCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:13px;color:#334155;padding:4px;display:none;cursor:' + (dayTitle ? 'help' : 'default') + ';"' + (dayTitle ? ' title="' + dayTitle + '"' : '') + '>' + fmtV(dayVal) + '</td>';
                     }
                 });
                 tecCells += '<td style="text-align:center;font-weight:700;color:#0f172a;padding:6px;background:#e2e8f0;">' + fmtV(totalYear) + '</td>';
@@ -5423,11 +5430,11 @@
                         if (cd.type === 'month') {
                             sCells += '<td class="ph-col ph-m ph-m-' + cd.month + '" style="text-align:center;font-size:13px;color:' + srvTextColor + ';padding:4px;">' + fmtV(sData[cd.month]) + '</td>';
                         } else {
-                            let dayHrs = 0;
-                            if (td.byDay[cd.month] && td.byDay[cd.month][cd.day] && td.byDay[cd.month][cd.day].srvs[srv]) {
-                                dayHrs = td.byDay[cd.month][cd.day].srvs[srv];
-                            }
-                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:12px;color:' + srvTextColor + ';padding:4px;display:none;">' + fmtV(dayHrs) + '</td>';
+                            const sDayData = td.byDay[cd.month] && td.byDay[cd.month][cd.day] ? td.byDay[cd.month][cd.day] : null;
+                            const dayHrs = sDayData && sDayData.srvs[srv] ? sDayData.srvs[srv] : 0;
+                            const srvObsArr = sDayData && sDayData.srvObs[srv] ? sDayData.srvObs[srv] : [];
+                            const srvTitle = srvObsArr.length ? srvObsArr.join('\n').replace(/"/g, '&quot;') : '';
+                            sCells += '<td class="ph-col ph-d ph-d-' + cd.month + '" style="text-align:center;font-size:12px;color:' + srvTextColor + ';padding:4px;display:none;cursor:' + (srvTitle ? 'help' : 'default') + ';"' + (srvTitle ? ' title="' + srvTitle + '"' : '') + '>' + fmtV(dayHrs) + '</td>';
                         }
                     });
                     sCells += '<td style="text-align:center;font-size:13px;font-weight:600;color:' + (isVbSi ? '#fff' : '#334155') + ';padding:4px;background:' + (isVbSi ? '#0066FF' : isFechaAp ? '#DBEAFE' : '#f8fafc') + ';">' + fmtV(sTotal) + '</td>';
