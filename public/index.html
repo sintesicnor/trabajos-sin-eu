@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.32</title>
+    <title>Proyectos SIN v1.34</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -2434,7 +2434,7 @@
                 // Capturar orden de columnas de localStorage (el sistema actual ya lo guarda ahí)
                 document.querySelectorAll('.data-table').forEach(table => {
                     const tblId = table.id || table.dataset.tableId;
-                    const savedOrder = localStorage.getItem('gestor_col_order_' + tblId);
+                    const savedOrder = localStorage.getItem(_colKey(tblId));
                     if (savedOrder) {
                         prefs.orden_columnas[tblId] = JSON.parse(savedOrder);
                     }
@@ -2443,7 +2443,13 @@
                 try {
                     await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), prefs, { merge: true });
                 } catch (e) {
-                    manejarErrorFirebase(e, "Error guardando preferencias de vista.");
+                    // Permission-denied is expected for non-admin users; localStorage is
+                    // the primary store, so we just log without alerting the user.
+                    if (e && e.code === 'permission-denied') {
+                        console.warn("Preferencias no guardadas en Firestore (sin permiso); se mantienen en localStorage.");
+                    } else {
+                        manejarErrorFirebase(e, "Error guardando preferencias de vista.");
+                    }
                 }
             }, 1000);
         }
@@ -2477,7 +2483,7 @@
                                 });
                                 order = order.filter(label => !injected.has(label));
                             }
-                            localStorage.setItem('gestor_col_order_' + tblId, JSON.stringify(order));
+                            localStorage.setItem(_colKey(tblId), JSON.stringify(order));
                         });
                     }
 
@@ -2529,6 +2535,13 @@
         // --- Drag & Drop Column Reordering Logic ---
         let draggedColIndex = null;
 
+        // Returns a localStorage key scoped to the current user so that different
+        // users sharing the same browser get independent column-order storage.
+        function _colKey(tblId) {
+            const uid = auth.currentUser ? auth.currentUser.uid : 'anon';
+            return uid + '_gestor_col_order_' + tblId;
+        }
+
         function saveColumnOrder(table) {
             const tblId = table.id || table.dataset.tableId;
             if (!tblId) return;
@@ -2552,14 +2565,14 @@
                 order = order.filter(label => !injected.has(label));
             }
 
-            localStorage.setItem('gestor_col_order_' + tblId, JSON.stringify(order));
+            localStorage.setItem(_colKey(tblId), JSON.stringify(order));
         }
 
         function applyColumnOrder(table) {
             const tblId = table.id || table.dataset.tableId;
             if (!tblId) return;
 
-            const savedStr = localStorage.getItem('gestor_col_order_' + tblId);
+            const savedStr = localStorage.getItem(_colKey(tblId));
             if (!savedStr) {
                 updateDynamicStickyColumns(table); // Forzar que se congelen aunque no haya orden guardado
                 return;
@@ -3132,10 +3145,6 @@
             function reinjectarColumnasDinamicas() {
                 const theadTr = document.querySelector('#view-produccion thead tr');
                 if (!theadTr) return;
-
-                // Clear any cached column order so applyColumnOrder doesn't re-apply a
-                // stale savedOrder that would push new tech columns out of the inject zone
-                localStorage.removeItem('gestor_col_order_table-produccion');
 
                 // Build set of ALL possible tech labels (both acronimo and nombre_pila)
                 const techLabels = new Set();
