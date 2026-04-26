@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.37</title>
+    <title>Proyectos SIN v1.38</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -1307,11 +1307,11 @@
                     if (!isVistaHistorico) {
                         let canArchive = false;
                         let archiveReason = "Faltan datos (Fechas, AT, Presupuesto o Gastos)";
-                        // ── v0.091: Archivar si fecha_ar es anterior al 1 de enero del año en curso ──
-                        if (f_ap && f_ar && n_at && p_m !== '' && p_m !== undefined && g_n !== '' && g_n !== undefined) {
-                            const fechaArDate = parseFechaUniversal(f_ar);
-                            const primerDiaAnioActual = new Date(new Date().getFullYear(), 0, 1); // 1 de enero del año en curso
-                            if (fechaArDate && fechaArDate < primerDiaAnioActual) {
+                        // Archivar si fecha_ap (facturación) es anterior al 1 de enero del año en curso
+                        if (f_ap && n_at && p_m !== '' && p_m !== undefined && g_n !== '' && g_n !== undefined) {
+                            const fechaApDate = parseFechaUniversal(f_ap);
+                            const primerDiaAnioActual = new Date(new Date().getFullYear(), 0, 1);
+                            if (fechaApDate && fechaApDate < primerDiaAnioActual) {
                                 canArchive = true;
                             } else {
                                 archiveReason = "La fecha de facturación debe ser anterior al " + primerDiaAnioActual.toLocaleDateString('es-ES') + ".";
