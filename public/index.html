@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.47</title>
+    <title>Proyectos SIN v1.48</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -785,8 +785,10 @@
 
                 // ── Mapeo 100% por nombre de cabecera ──
                 // El nº de técnicos varía, por lo que ninguna columna se fija por posición.
-                const norm = s => String(s || '').trim().toLowerCase()
-                    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                // Normaliza cabeceras: minúsculas, sin tildes, saltos de línea → espacio
+                // (Excel usa ALT+ENTER en cabeceras de dos líneas como "FECHA\nFACTURACION")
+                const norm = s => String(s || '').replace(/[\r\n\t]+/g, ' ').trim().toLowerCase()
+                    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
 
                 // Cabeceras cortas: coincidencia EXACTA para evitar falsos positivos
                 const EXACT_MAP = {
