@@ -824,8 +824,8 @@
                 const colNumAt    = findCol(['n\u00ba fact', 'num fact']);
                 const colMes      = findCol(['mes factur', 'mes']);
 
-                if (colT2 >= 0)       POS_MAP[colT2]       = 'apoyo_am';
-                if (colT3 >= 0)       POS_MAP[colT3]       = 'apoyo_an';
+                // T2/T3 (colT2, colT3) se ignoran: son horas acumuladas del rol,
+                // no el nombre del técnico. Las horas vienen de partes_horas (SQL).
                 if (colFechaFin >= 0) POS_MAP[colFechaFin] = 'fecha_fin';
                 if (colVB >= 0)       POS_MAP[colVB]       = 'visto_vb_cliente';
                 if (colFechaAP >= 0)  POS_MAP[colFechaAP]  = 'fecha_ap';
@@ -833,9 +833,8 @@
                 if (colMes >= 0)      POS_MAP[colMes]       = 'mes_facturacion';
 
                 console.log('📋 Mapeo de columnas detectado:', {
-                    T2: colT2, T3: colT3, fecha_fin: colFechaFin,
-                    visto_vb_cliente: colVB, fecha_ap: colFechaAP,
-                    num_at: colNumAt, mes: colMes
+                    fecha_fin: colFechaFin, visto_vb_cliente: colVB,
+                    fecha_ap: colFechaAP, num_at: colNumAt, mes: colMes
                 });
 
                 const CURRENCY_FIELDS = new Set(['presupuesto_m', 'gastos_n']);
