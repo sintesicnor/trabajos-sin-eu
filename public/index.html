@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.50</title>
+    <title>Proyectos SIN v1.51</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -876,14 +876,24 @@
 
                 console.log('📋 Cabeceras brutas:', headerRow.map((h, i) => `${i}:"${h}"`).join(' | '));
 
-                // Diagnóstico valores: muestra cols 5,40,41,42,43,44 en primeras 5 filas de datos
+                // Diagnóstico: primeras 5 filas con col40 o col42 no vacío
                 const diagCols = [5, 40, 41, 42, 43, 44];
-                const diagRows = rawRows.slice(1, 6).filter(r => r && r.some(c => c !== '' && c != null));
-                console.log('📊 Valores cols clave (primeras 5 filas):');
-                diagRows.forEach((row, i) => {
-                    const vals = diagCols.map(c => `col${c}:"${row[c] ?? '(vacío)'}"`).join(' | ');
-                    console.log(`  fila ${i+2}: ${vals}`);
-                });
+                const diagFiltered = [];
+                for (let i = 1; i < rawRows.length && diagFiltered.length < 5; i++) {
+                    const r = rawRows[i];
+                    if (r && (r[40] !== '' && r[40] != null || r[42] !== '' && r[42] != null)) {
+                        diagFiltered.push({ rowNum: i + 1, row: r });
+                    }
+                }
+                if (diagFiltered.length) {
+                    console.log('📊 Primeras filas con col40/col42 no vacío:');
+                    diagFiltered.forEach(({ rowNum, row }) => {
+                        const vals = diagCols.map(c => `col${c}:"${row[c] ?? '(vacío)'}"`).join(' | ');
+                        console.log(`  fila ${rowNum}: ${vals}`);
+                    });
+                } else {
+                    console.log('📊 NINGUNA fila tiene col40 o col42 con dato.');
+                }
 
                 const CURRENCY_FIELDS = new Set(['presupuesto_m', 'gastos_n']);
                 const DATE_FIELDS = new Set(['fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar']);
