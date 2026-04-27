@@ -765,16 +765,7 @@
         });
 
         // ═══ IMPORTAR PRODUCCIÓN (Excel por posición de columna) ═══
-        // Columnas por posición (índice 0) — CSV produccion 27042026 y posteriores:
-        //  A(0)=num_trabajo  B(1)=oferta_gestiona  C(2)=exp_gestiona  D(3)=tipo_expediente
-        //  E(4)=fecha_inicio  F(5)=fecha_fin(planif.)  G(6)=responsable_g  H(7)=ejecutor_t1
-        //  I(8)=servicio  J(9)=tipo_servicio  K(10)=grupo  L(11)=cliente
-        //  M(12)=presupuesto_m  N(13)=gastos_n
-        //  cols 14-36 = horas técnicos (ignoradas; col 30 = Paula)
-        //  AL(37)=T2(apoyo_am)  AM(38)=T3(apoyo_an)  AN(39)=PEDIDO(ignorado)
-        //  AO(40)=fecha_fin  AP(41)=visto_vb_cliente  AQ(42)=fecha_ap  AR(43)=Columna1(ignorada)
-        //  AS(44)=num_at  AT(45)=mes_facturacion
-        // El resto de columnas se ignoran.
+        // Sección básica (cols 0-13) por posición fija; sección final por cabecera de columna.
         document.getElementById('csv-import-produccion')?.addEventListener('change', async function () {
             const file = this.files[0];
             if (!file) return;
@@ -792,8 +783,7 @@
 
                 if (rawRows.length <= 1) { alert('El archivo no contiene datos.'); this.value = ''; return; }
 
-                // Position → Firestore field mapping
-                // (0-based column index — matches production Excel/CSV layout)
+                // ── Sección básica (posición fija, cols 0-13) ──
                 const POS_MAP = {
                     0:  'num_trabajo',
                     1:  'oferta_gestiona',
@@ -809,17 +799,44 @@
                     11: 'cliente',
                     12: 'presupuesto_m',
                     13: 'gastos_n',
-                    // cols 14-36 = hours breakdown (ignored)
-                    37: 'apoyo_am',         // T2
-                    38: 'apoyo_an',         // T3
-                    // 39: PEDIDO (ignorado)
-                    40: 'fecha_fin',        // FECHA FINALIZACIÓN
-                    41: 'visto_vb_cliente', // VB CLIE.
-                    42: 'fecha_ap',         // FECHA FACTURACION
-                    // 43: Columna1 (ignorada)
-                    44: 'num_at',           // Nº Fact
-                    45: 'mes_facturacion'   // Mes
                 };
+
+                // ── Sección final: detectar columnas por nombre de cabecera ──
+                // (robusta frente a inserción de nuevas columnas en el Excel)
+                const headerRow = rawRows[0] || [];
+                const norm = s => String(s || '').trim().toLowerCase()
+                    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                // Busca solo a partir de fromCol para no chocar con la sección básica
+                const findCol = (patterns, fromCol = 14) => {
+                    for (let i = fromCol; i < headerRow.length; i++) {
+                        const hn = norm(headerRow[i]);
+                        if (patterns.some(p => hn.includes(p))) return i;
+                    }
+                    return -1;
+                };
+
+                // Cabeceras buscadas (substrings normalizados, sin tildes, minúsculas)
+                const colT2       = findCol(['t2', 'apoyo am', 'apoyo(am)']);
+                const colT3       = findCol(['t3', 'apoyo an', 'apoyo(an)']);
+                const colFechaFin = findCol(['fecha finaliz', 'f. fin']);
+                const colVB       = findCol(['vb clie', 'vb client']);
+                const colFechaAP  = findCol(['fecha factur', 'fecha ap']);
+                const colNumAt    = findCol(['n\u00ba fact', 'num fact']);
+                const colMes      = findCol(['mes factur', 'mes']);
+
+                if (colT2 >= 0)       POS_MAP[colT2]       = 'apoyo_am';
+                if (colT3 >= 0)       POS_MAP[colT3]       = 'apoyo_an';
+                if (colFechaFin >= 0) POS_MAP[colFechaFin] = 'fecha_fin';
+                if (colVB >= 0)       POS_MAP[colVB]       = 'visto_vb_cliente';
+                if (colFechaAP >= 0)  POS_MAP[colFechaAP]  = 'fecha_ap';
+                if (colNumAt >= 0)    POS_MAP[colNumAt]     = 'num_at';
+                if (colMes >= 0)      POS_MAP[colMes]       = 'mes_facturacion';
+
+                console.log('📋 Mapeo de columnas detectado:', {
+                    T2: colT2, T3: colT3, fecha_fin: colFechaFin,
+                    visto_vb_cliente: colVB, fecha_ap: colFechaAP,
+                    num_at: colNumAt, mes: colMes
+                });
 
                 const CURRENCY_FIELDS = new Set(['presupuesto_m', 'gastos_n']);
                 const DATE_FIELDS = new Set(['fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar']);
