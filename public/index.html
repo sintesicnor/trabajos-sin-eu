@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.48</title>
+    <title>Proyectos SIN v1.49</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -784,41 +784,63 @@
                 if (rawRows.length <= 1) { alert('El archivo no contiene datos.'); this.value = ''; return; }
 
                 // ── Mapeo 100% por nombre de cabecera ──
-                // El nº de técnicos varía, por lo que ninguna columna se fija por posición.
-                // Normaliza cabeceras: minúsculas, sin tildes, saltos de línea → espacio
-                // (Excel usa ALT+ENTER en cabeceras de dos líneas como "FECHA\nFACTURACION")
-                const norm = s => String(s || '').replace(/[\r\n\t]+/g, ' ').trim().toLowerCase()
-                    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+                // Normaliza: minúsculas, sin tildes, cualquier espacio/salto → espacio simple
+                const norm = s => String(s || '')
+                    .replace(/[\r\n\t\u00a0\u2028\u2029]+/g, ' ')
+                    .trim().toLowerCase()
+                    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, ' ').trim();
 
-                // Cabeceras cortas: coincidencia EXACTA para evitar falsos positivos
-                const EXACT_MAP = {
-                    't1':       'ejecutor_t1',
-                    't2':       'apoyo_am',
-                    't3':       'apoyo_an',
-                    'ica':      'cliente',
-                    'grupo':    'grupo',
-                    'servicio': 'servicio',
+                // ── 1ª pasada: coincidencia EXACTA (máxima fiabilidad) ──
+                const EXACT_FULL = {
+                    'nº trabajo':                'num_trabajo',
+                    'n trabajo':                 'num_trabajo',
+                    'oferta gestiona':           'oferta_gestiona',
+                    'exp gestiona':              'exp_gestiona',
+                    'tipo exp.':                 'tipo_expediente',
+                    'tipo exp':                  'tipo_expediente',
+                    'fecha inicio':              'fecha_inicio',
+                    'fecha entrega':             'fecha_fin',
+                    'tecnico rble.':             'responsable_g',
+                    'tecnico rble':              'responsable_g',
+                    't1':                        'ejecutor_t1',
+                    't2':                        'apoyo_am',
+                    't3':                        'apoyo_an',
+                    'servicio':                  'servicio',
+                    'tipo servicio':             'tipo_servicio',
+                    'grupo':                     'grupo',
+                    'ica':                       'cliente',
+                    'ppto. total (sin iva)':     'presupuesto_m',
+                    'ppto total (sin iva)':      'presupuesto_m',
+                    'gastos (est.)':             'gastos_n',
+                    'gastos (est)':              'gastos_n',
+                    'fecha finalizacion':        'fecha_fin',
+                    'fecha de finalizacion':     'fecha_fin',
+                    'vb clie.':                  'visto_vb_cliente',
+                    'vb clie':                   'visto_vb_cliente',
+                    'vb cliente':                'visto_vb_cliente',
+                    'fecha facturacion':         'fecha_ap',
+                    'fecha de facturacion':      'fecha_ap',
+                    'nº fact':                   'num_at',
+                    'n fact':                    'num_at',
                 };
 
-                // Cabeceras largas: coincidencia por SUBSTRING — orden de más específico a menos
+                // ── 2ª pasada: substring como fallback ──
                 const SUBSTR_MAP = [
                     { pat: 'tipo servicio',   field: 'tipo_servicio' },
                     { pat: 'tipo exp',        field: 'tipo_expediente' },
                     { pat: 'oferta gestiona', field: 'oferta_gestiona' },
                     { pat: 'exp gestiona',    field: 'exp_gestiona' },
-                    // FECHA INICIO — acepta variantes abreviadas
                     { pat: 'fecha inicio',    field: 'fecha_inicio' },
                     { pat: 'fec inicio',      field: 'fecha_inicio' },
                     { pat: 'fec inic',        field: 'fecha_inicio' },
-                    // FECHA FINALIZACIÓN (real) tiene prioridad sobre FECHA ENTREGA
                     { pat: 'fecha finaliz',   field: 'fecha_fin' },
                     { pat: 'fec finaliz',     field: 'fecha_fin' },
-                    // FECHA ENTREGA (planificada) — fallback para fecha_fin
                     { pat: 'fecha entrega',   field: 'fecha_fin' },
                     { pat: 'fec entrega',     field: 'fecha_fin' },
-                    { pat: 'fec enti',        field: 'fecha_fin' },
                     { pat: 'fecha factur',    field: 'fecha_ap' },
                     { pat: 'fec factur',      field: 'fecha_ap' },
+                    { pat: 'facturacion',     field: 'fecha_ap' },
                     { pat: 'vb clie',         field: 'visto_vb_cliente' },
                     { pat: 'tecnico rble',    field: 'responsable_g' },
                     { pat: 'tec rble',        field: 'responsable_g' },
@@ -835,14 +857,24 @@
                 headerRow.forEach((h, i) => {
                     const hn = norm(h);
                     if (!hn) return;
-                    if (EXACT_MAP[hn] !== undefined) { POS_MAP[i] = EXACT_MAP[hn]; return; }
+                    if (EXACT_FULL[hn] !== undefined) { POS_MAP[i] = EXACT_FULL[hn]; return; }
                     for (const { pat, field } of SUBSTR_MAP) {
                         if (hn.includes(pat)) { POS_MAP[i] = field; return; }
                     }
                 });
 
-                console.log('📋 Cabeceras Excel:', headerRow.map((h, i) => `${i}:${h}`).join(' | '));
-                console.log('📋 POS_MAP resultante:', JSON.stringify(POS_MAP));
+                // ── Diagnóstico: muestra cabeceras clave no detectadas ──
+                const fieldsCols = {};
+                Object.entries(POS_MAP).forEach(([c, f]) => { fieldsCols[f] = (fieldsCols[f] || []).concat(Number(c)); });
+                const needed = { fecha_ap: 'FECHA FACTURACIÓN', fecha_fin: 'FECHA FINALIZACIÓN / FECHA ENTREGA', visto_vb_cliente: 'VB CLIE.', num_at: 'Nº Fact' };
+                const missing = Object.entries(needed).filter(([f]) => !fieldsCols[f]).map(([, n]) => n);
+                const diagMsg = '📋 Cabeceras detectadas:\n'
+                    + Object.entries(needed).map(([f, n]) => `  ${fieldsCols[f] ? '✅' : '❌'} ${n} → col ${fieldsCols[f] || '(no encontrada)'}`).join('\n')
+                    + (missing.length ? '\n\n⚠️ COLUMNAS NO DETECTADAS:\n' + missing.join('\n') + '\n\nRevisa los encabezados de esas columnas en el Excel.' : '');
+                console.log(diagMsg);
+                if (missing.length) { alert(diagMsg); }
+
+                console.log('📋 Cabeceras brutas:', headerRow.map((h, i) => `${i}:"${h}"`).join(' | '));
 
                 const CURRENCY_FIELDS = new Set(['presupuesto_m', 'gastos_n']);
                 const DATE_FIELDS = new Set(['fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar']);
