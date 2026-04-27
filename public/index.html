@@ -26,7 +26,7 @@
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc, enableMultiTabIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
@@ -44,14 +44,7 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        // ── Persistencia offline: caché IndexedDB para cargas instantáneas ──
-        enableMultiTabIndexedDbPersistence(db).catch(err => {
-            if (err.code === 'failed-precondition') {
-                console.warn("⚠️ Persistencia offline no disponible: múltiples pestañas abiertas sin soporte multi-tab.");
-            } else if (err.code === 'unimplemented') {
-                console.warn("⚠️ Persistencia offline no soportada en este navegador.");
-            }
-        });
+        // Persistencia offline deshabilitada: los datos siempre se leen desde Firestore.
         const auth = getAuth(app);
         const functions = getFunctions(app);
 
