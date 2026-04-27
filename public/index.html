@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.41</title>
+    <title>Proyectos SIN v1.45</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -816,16 +816,20 @@
                 };
 
                 // Cabeceras buscadas (substrings normalizados, sin tildes, minúsculas)
-                const colT2       = findCol(['t2', 'apoyo am', 'apoyo(am)']);
-                const colT3       = findCol(['t3', 'apoyo an', 'apoyo(an)']);
+                // colT2Hours: cabecera "T2" → columna de horas de T2 (datos numéricos)
+                // El nombre del técnico T2 está en colT2Hours+1, el de T3 en colT2Hours+2
+                const colT2Hours  = findCol(['t2', 'apoyo am', 'apoyo(am)']);
                 const colFechaFin = findCol(['fecha finaliz', 'f. fin']);
                 const colVB       = findCol(['vb clie', 'vb client']);
                 const colFechaAP  = findCol(['fecha factur', 'fecha ap']);
                 const colNumAt    = findCol(['n\u00ba fact', 'num fact']);
                 const colMes      = findCol(['mes factur', 'mes']);
 
-                // T2/T3 (colT2, colT3) se ignoran: son horas acumuladas del rol,
-                // no el nombre del técnico. Las horas vienen de partes_horas (SQL).
+                // T2/T3 NOMBRES: una y dos posiciones tras la columna de horas T2
+                if (colT2Hours >= 0) {
+                    POS_MAP[colT2Hours + 1] = 'apoyo_am'; // nombre técnico T2
+                    POS_MAP[colT2Hours + 2] = 'apoyo_an'; // nombre técnico T3
+                }
                 if (colFechaFin >= 0) POS_MAP[colFechaFin] = 'fecha_fin';
                 if (colVB >= 0)       POS_MAP[colVB]       = 'visto_vb_cliente';
                 if (colFechaAP >= 0)  POS_MAP[colFechaAP]  = 'fecha_ap';
@@ -833,6 +837,8 @@
                 if (colMes >= 0)      POS_MAP[colMes]       = 'mes_facturacion';
 
                 console.log('📋 Mapeo de columnas detectado:', {
+                    apoyo_am: colT2Hours >= 0 ? colT2Hours + 1 : -1,
+                    apoyo_an: colT2Hours >= 0 ? colT2Hours + 2 : -1,
                     fecha_fin: colFechaFin, visto_vb_cliente: colVB,
                     fecha_ap: colFechaAP, num_at: colNumAt, mes: colMes
                 });
