@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.40</title>
+    <title>Proyectos SIN v1.41</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -2185,11 +2185,13 @@
                     });
 
                     let isResizing = false;
+                    let _resizeMoved = false;
                     let startX = 0;
                     let startWidth = 0;
 
                     resizer.addEventListener('mousedown', (e) => {
                         isResizing = true;
+                        _resizeMoved = false;
                         startX = e.pageX;
                         startWidth = th.offsetWidth;
                         resizer.classList.add('resizing');
@@ -2199,15 +2201,22 @@
                     document.addEventListener('mousemove', (e) => {
                         if (!isResizing) return;
                         const diff = e.pageX - startX;
+                        if (Math.abs(diff) > 2) _resizeMoved = true;
                         const newWidth = Math.max(50, startWidth + diff);
                         th.style.width = newWidth + 'px';
                         th.style.minWidth = newWidth + 'px';
-                        th.style.maxWidth = 'none'; // Overrides the CSS ellipsis max-width if user wants it huge
+                        th.style.maxWidth = 'none';
                     });
 
                     document.addEventListener('mouseup', () => {
                         if (isResizing) {
                             isResizing = false;
+                            if (_resizeMoved) {
+                                // After a drag-resize the browser fires a click on mouseup.
+                                // Intercept it in the capture phase before any sort handler sees it.
+                                document.addEventListener('click', e => e.stopPropagation(), { once: true, capture: true });
+                            }
+                            _resizeMoved = false;
                             document.querySelectorAll('.col-resizer').forEach(r => r.classList.remove('resizing'));
                         }
                     });
