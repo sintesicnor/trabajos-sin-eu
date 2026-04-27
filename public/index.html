@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.45</title>
+    <title>Proyectos SIN v1.46</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -783,65 +783,54 @@
 
                 if (rawRows.length <= 1) { alert('El archivo no contiene datos.'); this.value = ''; return; }
 
-                // ── Sección básica (posición fija, cols 0-13) ──
-                const POS_MAP = {
-                    0:  'num_trabajo',
-                    1:  'oferta_gestiona',
-                    2:  'exp_gestiona',
-                    3:  'tipo_expediente',
-                    4:  'fecha_inicio',
-                    5:  'fecha_fin',
-                    6:  'responsable_g',
-                    7:  'ejecutor_t1',
-                    8:  'servicio',
-                    9:  'tipo_servicio',
-                    10: 'grupo',
-                    11: 'cliente',
-                    12: 'presupuesto_m',
-                    13: 'gastos_n',
-                };
-
-                // ── Sección final: detectar columnas por nombre de cabecera ──
-                // (robusta frente a inserción de nuevas columnas en el Excel)
-                const headerRow = rawRows[0] || [];
+                // ── Mapeo 100% por nombre de cabecera ──
+                // El nº de técnicos varía, por lo que ninguna columna se fija por posición.
                 const norm = s => String(s || '').trim().toLowerCase()
                     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                // Busca solo a partir de fromCol para no chocar con la sección básica
-                const findCol = (patterns, fromCol = 14) => {
-                    for (let i = fromCol; i < headerRow.length; i++) {
-                        const hn = norm(headerRow[i]);
-                        if (patterns.some(p => hn.includes(p))) return i;
-                    }
-                    return -1;
+
+                // Cabeceras cortas: coincidencia EXACTA para evitar falsos positivos
+                const EXACT_MAP = {
+                    't1':       'ejecutor_t1',
+                    't2':       'apoyo_am',
+                    't3':       'apoyo_an',
+                    'ica':      'cliente',
+                    'grupo':    'grupo',
+                    'servicio': 'servicio',
                 };
 
-                // Cabeceras buscadas (substrings normalizados, sin tildes, minúsculas)
-                // colT2Hours: cabecera "T2" → columna de horas de T2 (datos numéricos)
-                // El nombre del técnico T2 está en colT2Hours+1, el de T3 en colT2Hours+2
-                const colT2Hours  = findCol(['t2', 'apoyo am', 'apoyo(am)']);
-                const colFechaFin = findCol(['fecha finaliz', 'f. fin']);
-                const colVB       = findCol(['vb clie', 'vb client']);
-                const colFechaAP  = findCol(['fecha factur', 'fecha ap']);
-                const colNumAt    = findCol(['n\u00ba fact', 'num fact']);
-                const colMes      = findCol(['mes factur', 'mes']);
+                // Cabeceras largas: coincidencia por SUBSTRING — orden de más específico a menos
+                const SUBSTR_MAP = [
+                    { pat: 'tipo servicio',   field: 'tipo_servicio' },
+                    { pat: 'tipo exp',        field: 'tipo_expediente' },
+                    { pat: 'oferta gestiona', field: 'oferta_gestiona' },
+                    { pat: 'exp gestiona',    field: 'exp_gestiona' },
+                    { pat: 'fecha inicio',    field: 'fecha_inicio' },
+                    { pat: 'fecha finaliz',   field: 'fecha_fin' },   // FECHA FINALIZACIÓN
+                    { pat: 'fecha entrega',   field: 'fecha_fin' },   // F. FIN (planificada)
+                    { pat: 'fecha factur',    field: 'fecha_ap' },
+                    { pat: 'vb clie',         field: 'visto_vb_cliente' },
+                    { pat: 'tecnico rble',    field: 'responsable_g' },
+                    { pat: 'ppto',            field: 'presupuesto_m' },
+                    { pat: 'gastos',          field: 'gastos_n' },
+                    { pat: 'trabajo',         field: 'num_trabajo' },
+                    { pat: 'n\u00ba fact',    field: 'num_at' },
+                    { pat: 'n fact',          field: 'num_at' },
+                ];
 
-                // T2/T3 NOMBRES: una y dos posiciones tras la columna de horas T2
-                if (colT2Hours >= 0) {
-                    POS_MAP[colT2Hours + 1] = 'apoyo_am'; // nombre técnico T2
-                    POS_MAP[colT2Hours + 2] = 'apoyo_an'; // nombre técnico T3
-                }
-                if (colFechaFin >= 0) POS_MAP[colFechaFin] = 'fecha_fin';
-                if (colVB >= 0)       POS_MAP[colVB]       = 'visto_vb_cliente';
-                if (colFechaAP >= 0)  POS_MAP[colFechaAP]  = 'fecha_ap';
-                if (colNumAt >= 0)    POS_MAP[colNumAt]     = 'num_at';
-                if (colMes >= 0)      POS_MAP[colMes]       = 'mes_facturacion';
-
-                console.log('📋 Mapeo de columnas detectado:', {
-                    apoyo_am: colT2Hours >= 0 ? colT2Hours + 1 : -1,
-                    apoyo_an: colT2Hours >= 0 ? colT2Hours + 2 : -1,
-                    fecha_fin: colFechaFin, visto_vb_cliente: colVB,
-                    fecha_ap: colFechaAP, num_at: colNumAt, mes: colMes
+                // Construir POS_MAP escaneando las cabeceras del Excel
+                const POS_MAP = {};
+                const headerRow = rawRows[0] || [];
+                headerRow.forEach((h, i) => {
+                    const hn = norm(h);
+                    if (!hn) return;
+                    if (EXACT_MAP[hn] !== undefined) { POS_MAP[i] = EXACT_MAP[hn]; return; }
+                    for (const { pat, field } of SUBSTR_MAP) {
+                        if (hn.includes(pat)) { POS_MAP[i] = field; return; }
+                    }
                 });
+
+                console.log('📋 Cabeceras Excel:', headerRow.map((h, i) => `${i}:${h}`).join(' | '));
+                console.log('📋 POS_MAP resultante:', JSON.stringify(POS_MAP));
 
                 const CURRENCY_FIELDS = new Set(['presupuesto_m', 'gastos_n']);
                 const DATE_FIELDS = new Set(['fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar']);
@@ -889,12 +878,15 @@
                     // Skip completely empty rows
                     if (!row || row.every(c => c === '' || c === null || c === undefined)) continue;
 
-                    // Map by position
+                    // Map by position (integer keys → iteración en orden ascendente)
+                    // Si dos columnas mapean al mismo campo (ej. fecha_fin),
+                    // la más tardía gana salvo que su valor esté vacío.
                     const mappedData = {};
                     Object.entries(POS_MAP).forEach(([posStr, field]) => {
                         const pos = parseInt(posStr);
-                        const raw = row[pos];
-                        mappedData[field] = cleanVal(raw, field);
+                        const val = cleanVal(row[pos], field);
+                        if (val === '' && mappedData.hasOwnProperty(field)) return;
+                        mappedData[field] = val;
                     });
 
                     // Identify by num_trabajo (col A)
