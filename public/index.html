@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.49</title>
+    <title>Proyectos SIN v1.50</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -875,6 +875,15 @@
                 if (missing.length) { alert(diagMsg); }
 
                 console.log('📋 Cabeceras brutas:', headerRow.map((h, i) => `${i}:"${h}"`).join(' | '));
+
+                // Diagnóstico valores: muestra cols 5,40,41,42,43,44 en primeras 5 filas de datos
+                const diagCols = [5, 40, 41, 42, 43, 44];
+                const diagRows = rawRows.slice(1, 6).filter(r => r && r.some(c => c !== '' && c != null));
+                console.log('📊 Valores cols clave (primeras 5 filas):');
+                diagRows.forEach((row, i) => {
+                    const vals = diagCols.map(c => `col${c}:"${row[c] ?? '(vacío)'}"`).join(' | ');
+                    console.log(`  fila ${i+2}: ${vals}`);
+                });
 
                 const CURRENCY_FIELDS = new Set(['presupuesto_m', 'gastos_n']);
                 const DATE_FIELDS = new Set(['fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar']);
