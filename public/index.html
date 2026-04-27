@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.51</title>
+    <title>Proyectos SIN v1.52</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -814,13 +814,13 @@
                     'ppto total (sin iva)':      'presupuesto_m',
                     'gastos (est.)':             'gastos_n',
                     'gastos (est)':              'gastos_n',
-                    'fecha finalizacion':        'fecha_fin',
-                    'fecha de finalizacion':     'fecha_fin',
+                    'fecha finalizacion':        'fecha_ap',
+                    'fecha de finalizacion':     'fecha_ap',
                     'vb clie.':                  'visto_vb_cliente',
                     'vb clie':                   'visto_vb_cliente',
                     'vb cliente':                'visto_vb_cliente',
-                    'fecha facturacion':         'fecha_ap',
-                    'fecha de facturacion':      'fecha_ap',
+                    'fecha facturacion':         'fecha_ar',
+                    'fecha de facturacion':      'fecha_ar',
                     'nº fact':                   'num_at',
                     'n fact':                    'num_at',
                 };
@@ -834,13 +834,13 @@
                     { pat: 'fecha inicio',    field: 'fecha_inicio' },
                     { pat: 'fec inicio',      field: 'fecha_inicio' },
                     { pat: 'fec inic',        field: 'fecha_inicio' },
-                    { pat: 'fecha finaliz',   field: 'fecha_fin' },
-                    { pat: 'fec finaliz',     field: 'fecha_fin' },
+                    { pat: 'fecha finaliz',   field: 'fecha_ap' },
+                    { pat: 'fec finaliz',     field: 'fecha_ap' },
                     { pat: 'fecha entrega',   field: 'fecha_fin' },
                     { pat: 'fec entrega',     field: 'fecha_fin' },
-                    { pat: 'fecha factur',    field: 'fecha_ap' },
-                    { pat: 'fec factur',      field: 'fecha_ap' },
-                    { pat: 'facturacion',     field: 'fecha_ap' },
+                    { pat: 'fecha factur',    field: 'fecha_ar' },
+                    { pat: 'fec factur',      field: 'fecha_ar' },
+                    { pat: 'facturacion',     field: 'fecha_ar' },
                     { pat: 'vb clie',         field: 'visto_vb_cliente' },
                     { pat: 'tecnico rble',    field: 'responsable_g' },
                     { pat: 'tec rble',        field: 'responsable_g' },
@@ -866,7 +866,7 @@
                 // ── Diagnóstico: muestra cabeceras clave no detectadas ──
                 const fieldsCols = {};
                 Object.entries(POS_MAP).forEach(([c, f]) => { fieldsCols[f] = (fieldsCols[f] || []).concat(Number(c)); });
-                const needed = { fecha_ap: 'FECHA FACTURACIÓN', fecha_fin: 'FECHA FINALIZACIÓN / FECHA ENTREGA', visto_vb_cliente: 'VB CLIE.', num_at: 'Nº Fact' };
+                const needed = { fecha_fin: 'FECHA ENTREGA', fecha_ap: 'FECHA FINALIZACIÓN', fecha_ar: 'FECHA FACTURACIÓN', visto_vb_cliente: 'VB CLIE.', num_at: 'Nº Fact' };
                 const missing = Object.entries(needed).filter(([f]) => !fieldsCols[f]).map(([, n]) => n);
                 const diagMsg = '📋 Cabeceras detectadas:\n'
                     + Object.entries(needed).map(([f, n]) => `  ${fieldsCols[f] ? '✅' : '❌'} ${n} → col ${fieldsCols[f] || '(no encontrada)'}`).join('\n')
