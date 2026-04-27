@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.46</title>
+    <title>Proyectos SIN v1.47</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -804,12 +804,22 @@
                     { pat: 'tipo exp',        field: 'tipo_expediente' },
                     { pat: 'oferta gestiona', field: 'oferta_gestiona' },
                     { pat: 'exp gestiona',    field: 'exp_gestiona' },
+                    // FECHA INICIO — acepta variantes abreviadas
                     { pat: 'fecha inicio',    field: 'fecha_inicio' },
-                    { pat: 'fecha finaliz',   field: 'fecha_fin' },   // FECHA FINALIZACIÓN
-                    { pat: 'fecha entrega',   field: 'fecha_fin' },   // F. FIN (planificada)
+                    { pat: 'fec inicio',      field: 'fecha_inicio' },
+                    { pat: 'fec inic',        field: 'fecha_inicio' },
+                    // FECHA FINALIZACIÓN (real) tiene prioridad sobre FECHA ENTREGA
+                    { pat: 'fecha finaliz',   field: 'fecha_fin' },
+                    { pat: 'fec finaliz',     field: 'fecha_fin' },
+                    // FECHA ENTREGA (planificada) — fallback para fecha_fin
+                    { pat: 'fecha entrega',   field: 'fecha_fin' },
+                    { pat: 'fec entrega',     field: 'fecha_fin' },
+                    { pat: 'fec enti',        field: 'fecha_fin' },
                     { pat: 'fecha factur',    field: 'fecha_ap' },
+                    { pat: 'fec factur',      field: 'fecha_ap' },
                     { pat: 'vb clie',         field: 'visto_vb_cliente' },
                     { pat: 'tecnico rble',    field: 'responsable_g' },
+                    { pat: 'tec rble',        field: 'responsable_g' },
                     { pat: 'ppto',            field: 'presupuesto_m' },
                     { pat: 'gastos',          field: 'gastos_n' },
                     { pat: 'trabajo',         field: 'num_trabajo' },
@@ -849,8 +859,22 @@
                     }
                     if (DATE_FIELDS.has(field)) {
                         // Excel serial date number → DD/MM/YYYY
-                        if (/^\d{4,5}$/.test(val)) val = formatearFechaDisplay(val);
-                        // DD/MM/YYYY strings pass through unchanged (already correct format)
+                        if (/^\d{4,5}$/.test(val)) {
+                            val = formatearFechaDisplay(val);
+                        // MM/AA  → 01/MM/20AA  (ej: "01/25" → "01/01/2025")
+                        } else if (/^\d{1,2}\/\d{2}$/.test(val)) {
+                            const [m, y] = val.split('/');
+                            val = `01/${m.padStart(2,'0')}/20${y}`;
+                        // MM/AAAA → 01/MM/AAAA  (ej: "01/2025" → "01/01/2025")
+                        } else if (/^\d{1,2}\/\d{4}$/.test(val)) {
+                            const [m, y] = val.split('/');
+                            val = `01/${m.padStart(2,'0')}/${y}`;
+                        // ISO AAAA-MM-DD → DD/MM/AAAA
+                        } else if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+                            const [y, m, d] = val.split('-');
+                            val = `${d}/${m}/${y}`;
+                        }
+                        // DD/MM/AAAA  →  pass through sin cambios
                     }
                     return val;
                 }
