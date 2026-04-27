@@ -1184,7 +1184,16 @@
                 datosProduccionMemoria.length = 0;
 
                 if (querySnapshot.empty) {
-                    tbody.innerHTML = '<tr><td colspan="30" style="text-align: center; padding: 20px;">No se encontraron datos de producción.</td></tr>';
+                    const canImport = currentUserRole === 'admin' || currentUserRole === 'edicion';
+                    tbody.innerHTML = '<tr><td colspan="30" style="text-align: center; padding: 40px; color: #64748b;">'
+                        + 'No se encontraron datos de producción.'
+                        + (canImport ? ' Usa el botón <strong>Importar</strong> de la cabecera para cargar el Excel.' : '')
+                        + '</td></tr>';
+                    // Asegurar visibilidad del botón de importar cuando la colección está vacía
+                    if (canImport) {
+                        const btnImport = document.getElementById('btn-subir-produccion');
+                        if (btnImport) btnImport.style.display = 'inline-flex';
+                    }
                     return;
                 }
 
