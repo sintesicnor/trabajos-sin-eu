@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.52</title>
+    <title>Proyectos SIN v1.53</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -1405,9 +1405,9 @@
                         const vb = (data['visto_vb_cliente'] || '').trim().toUpperCase();
                         const primerDiaAnioActual = new Date(new Date().getFullYear(), 0, 1);
                         let archiveReason = "Requiere: Fecha Finalización, VB Cliente = SI y Fecha Facturación anterior al " + primerDiaAnioActual.toLocaleDateString('es-ES') + ".";
-                        if (f_fin && vb === 'SI' && f_ap) {
-                            const fechaApDate = parseFechaUniversal(f_ap);
-                            if (fechaApDate && fechaApDate < primerDiaAnioActual) {
+                        if (f_fin && vb === 'SI' && f_ap && f_ar) {
+                            const fechaArDate = parseFechaUniversal(f_ar);
+                            if (fechaArDate && fechaArDate < primerDiaAnioActual) {
                                 canArchive = true;
                             } else {
                                 archiveReason = "La fecha de facturación debe ser anterior al " + primerDiaAnioActual.toLocaleDateString('es-ES') + ".";
@@ -5709,13 +5709,13 @@
             const selYears = Array.from(document.getElementById('filt-prod-carga-year')?.selectedOptions || []).map(o => parseInt(o.value));
             const filtYears = selYears.length > 0 ? selYears : [curYear];
 
-            // Populate month filter with only months that have fecha_ap data in the selected years
+            // Populate month filter with only months that have fecha_ar data in the selected years
             const monthSel = document.getElementById('filt-prod-carga-month');
             if (monthSel) {
                 const MESES_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
                 const availMonths = new Set();
                 datosProduccionMemoria.forEach(p => {
-                    const f = parseFechaUniversal((p.fecha_ap || '').trim());
+                    const f = parseFechaUniversal((p.fecha_ar || '').trim());
                     if (!f) return;
                     if (!filtYears.includes(f.getFullYear())) return;
                     availMonths.add(f.getMonth() + 1);
@@ -5776,13 +5776,13 @@
             const tipoExpMap = {};
             const presupMap = {};
             const vbClienteMap = {};
-            const fechaApMap = {};
+            const fechaArMap = {};
             datosProduccionMemoria.forEach(p => {
                 const nt = String(p.num_trabajo);
                 tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
                 presupMap[nt] = parseSpanishNum(p.presupuesto_m) || 0;
                 vbClienteMap[nt] = (p.visto_vb_cliente || '').trim().toLowerCase() === 'si';
-                fechaApMap[nt] = (p.fecha_ap || '').trim();
+                fechaArMap[nt] = (p.fecha_ar || '').trim();
             });
 
             const partesData = window._partesHorasData || [];
@@ -5806,9 +5806,9 @@
                 if (!tec || !tecCarga[tec.acronimo]) return;
                 tecCarga[tec.acronimo].totalAsignado += presup;
 
-                // 2) Facturado: has fecha_ap matching filter
-                const fAp = parseFechaR((prod.fecha_ap || '').trim());
-                if (fAp && matchFilt(fAp)) {
+                // 2) Facturado: has fecha_ar (Fecha Facturación) matching filter
+                const fAr = parseFechaR((prod.fecha_ar || '').trim());
+                if (fAr && matchFilt(fAr)) {
                     tecCarga[tec.acronimo].facturado += presup;
                 }
             });
@@ -5829,7 +5829,7 @@
                 // Only count if VB Cliente is NOT 'Si' (work not yet client-approved)
                 if (vbClienteMap[numT]) return;
                 // Also skip if already facturado
-                if (fechaApMap[numT]) return;
+                if (fechaArMap[numT]) return;
                 const tec = resolverTecP((p.trabajador || '').trim());
                 if (!tec || !tecCarga[tec.acronimo]) return;
                 tecCarga[tec.acronimo].porFacturar += horas * costeHoraActual;
@@ -6399,29 +6399,29 @@
             const facturadoMes = new Array(12).fill(0);
             const porFacturarMes = new Array(12).fill(0);
 
-            // Facturado: production lines with fecha_ap, grouped by month of fecha_ap
+            // Facturado: production lines with fecha_ar (Fecha Facturación), grouped by month
             datosProduccionMemoria.forEach(prod => {
                 const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
-                const fechaAp = parseFechaR((prod.fecha_ap || '').trim());
-                if (!fechaAp || !filtYears.includes(fechaAp.getFullYear())) return;
+                const fechaAr = parseFechaR((prod.fecha_ar || '').trim());
+                if (!fechaAr || !filtYears.includes(fechaAr.getFullYear())) return;
                 const presup = parseSpanishNum(prod.presupuesto_m) || 0;
                 if (presup === 0) return;
                 const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
                 const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
                 if (!tec) return;
                 if (selTecs.length > 0 && !selTecs.includes(tec.acronimo)) return;
-                facturadoMes[fechaAp.getMonth()] += presup;
+                facturadoMes[fechaAr.getMonth()] += presup;
             });
 
             // Por facturar: hours from partes_horas on non-VB, non-facturado ANUAL/PUNTUAL, grouped by month of parte
             const vbMap = {};
-            const fApMap = {};
+            const fArMap = {};
             const tipoExpMap = {};
             datosProduccionMemoria.forEach(p => {
                 const nt = String(p.num_trabajo);
                 vbMap[nt] = (p.visto_vb_cliente || '').trim().toLowerCase() === 'si';
-                fApMap[nt] = (p.fecha_ap || '').trim();
+                fArMap[nt] = (p.fecha_ar || '').trim();
                 tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
             });
 
@@ -6442,7 +6442,7 @@
                 const tipoExp = tipoExpMap[numT] || '';
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
                 if (vbMap[numT]) return;
-                if (fApMap[numT]) return;
+                if (fArMap[numT]) return;
                 const tec = resolverTecP((p.trabajador || '').trim());
                 if (!tec) return;
                 if (selTecs.length > 0 && !selTecs.includes(tec.acronimo)) return;
