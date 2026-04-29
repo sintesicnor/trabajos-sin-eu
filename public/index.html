@@ -6581,110 +6581,104 @@
             const selMonths = Array.from(document.getElementById('filt-hsf-month')?.selectedOptions || []).map(o => parseInt(o.value));
             const hasPeriodFilter = selYears.length > 0 || selMonths.length > 0;
 
-            // Aggregate hours from partes_horas
-            const horasPeriodo = {};
-            const horasTotal   = {};
+            // ── Paso 1: indexar trabajos INTERNO/PUNTUAL sin fecha_ar por exp_gestiona ──
+            const numTtoExp   = {};   // numTrabajo → exp_gestiona
+            const expGrupo    = {};   // exp_gestiona → grupo
+            const expHorasDisp = {};  // exp_gestiona → Σ horas_disponibles de sus trabajos
+
+            datosProduccionMemoria.forEach(prod => {
+                const tipo = (prod.tipo_expediente || '').trim().toUpperCase();
+                if (tipo !== 'INTERNO' && tipo !== 'PUNTUAL') return;
+                if ((prod.fecha_ar || '').trim()) return;
+                const numT = String(prod.num_trabajo || '').trim();
+                const exp  = (prod.exp_gestiona   || '').trim();
+                if (!numT || !exp) return;
+
+                numTtoExp[numT] = exp;
+                expGrupo[exp]   = prod.grupo || '';
+
+                const presp  = parseSpanishNum(prod.presupuesto_m) || 0;
+                const gastos = parseSpanishNum(prod.gastos_n)      || 0;
+                const hDisp  = costeHoraActual > 0 && presp > 0
+                    ? Math.max(0, (presp - gastos) / costeHoraActual) : 0;
+                expHorasDisp[exp] = (expHorasDisp[exp] || 0) + hDisp;
+            });
+
+            // ── Paso 2: sumar horas de partes agrupadas por exp_gestiona ──
+            const expHorasPeriodo = {};
+            const expHorasTotal   = {};
+
             (window._partesHorasData || []).forEach(p => {
                 const horas = parseFloat(p.horas) || 0;
                 if (horas === 0) return;
-                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
-                const mc = obs.match(/^(\d{3,6})/);
+                const obs  = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const mc   = obs.match(/^(\d{3,6})/);
                 const numT = mc ? mc[1] : null;
                 if (!numT) return;
-                horasTotal[numT] = (horasTotal[numT] || 0) + horas;
+                const exp = numTtoExp[numT];
+                if (!exp) return;
+
+                expHorasTotal[exp] = (expHorasTotal[exp] || 0) + horas;
+
                 if (hasPeriodFilter) {
                     const fecha = parseFechaUniversal(p.fecha);
                     if (!fecha) return;
                     const okYear  = selYears.length  === 0 || selYears.includes(fecha.getFullYear());
                     const okMonth = selMonths.length === 0 || selMonths.includes(fecha.getMonth() + 1);
-                    if (okYear && okMonth) horasPeriodo[numT] = (horasPeriodo[numT] || 0) + horas;
+                    if (okYear && okMonth) expHorasPeriodo[exp] = (expHorasPeriodo[exp] || 0) + horas;
                 }
             });
 
+            // ── Paso 3: construir filas agrupadas ──
             const fmtN = v => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v);
-            const fmtE = v => {
-                const n = typeof v === 'number' ? v : parseSpanishNum(v);
-                if (!n) return '';
-                return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n) + ' €';
-            };
+            const fmtE = v => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v) + ' €';
 
-            const rows = datosProduccionMemoria
-                .filter(prod => {
-                    if ((prod.fecha_ar || '').trim()) return false;
-                    const numT = String(prod.num_trabajo || '').trim();
-                    return hasPeriodFilter ? (horasPeriodo[numT] || 0) > 0 : (horasTotal[numT] || 0) > 0;
+            const rows = Object.keys(expGrupo)
+                .map(exp => {
+                    const horasRaw = hasPeriodFilter ? (expHorasPeriodo[exp] || 0) : (expHorasTotal[exp] || 0);
+                    if (horasRaw === 0) return null;
+                    const cap   = expHorasDisp[exp] || 0;
+                    const horas = cap > 0 ? Math.min(horasRaw, cap) : horasRaw;
+                    return { exp_gestiona: exp, grupo: expGrupo[exp], horas, importe: horas * 60 };
                 })
-                .map(prod => {
-                    const numT = String(prod.num_trabajo || '').trim();
-                    return {
-                        num_trabajo:       prod.num_trabajo      || '',
-                        cliente:           prod.cliente          || '',
-                        tipo_expediente:   prod.tipo_expediente  || '',
-                        servicio:          prod.servicio         || '',
-                        responsable_g:     prod.responsable_g    || '',
-                        ejecutor_t1:       prod.ejecutor_t1      || '',
-                        presupuesto_m:     prod.presupuesto_m    || '',
-                        horas_periodo:     hasPeriodFilter ? (horasPeriodo[numT] || 0) : 0,
-                        horas_total:       horasTotal[numT]      || 0,
-                        fecha_inicio:      prod.fecha_inicio      || '',
-                        visto_vb_cliente:  prod.visto_vb_cliente  || '',
-                        fecha_ap:          prod.fecha_ap          || '',
-                    };
-                })
-                .sort((a, b) => (b.horas_periodo || b.horas_total) - (a.horas_periodo || a.horas_total));
+                .filter(r => r !== null)
+                .sort((a, b) => b.horas - a.horas);
 
             const container = document.getElementById('container-hsf-tabla');
             if (!container) return;
 
             if (rows.length === 0) {
-                container.innerHTML = '<p style="color:#64748b;font-size:13px;padding:16px 0;">No hay expedientes con horas imputadas sin fecha de facturación para el período seleccionado.</p>';
+                container.innerHTML = '<p style="color:#64748b;font-size:13px;padding:16px 0;">No hay expedientes INTERNO/PUNTUAL con horas imputadas sin fecha de facturación para el período seleccionado.</p>';
                 return;
             }
 
-            const thStyle = 'padding:8px 10px;font-weight:600;color:#475569;border-bottom:2px solid #e2e8f0;background:#f8fafc;';
+            const th = s => `<th style="padding:8px 12px;font-weight:600;color:#475569;border-bottom:2px solid #e2e8f0;background:#f8fafc;${s}">${arguments[1]}</th>`;
+            const thStyle = 'padding:8px 12px;font-weight:600;color:#475569;border-bottom:2px solid #e2e8f0;background:#f8fafc;';
+
             let html = `<table id="tabla-hsf" style="width:100%;border-collapse:collapse;font-size:13px;">
                 <thead><tr style="position:sticky;top:0;z-index:1;">
-                    <th style="${thStyle}text-align:left;white-space:nowrap;">Nº Trabajo</th>
-                    <th style="${thStyle}text-align:left;">Cliente</th>
-                    <th style="${thStyle}text-align:left;white-space:nowrap;">Tipo Exp.</th>
-                    <th style="${thStyle}text-align:left;">Servicio</th>
-                    <th style="${thStyle}text-align:left;white-space:nowrap;">Técnico Rble.</th>
-                    <th style="${thStyle}text-align:left;">T1</th>
-                    <th style="${thStyle}text-align:right;white-space:nowrap;">Presupuesto</th>
-                    ${hasPeriodFilter ? `<th style="${thStyle}text-align:right;color:#3b82f6;white-space:nowrap;">H. Período</th>` : ''}
-                    <th style="${thStyle}text-align:right;white-space:nowrap;">H. Total</th>
-                    <th style="${thStyle}text-align:left;white-space:nowrap;">Fecha Inicio</th>
-                    <th style="${thStyle}text-align:left;white-space:nowrap;">VB Cliente</th>
-                    <th style="${thStyle}text-align:left;white-space:nowrap;">Fecha Final.</th>
+                    <th style="${thStyle}text-align:left;">Expediente</th>
+                    <th style="${thStyle}text-align:left;">Grupo</th>
+                    <th style="${thStyle}text-align:right;white-space:nowrap;">Horas</th>
+                    <th style="${thStyle}text-align:right;white-space:nowrap;">Importe (h×60)</th>
                 </tr></thead><tbody>`;
 
             rows.forEach((r, i) => {
                 const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
                 html += `<tr style="background:${bg};border-bottom:1px solid #f1f5f9;">
-                    <td style="padding:7px 10px;font-weight:600;">${escapeHTML(String(r.num_trabajo))}</td>
-                    <td style="padding:7px 10px;">${escapeHTML(r.cliente)}</td>
-                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(r.tipo_expediente)}</td>
-                    <td style="padding:7px 10px;">${escapeHTML(r.servicio)}</td>
-                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(r.responsable_g)}</td>
-                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(r.ejecutor_t1)}</td>
-                    <td style="padding:7px 10px;text-align:right;white-space:nowrap;">${fmtE(r.presupuesto_m)}</td>
-                    ${hasPeriodFilter ? `<td style="padding:7px 10px;text-align:right;font-weight:600;color:#3b82f6;">${r.horas_periodo > 0 ? fmtN(r.horas_periodo) : ''}</td>` : ''}
-                    <td style="padding:7px 10px;text-align:right;">${r.horas_total > 0 ? fmtN(r.horas_total) : ''}</td>
-                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(formatearFechaDisplay(r.fecha_inicio))}</td>
-                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(r.visto_vb_cliente)}</td>
-                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(formatearFechaDisplay(r.fecha_ap))}</td>
+                    <td style="padding:7px 12px;font-weight:600;">${escapeHTML(r.exp_gestiona)}</td>
+                    <td style="padding:7px 12px;">${escapeHTML(r.grupo)}</td>
+                    <td style="padding:7px 12px;text-align:right;">${fmtN(r.horas)}</td>
+                    <td style="padding:7px 12px;text-align:right;font-weight:600;color:#0f172a;">${fmtE(r.importe)}</td>
                 </tr>`;
             });
 
-            const totPresup = rows.reduce((s, r) => s + (parseSpanishNum(r.presupuesto_m) || 0), 0);
-            const totPer    = rows.reduce((s, r) => s + r.horas_periodo, 0);
-            const totAll    = rows.reduce((s, r) => s + r.horas_total,   0);
+            const totHoras   = rows.reduce((s, r) => s + r.horas,   0);
+            const totImporte = rows.reduce((s, r) => s + r.importe, 0);
             html += `<tr style="background:#f1f5f9;border-top:2px solid #e2e8f0;font-weight:700;">
-                <td style="padding:8px 10px;" colspan="6">Total — ${rows.length} expediente${rows.length !== 1 ? 's' : ''}</td>
-                <td style="padding:8px 10px;text-align:right;white-space:nowrap;">${totPresup > 0 ? fmtE(totPresup) : ''}</td>
-                ${hasPeriodFilter ? `<td style="padding:8px 10px;text-align:right;color:#3b82f6;">${totPer > 0 ? fmtN(totPer) : ''}</td>` : ''}
-                <td style="padding:8px 10px;text-align:right;">${totAll > 0 ? fmtN(totAll) : ''}</td>
-                <td colspan="3"></td>
+                <td style="padding:8px 12px;" colspan="2">Total — ${rows.length} expediente${rows.length !== 1 ? 's' : ''}</td>
+                <td style="padding:8px 12px;text-align:right;">${fmtN(totHoras)}</td>
+                <td style="padding:8px 12px;text-align:right;">${fmtE(totImporte)}</td>
             </tr>`;
 
             html += '</tbody></table>';
