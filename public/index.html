@@ -6588,7 +6588,7 @@
 
             datosProduccionMemoria.forEach(prod => {
                 const tipo = (prod.tipo_expediente || '').trim().toUpperCase();
-                if (tipo !== 'INTERNO' && tipo !== 'PUNTUAL') return;
+                if (tipo === 'INTERNO' || tipo === 'MATRIZ') return;
                 if ((prod.fecha_ar || '').trim()) return;
                 const numT = String(prod.num_trabajo || '').trim();
                 const exp  = (prod.exp_gestiona   || '').trim();
