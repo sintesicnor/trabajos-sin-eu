@@ -1455,13 +1455,19 @@
                 });
 
                 tbody.appendChild(fragment);
+                console.log(`🔢 Filas en tbody tras render: ${tbody.children.length}`);
 
                 const tableProdRef = tableProd || document.querySelector('#view-produccion .data-table');
-                if (tableProdRef) { 
-                    applyTableFilters(tableProdRef); 
-                    applyColumnOrder(tableProdRef); 
+                if (tableProdRef) {
+                    applyTableFilters(tableProdRef);
+                    const visiblesPostFiltro = Array.from(tbody.querySelectorAll('tr')).filter(r => r.style.display !== 'none').length;
+                    console.log(`🔍 Filas visibles tras applyTableFilters: ${visiblesPostFiltro}`);
+                    applyColumnOrder(tableProdRef);
+                    console.log(`📐 tbody.style.display tras applyColumnOrder: "${tbody.style.display}"`);
                     actualizarIconosFiltroDeTabla(tableProdRef);
                     aplicarVisibilidadColumnas(tableProdRef);
+                    const visiblesPostVis = Array.from(tbody.querySelectorAll('tr')).filter(r => r.style.display !== 'none').length;
+                    console.log(`👁️ Filas visibles tras aplicarVisibilidadColumnas: ${visiblesPostVis}`);
                     updateDynamicStickyColumns(tableProdRef);
                 }
             } catch (error) {
