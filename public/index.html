@@ -1267,11 +1267,13 @@
                 tbody.innerHTML = '';
                 datosProduccionMemoria.length = 0;
 
+                console.log(`📋 produccion: ${querySnapshot.size} documento(s) en Firestore`);
+
                 if (querySnapshot.empty) {
                     const canImport = currentUserRole === 'admin' || currentUserRole === 'edicion';
                     tbody.innerHTML = '<tr><td colspan="30" style="text-align: center; padding: 40px; color: #64748b;">'
                         + 'No se encontraron datos de producción.'
-                        + (canImport ? ' Usa el botón <strong>Importar</strong> de la cabecera para cargar el Excel.' : '')
+                        + (canImport ? ' Usa el botón <strong>Importar</strong> de la cabecera para cargar el Excel.' : ' Contacta con el administrador para que realice la importación.')
                         + '</td></tr>';
                     // Asegurar visibilidad del botón de importar cuando la colección está vacía
                     if (canImport) {
@@ -2771,6 +2773,7 @@
 
             } catch (e) {
                 console.error('Error applying column order:', e);
+                if (tbody) tbody.style.display = '';
             }
         }
 
