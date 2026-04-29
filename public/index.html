@@ -1464,10 +1464,11 @@
                     console.log(`🔍 Filas visibles tras applyTableFilters: ${visiblesPostFiltro}`);
                     if (visiblesPostFiltro === 0 && tbody.children.length > 0) {
                         console.warn('⚠️ Filtros activos ocultan todos los datos:', JSON.stringify(tableFilters['table-produccion']));
-                        // Limpiar filtros automáticamente y volver a cargar
                         if (tableFilters['table-produccion']) {
                             delete tableFilters['table-produccion'];
                             guardarPreferenciasUsuario();
+                            // Restaurar visibilidad de todas las filas antes de reaplicar
+                            Array.from(tbody.querySelectorAll('tr')).forEach(r => r.style.display = '');
                             applyTableFilters(tableProdRef);
                             console.log('🧹 Filtros eliminados automáticamente');
                         }
