@@ -6529,6 +6529,186 @@
             cargarMensualFactChart();
         });
 
+        function initFiltrosHsf() {
+            const yearSel = document.getElementById('filt-hsf-year');
+            if (yearSel && !yearSel.dataset.initialized) {
+                const years = new Set();
+                (window._partesHorasData || []).forEach(p => {
+                    const f = parseFechaUniversal(p.fecha);
+                    if (f) years.add(f.getFullYear());
+                });
+                const curYear = new Date().getFullYear();
+                [...years].sort((a, b) => b - a).forEach(y => {
+                    const opt = document.createElement('option');
+                    opt.value = y; opt.textContent = y;
+                    if (y === curYear) opt.selected = true;
+                    yearSel.appendChild(opt);
+                });
+                yearSel.dataset.initialized = 'true';
+            }
+            const monthSel = document.getElementById('filt-hsf-month');
+            if (monthSel && !monthSel.dataset.initialized) {
+                ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                 'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+                .forEach((name, i) => {
+                    const opt = document.createElement('option');
+                    opt.value = i + 1; opt.textContent = name;
+                    monthSel.appendChild(opt);
+                });
+                monthSel.dataset.initialized = 'true';
+            }
+        }
+
+        function cargarTablaHorasSinFacturar() {
+            if (!window._partesHorasData) {
+                if (_cachedPartesHoras && _cachedPartesHoras.length > 0) {
+                    window._partesHorasData = _cachedPartesHoras.map((data, i) => ({ id: 'p' + i, ...data }));
+                } else {
+                    getDocs(collection(db, 'partes_horas')).then(snap => {
+                        _cachedPartesHoras = [];
+                        window._partesHorasData = [];
+                        snap.forEach(d => { const data = d.data(); _cachedPartesHoras.push(data); window._partesHorasData.push({ id: d.id, ...data }); });
+                        _cachedPartesHorasTimestamp = Date.now();
+                        cargarTablaHorasSinFacturar();
+                    }).catch(err => console.error('Error cargando partes_horas:', err));
+                    return;
+                }
+            }
+
+            initFiltrosHsf();
+
+            const selYears  = Array.from(document.getElementById('filt-hsf-year')?.selectedOptions  || []).map(o => parseInt(o.value));
+            const selMonths = Array.from(document.getElementById('filt-hsf-month')?.selectedOptions || []).map(o => parseInt(o.value));
+            const hasPeriodFilter = selYears.length > 0 || selMonths.length > 0;
+
+            // Aggregate hours from partes_horas
+            const horasPeriodo = {};
+            const horasTotal   = {};
+            (window._partesHorasData || []).forEach(p => {
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const mc = obs.match(/^(\d{3,6})/);
+                const numT = mc ? mc[1] : null;
+                if (!numT) return;
+                horasTotal[numT] = (horasTotal[numT] || 0) + horas;
+                if (hasPeriodFilter) {
+                    const fecha = parseFechaUniversal(p.fecha);
+                    if (!fecha) return;
+                    const okYear  = selYears.length  === 0 || selYears.includes(fecha.getFullYear());
+                    const okMonth = selMonths.length === 0 || selMonths.includes(fecha.getMonth() + 1);
+                    if (okYear && okMonth) horasPeriodo[numT] = (horasPeriodo[numT] || 0) + horas;
+                }
+            });
+
+            const fmtN = v => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v);
+            const fmtE = v => {
+                const n = typeof v === 'number' ? v : parseSpanishNum(v);
+                if (!n) return '';
+                return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n) + ' €';
+            };
+
+            const rows = datosProduccionMemoria
+                .filter(prod => {
+                    if ((prod.fecha_ar || '').trim()) return false;
+                    const numT = String(prod.num_trabajo || '').trim();
+                    return hasPeriodFilter ? (horasPeriodo[numT] || 0) > 0 : (horasTotal[numT] || 0) > 0;
+                })
+                .map(prod => {
+                    const numT = String(prod.num_trabajo || '').trim();
+                    return {
+                        num_trabajo:       prod.num_trabajo      || '',
+                        cliente:           prod.cliente          || '',
+                        tipo_expediente:   prod.tipo_expediente  || '',
+                        servicio:          prod.servicio         || '',
+                        responsable_g:     prod.responsable_g    || '',
+                        ejecutor_t1:       prod.ejecutor_t1      || '',
+                        presupuesto_m:     prod.presupuesto_m    || '',
+                        horas_periodo:     hasPeriodFilter ? (horasPeriodo[numT] || 0) : 0,
+                        horas_total:       horasTotal[numT]      || 0,
+                        fecha_inicio:      prod.fecha_inicio      || '',
+                        visto_vb_cliente:  prod.visto_vb_cliente  || '',
+                        fecha_ap:          prod.fecha_ap          || '',
+                    };
+                })
+                .sort((a, b) => (b.horas_periodo || b.horas_total) - (a.horas_periodo || a.horas_total));
+
+            const container = document.getElementById('container-hsf-tabla');
+            if (!container) return;
+
+            if (rows.length === 0) {
+                container.innerHTML = '<p style="color:#64748b;font-size:13px;padding:16px 0;">No hay expedientes con horas imputadas sin fecha de facturación para el período seleccionado.</p>';
+                return;
+            }
+
+            const thStyle = 'padding:8px 10px;font-weight:600;color:#475569;border-bottom:2px solid #e2e8f0;background:#f8fafc;';
+            let html = `<table id="tabla-hsf" style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead><tr style="position:sticky;top:0;z-index:1;">
+                    <th style="${thStyle}text-align:left;white-space:nowrap;">Nº Trabajo</th>
+                    <th style="${thStyle}text-align:left;">Cliente</th>
+                    <th style="${thStyle}text-align:left;white-space:nowrap;">Tipo Exp.</th>
+                    <th style="${thStyle}text-align:left;">Servicio</th>
+                    <th style="${thStyle}text-align:left;white-space:nowrap;">Técnico Rble.</th>
+                    <th style="${thStyle}text-align:left;">T1</th>
+                    <th style="${thStyle}text-align:right;white-space:nowrap;">Presupuesto</th>
+                    ${hasPeriodFilter ? `<th style="${thStyle}text-align:right;color:#3b82f6;white-space:nowrap;">H. Período</th>` : ''}
+                    <th style="${thStyle}text-align:right;white-space:nowrap;">H. Total</th>
+                    <th style="${thStyle}text-align:left;white-space:nowrap;">Fecha Inicio</th>
+                    <th style="${thStyle}text-align:left;white-space:nowrap;">VB Cliente</th>
+                    <th style="${thStyle}text-align:left;white-space:nowrap;">Fecha Final.</th>
+                </tr></thead><tbody>`;
+
+            rows.forEach((r, i) => {
+                const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
+                html += `<tr style="background:${bg};border-bottom:1px solid #f1f5f9;">
+                    <td style="padding:7px 10px;font-weight:600;">${escapeHTML(String(r.num_trabajo))}</td>
+                    <td style="padding:7px 10px;">${escapeHTML(r.cliente)}</td>
+                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(r.tipo_expediente)}</td>
+                    <td style="padding:7px 10px;">${escapeHTML(r.servicio)}</td>
+                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(r.responsable_g)}</td>
+                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(r.ejecutor_t1)}</td>
+                    <td style="padding:7px 10px;text-align:right;white-space:nowrap;">${fmtE(r.presupuesto_m)}</td>
+                    ${hasPeriodFilter ? `<td style="padding:7px 10px;text-align:right;font-weight:600;color:#3b82f6;">${r.horas_periodo > 0 ? fmtN(r.horas_periodo) : ''}</td>` : ''}
+                    <td style="padding:7px 10px;text-align:right;">${r.horas_total > 0 ? fmtN(r.horas_total) : ''}</td>
+                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(formatearFechaDisplay(r.fecha_inicio))}</td>
+                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(r.visto_vb_cliente)}</td>
+                    <td style="padding:7px 10px;white-space:nowrap;">${escapeHTML(formatearFechaDisplay(r.fecha_ap))}</td>
+                </tr>`;
+            });
+
+            const totPresup = rows.reduce((s, r) => s + (parseSpanishNum(r.presupuesto_m) || 0), 0);
+            const totPer    = rows.reduce((s, r) => s + r.horas_periodo, 0);
+            const totAll    = rows.reduce((s, r) => s + r.horas_total,   0);
+            html += `<tr style="background:#f1f5f9;border-top:2px solid #e2e8f0;font-weight:700;">
+                <td style="padding:8px 10px;" colspan="6">Total — ${rows.length} expediente${rows.length !== 1 ? 's' : ''}</td>
+                <td style="padding:8px 10px;text-align:right;white-space:nowrap;">${totPresup > 0 ? fmtE(totPresup) : ''}</td>
+                ${hasPeriodFilter ? `<td style="padding:8px 10px;text-align:right;color:#3b82f6;">${totPer > 0 ? fmtN(totPer) : ''}</td>` : ''}
+                <td style="padding:8px 10px;text-align:right;">${totAll > 0 ? fmtN(totAll) : ''}</td>
+                <td colspan="3"></td>
+            </tr>`;
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        document.getElementById('btn-update-hsf')?.addEventListener('click', () => cargarTablaHorasSinFacturar());
+        document.getElementById('btn-clear-hsf')?.addEventListener('click', () => {
+            const ySel = document.getElementById('filt-hsf-year');
+            const mSel = document.getElementById('filt-hsf-month');
+            if (ySel) Array.from(ySel.options).forEach(o => o.selected = false);
+            if (mSel) Array.from(mSel.options).forEach(o => o.selected = false);
+            cargarTablaHorasSinFacturar();
+        });
+        document.getElementById('btn-export-hsf')?.addEventListener('click', () => {
+            if (typeof XLSX === 'undefined') { alert('Error: librería XLSX no cargada.'); return; }
+            const table = document.getElementById('tabla-hsf');
+            if (!table) { alert('No hay datos para exportar.'); return; }
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.table_to_sheet(table);
+            XLSX.utils.book_append_sheet(wb, ws, 'Sin Facturar');
+            XLSX.writeFile(wb, 'Horas_Sin_Facturar_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+        });
+
 
         function cargarDashboard() {
             initFiltrosDashboard();
@@ -6551,6 +6731,7 @@
                 document.getElementById('panel-dash-rendimiento').style.display = 'block';
                 cargarDashboardRendimiento();
                 cargarMensualFactChart();
+                cargarTablaHorasSinFacturar();
             } else if (isFin) {
                 document.getElementById('panel-dash-financiero').style.display = 'block';
                 cargarDashboardFinanciero();
@@ -9430,6 +9611,27 @@
                                 <button id="btn-clear-mensual" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
                             </div>
                             <div style="width: 100%; height: 350px; position: relative;"><canvas id="chart-mensual-fact"></canvas></div>
+                        </div>
+
+                        <div class="chart-box" style="margin-bottom: 24px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+                                <h3 class="chart-title" style="margin:0;">Expedientes con horas imputadas sin fecha de facturación</h3>
+                                <button id="btn-export-hsf" class="btn-secondary" style="height:34px;padding:0 14px;font-size:13px;display:flex;align-items:center;gap:6px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                    Exportar Excel
+                                </button>
+                            </div>
+                            <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:flex-end;">
+                                <div class="filter-group"><label>Año</label>
+                                    <select id="filt-hsf-year" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:90px;min-height:36px;"></select>
+                                </div>
+                                <div class="filter-group"><label>Mes</label>
+                                    <select id="filt-hsf-month" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:150px;min-height:36px;"></select>
+                                </div>
+                                <button id="btn-update-hsf" class="btn-primary" style="height:36px;">Aplicar</button>
+                                <button id="btn-clear-hsf" class="btn-secondary" style="height:36px;background:white;color:#475569;border-color:#cbd5e1;">Borrar filtros</button>
+                            </div>
+                            <div id="container-hsf-tabla" style="overflow-x:auto;max-height:480px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:8px;"></div>
                         </div>
 
                         <div class="chart-box">
