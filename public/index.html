@@ -1462,12 +1462,19 @@
                     applyTableFilters(tableProdRef);
                     const visiblesPostFiltro = Array.from(tbody.querySelectorAll('tr')).filter(r => r.style.display !== 'none').length;
                     console.log(`🔍 Filas visibles tras applyTableFilters: ${visiblesPostFiltro}`);
+                    if (visiblesPostFiltro === 0 && tbody.children.length > 0) {
+                        console.warn('⚠️ Filtros activos ocultan todos los datos:', JSON.stringify(tableFilters['table-produccion']));
+                        // Limpiar filtros automáticamente y volver a cargar
+                        if (tableFilters['table-produccion']) {
+                            delete tableFilters['table-produccion'];
+                            guardarPreferenciasUsuario();
+                            applyTableFilters(tableProdRef);
+                            console.log('🧹 Filtros eliminados automáticamente');
+                        }
+                    }
                     applyColumnOrder(tableProdRef);
-                    console.log(`📐 tbody.style.display tras applyColumnOrder: "${tbody.style.display}"`);
                     actualizarIconosFiltroDeTabla(tableProdRef);
                     aplicarVisibilidadColumnas(tableProdRef);
-                    const visiblesPostVis = Array.from(tbody.querySelectorAll('tr')).filter(r => r.style.display !== 'none').length;
-                    console.log(`👁️ Filas visibles tras aplicarVisibilidadColumnas: ${visiblesPostVis}`);
                     updateDynamicStickyColumns(tableProdRef);
                 }
             } catch (error) {
