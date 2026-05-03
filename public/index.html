@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.53</title>
+    <title>Proyectos SIN v1.65</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -23,10 +23,19 @@
     <script defer
         src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 
+    <!-- Service Worker: soporte offline automático -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(console.warn);
+            });
+        }
+    </script>
+
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getFirestore, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getFirestore, enableIndexedDbPersistence, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
@@ -44,7 +53,12 @@
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-        // Persistencia offline deshabilitada: los datos siempre se leen desde Firestore.
+        // Persistencia offline: los datos se cachean en IndexedDB para consulta sin conexión.
+        enableIndexedDbPersistence(db).catch(err => {
+            if (err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+                console.warn('Offline persistence:', err.code);
+            }
+        });
         const auth = getAuth(app);
         const functions = getFunctions(app);
 
@@ -2999,6 +3013,16 @@
                 });
             });
         }
+
+        // ── Soporte offline: banner automático según estado de conexión ──
+        function _actualizarBannerOffline() {
+            const banner = document.getElementById('offline-banner');
+            if (!banner) return;
+            banner.style.display = navigator.onLine ? 'none' : 'block';
+        }
+        window.addEventListener('online', _actualizarBannerOffline);
+        window.addEventListener('offline', _actualizarBannerOffline);
+        document.addEventListener('DOMContentLoaded', _actualizarBannerOffline);
 
         // Ejecutar carga de base de datos cuando la página termina de cargar
         document.addEventListener('DOMContentLoaded', async () => {
@@ -9139,6 +9163,24 @@
 </head>
 
 <body>
+
+    <!-- Banner offline: visible automáticamente cuando no hay conexión -->
+    <div id="offline-banner" role="alert" aria-live="assertive" style="
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        z-index: 99999;
+        background: #f59e0b;
+        color: #1c1917;
+        text-align: center;
+        padding: 8px 20px;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    ">
+        &#9888; Modo sin conexión — estás viendo datos guardados localmente. Algunos datos pueden no estar actualizados.
+    </div>
 
     <!-- Contenedor de Login -->
     <div id="login-container">
