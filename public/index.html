@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.67</title>
+    <title>Proyectos SIN v1.68</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -322,7 +322,9 @@
                 // No registrar campos internos ni cambios vacíos
                 if (campo.startsWith('_') || campo === 'fecha_fin_confirmada') return;
                 if (String(valorAnterior) === String(valorNuevo)) return;
-                const usuario = auth.currentUser ? auth.currentUser.email : 'Desconocido';
+                const _cu = auth.currentUser;
+                const _msP = _cu?.providerData?.find(p => p.providerId === 'microsoft.com');
+                const usuario = (_cu?.email || _msP?.email) || 'Desconocido';
                 await addDoc(collection(db, "historial"), {
                     coleccion: coleccion,
                     docId: String(docId),
@@ -1866,11 +1868,12 @@
                     }
                     const _colIdxDate = Array.from(th.parentNode.children).indexOf(th);
                     const isDateYearMonthFilter = originalText.toLowerCase().startsWith('fecha') || originalText.startsWith('F. Fin');
-                    const isNoFilter = isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t));
+                    const isNoFilter = noFilterCols.some(t => originalText === t || originalText.includes(t));
 
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
 
-                    const isMulti = !isNoFilter && (targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t)));
+                    // isTecCol añade multi-select automático con valores del tbody
+                    const isMulti = !isNoFilter && (isTecCol || targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t)));
 
                     if (isNoFilter) {
                         // No crear filtro para esta columna
@@ -2152,10 +2155,30 @@
                                 if (tds[colIdx]) { const v = tds[colIdx].textContent.trim(); if (v) vals.add(v); }
                             });
                             options = [...vals].sort();
+                        } else if (isTecCol) {
+                            // Columnas de técnico: valores únicos del tbody
+                            const vals = new Set();
+                            table.querySelectorAll('tbody tr').forEach(tr => {
+                                const tds = tr.querySelectorAll('td');
+                                const colIdx = Array.from(th.parentNode.children).indexOf(th);
+                                if (tds[colIdx]) { const v = tds[colIdx].textContent.trim(); if (v) vals.add(v); }
+                            });
+                            options = [...vals].sort();
                         }
 
                         // Remover duplicados y falsy
                         options = [...new Set(options)].filter(Boolean);
+
+                        // ── Checkbox "Seleccionar todo" ──
+                        const lblAll = document.createElement('label');
+                        lblAll.style.cssText = 'font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0 6px 0;border-bottom:1px solid #e2e8f0;margin-bottom:2px;';
+                        lblAll.addEventListener('click', e => e.stopPropagation());
+                        const cbAll = document.createElement('input');
+                        cbAll.type = 'checkbox';
+                        cbAll.addEventListener('click', e => e.stopPropagation());
+                        lblAll.appendChild(cbAll);
+                        lblAll.appendChild(document.createTextNode('Seleccionar todo'));
+                        popup.appendChild(lblAll);
 
                         options.forEach(opt => {
                             const lbl = document.createElement('label');
@@ -2164,14 +2187,11 @@
                             lbl.style.alignItems = 'center';
                             lbl.style.gap = '6px';
                             lbl.style.cursor = 'pointer';
-                            // Aseguramos que el click en el svg hijo de Eº tampoco cierre el popup
-                            lbl.addEventListener('click', e => {
-                                // Si hizo clic en un path o svg derivamos al input para no perder el checkeo, o podemos detener la prop
-                                e.stopPropagation();
-                            });
+                            lbl.addEventListener('click', e => e.stopPropagation());
 
                             const cb = document.createElement('input');
                             cb.type = 'checkbox';
+                            cb.className = 'cb-opt';
                             cb.value = opt;
 
                             // Establecer estado inicial si ya existe filtro cargado
@@ -2188,7 +2208,7 @@
                                 if (!tableFilters[tblId]) tableFilters[tblId] = {};
                                 const colIndex = Array.from(th.parentNode.children).indexOf(th);
 
-                                const checkedBoxes = Array.from(popup.querySelectorAll('input[type="checkbox"]:checked')).map(box => box.value);
+                                const checkedBoxes = Array.from(popup.querySelectorAll('input.cb-opt:checked')).map(box => box.value);
                                 tableFilters[tblId][colIndex] = checkedBoxes;
 
                                 if (checkedBoxes.length > 0) {
@@ -2202,6 +2222,13 @@
                                 }
                                 applyTableFilters(table);
                                 guardarPreferenciasUsuario();
+
+                                // Sincronizar estado de "Seleccionar todo"
+                                const allOpts = Array.from(popup.querySelectorAll('input.cb-opt'));
+                                const allCh = allOpts.every(c => c.checked);
+                                const someCh = allOpts.some(c => c.checked);
+                                cbAll.checked = allCh;
+                                cbAll.indeterminate = !allCh && someCh;
                             });
 
                             lbl.appendChild(cb);
@@ -2217,6 +2244,29 @@
                                 lbl.appendChild(document.createTextNode(opt));
                             }
                             popup.appendChild(lbl);
+                        });
+
+                        // Estado inicial del "Seleccionar todo" según filtros guardados
+                        const _initCbs = Array.from(popup.querySelectorAll('input.cb-opt'));
+                        const _initAllCh = _initCbs.length > 0 && _initCbs.every(c => c.checked);
+                        const _initSomeCh = _initCbs.some(c => c.checked);
+                        cbAll.checked = _initAllCh;
+                        cbAll.indeterminate = !_initAllCh && _initSomeCh;
+
+                        // Handler del "Seleccionar todo" (debe estar después de que se creen las opciones)
+                        cbAll.addEventListener('change', () => {
+                            const isChecked = cbAll.checked;
+                            cbAll.indeterminate = false;
+                            popup.querySelectorAll('input.cb-opt').forEach(c => { c.checked = isChecked; });
+                            const tblId = table.dataset.tableId;
+                            if (!tableFilters[tblId]) tableFilters[tblId] = {};
+                            const colIndex = Array.from(th.parentNode.children).indexOf(th);
+                            tableFilters[tblId][colIndex] = isChecked ? options.slice() : [];
+                            iconContainer.dataset.active = isChecked ? 'true' : 'false';
+                            iconContainer.innerHTML = isChecked ? activeSvg : normalSvg;
+                            iconContainer.style.color = isChecked ? '#ef4444' : '';
+                            applyTableFilters(table);
+                            guardarPreferenciasUsuario();
                         });
                     } else {
                         const input = document.createElement('input');
@@ -7488,7 +7538,8 @@
 
                     const tdUsuario = document.createElement('td');
                     tdUsuario.style.cssText = 'padding: 6px 8px; font-size: 12px; color:#475569;';
-                    tdUsuario.textContent = (data.usuario || '').split('@')[0];
+                    const _tecHist = listaTecnicos.find(t => t.email && t.email.toLowerCase() === (data.usuario || '').toLowerCase());
+                    tdUsuario.textContent = _tecHist ? (_tecHist.nombre_pila || _tecHist.acronimo) : (data.usuario || '').split('@')[0];
                     tr.appendChild(tdUsuario);
 
                     const tdMod = document.createElement('td');
