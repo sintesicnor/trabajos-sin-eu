@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.66</title>
+    <title>Proyectos SIN v1.67</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -3518,7 +3518,7 @@
                 { label: 'En curso', color: '#f97316' }
             ];
 
-            opcionesEstado.forEach(opt => {
+            opcionesEstado.forEach((opt, optIdx) => {
                 const btn = document.createElement('div');
                 btn.textContent = opt.label;
                 btn.style.padding = '8px 16px';
@@ -3688,14 +3688,50 @@
                 });
                 menuEstado.appendChild(btn);
             });
+
+            // Separador + opción Eliminar (visible solo para admin/edicion, controlado al abrir)
+            const _sepEliminar = document.createElement('div');
+            _sepEliminar.className = 'menu-estado-delete-sep';
+            _sepEliminar.style.cssText = 'height:1px;background:#e2e8f0;margin:2px 0;';
+            menuEstado.appendChild(_sepEliminar);
+
+            const _btnEliminarOferta = document.createElement('div');
+            _btnEliminarOferta.className = 'menu-estado-delete';
+            _btnEliminarOferta.textContent = 'Eliminar oferta';
+            _btnEliminarOferta.style.cssText = 'padding:8px 16px;cursor:pointer;font-size:14px;color:#ef4444;';
+            _btnEliminarOferta.addEventListener('mouseenter', () => { _btnEliminarOferta.style.backgroundColor = '#fef2f2'; });
+            _btnEliminarOferta.addEventListener('mouseleave', () => { _btnEliminarOferta.style.backgroundColor = ''; });
+            _btnEliminarOferta.addEventListener('click', async () => {
+                const docId = menuEstado.dataset.currentId;
+                menuEstado.style.display = 'none';
+                if (!docId) return;
+                if (!confirm(`¿Eliminar esta oferta?\n\nEsta acción no se puede deshacer.`)) return;
+                try {
+                    await deleteDoc(doc(db, 'ofertas', docId));
+                    const idx = datosOfertasMemoria.findIndex(o => (o.num_gestiona || o._docId) === docId || o._docId === docId);
+                    if (idx !== -1) datosOfertasMemoria.splice(idx, 1);
+                    const trOfe = document.querySelector(`#view-ofertas tr[data-id="${docId}"]`);
+                    if (trOfe) trOfe.remove();
+                } catch (err) {
+                    manejarErrorFirebase(err, "Error al eliminar la oferta.");
+                }
+            });
+            menuEstado.appendChild(_btnEliminarOferta);
+
             document.body.appendChild(menuEstado);
 
             document.addEventListener('click', (e) => {
                 const iconDiv = e.target.closest('.estado-cell > div');
                 if (iconDiv) {
+                    if (!tienePermiso('editar_ofertas')) return;
                     const td = iconDiv.closest('.estado-cell');
                     const docId = td.dataset.id;
                     menuEstado.dataset.currentId = docId;
+
+                    // Mostrar/ocultar opción Eliminar según rol
+                    const canDelete = currentUserRole === 'admin' || currentUserRole === 'edicion';
+                    menuEstado.querySelector('.menu-estado-delete').style.display = canDelete ? '' : 'none';
+                    menuEstado.querySelector('.menu-estado-delete-sep').style.display = canDelete ? '' : 'none';
 
                     const rect = iconDiv.getBoundingClientRect();
                     menuEstado.style.top = `${rect.bottom + window.scrollY + 4}px`;
@@ -4034,8 +4070,23 @@
 
                 if (!docId || !fieldName) return;
 
-                // Bloquear edición del Nº Trabajo y Total Horas Histórico
-                if (fieldName === 'num_trabajo') return;
+                // Doble-clic en Nº Trabajo: eliminar fila (solo admin/edicion)
+                if (fieldName === 'num_trabajo') {
+                    if (tienePermiso('editar_campos_generales') && (currentUserRole === 'admin' || currentUserRole === 'edicion')) {
+                        const numTrabajo = td.textContent.trim();
+                        if (!confirm(`¿Eliminar el trabajo Nº ${numTrabajo}?\n\nEsta acción no se puede deshacer.`)) return;
+                        (async () => {
+                            try {
+                                const colDel = isVistaHistorico ? "historico_produccion" : "produccion";
+                                await deleteDoc(doc(db, colDel, docId));
+                                tr.remove();
+                            } catch (err) {
+                                manejarErrorFirebase(err, "Error al eliminar el trabajo.");
+                            }
+                        })();
+                    }
+                    return;
+                }
                 if (fieldName === 'total_horas_historico') return;
                 // ── Punto 1: Bloquear edición de horas de técnicos (vienen de partes_horas) ──
                 if (fieldName.startsWith('tec_')) return;
@@ -4046,8 +4097,8 @@
                 const tipoExpVal = tdTipoExp ? tdTipoExp.textContent.trim().toUpperCase() : '';
                 if (tipoExpVal === 'INTERNO' && !tienePermiso('crear_trabajo_interno')) return;
 
-                // ── Restricción edición: rol "edicion" y "ofertador" solo pueden editar trabajos donde figuren como técnico ──
-                if ((currentUserRole === 'edicion' || currentUserRole === 'ofertador') && currentUserAcronym) {
+                // ── Restricción ofertador: solo puede editar trabajos donde figure como técnico ──
+                if (currentUserRole === 'ofertador' && currentUserAcronym) {
                     const camposFinCheck = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
                     if (!camposFinCheck.includes(fieldName)) {
                         // Comprobar si el usuario figura como Rble, T1, T2 o T3
@@ -4334,7 +4385,7 @@
                     'num_gestiona', 'cliente', 'grupo', 'objeto', 'presupuesto_total', 'gastos_estimados',
                     'ingresos_2026', 'ingresos_2027', 'ingresos_2028', 'ingresos_2029', 'ingresos_2030',
                     'oficina', 'origen', 'servicio', 'agente_comercial', 'tecnico_t1', 'es_licitacion', 'pertenece_a_licitacion',
-                    'fin_licitacion', 'comentarios'
+                    'fin_licitacion', 'fecha_oferta', 'comentarios'
                 ];
                 if (!editAllowedFields.includes(fieldName)) return;
 
@@ -4351,7 +4402,7 @@
 
                 // Inyectar Selects o Inputs text
                 const esDesplegable = ['oficina', 'origen', 'agente_comercial', 'tecnico_t1', 'es_licitacion', 'pertenece_a_licitacion', 'servicio'].includes(fieldName);
-                const esFecha = ['fin_licitacion'].includes(fieldName);
+                const esFecha = ['fin_licitacion', 'fecha_oferta'].includes(fieldName);
 
                 if (esDesplegable) {
                     let optionsHTML = '';
