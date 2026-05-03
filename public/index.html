@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.65</title>
+    <title>Proyectos SIN v1.66</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -340,8 +340,11 @@
         // Cargar ajustes y listas globales desde Firestore
         async function cargarSettings() {
             try {
-                // Settings generales
-                const docSnap = await getDocs(query(collection(db, "settings")));
+                // Settings generales y listas en paralelo
+                const [docSnap, listasSnap] = await Promise.all([
+                    getDocs(query(collection(db, "settings"))),
+                    getDocs(query(collection(db, "listas_config")))
+                ]);
                 if (!docSnap.empty) {
                     docSnap.forEach(d => {
                         if (d.id === "global") {
@@ -369,16 +372,15 @@
                         }
                     });
                 }
-
-                // Cargar listas (Si no existen, se crean con los por defecto)
-                const listasSnap = await getDocs(query(collection(db, "listas_config")));
                 if (listasSnap.empty) {
-                    await setDoc(doc(db, "listas_config", "servicios"), { items: listaServicios });
-                    await setDoc(doc(db, "listas_config", "tipos_servicio"), { items: listaTiposServicio });
-                    await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
-                    await setDoc(doc(db, "listas_config", "oficinas"), { items: listaOficinas });
-                    await setDoc(doc(db, "listas_config", "origenes"), { items: listaOrigenes });
-                    await setDoc(doc(db, "listas_config", "tipos_expediente"), { items: listaTiposExpediente });
+                    await Promise.all([
+                        setDoc(doc(db, "listas_config", "servicios"), { items: listaServicios }),
+                        setDoc(doc(db, "listas_config", "tipos_servicio"), { items: listaTiposServicio }),
+                        setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos }),
+                        setDoc(doc(db, "listas_config", "oficinas"), { items: listaOficinas }),
+                        setDoc(doc(db, "listas_config", "origenes"), { items: listaOrigenes }),
+                        setDoc(doc(db, "listas_config", "tipos_expediente"), { items: listaTiposExpediente }),
+                    ]);
                 } else {
                     listasSnap.forEach(d => {
                         if (d.id === "servicios") listaServicios = d.data().items || [];
@@ -1223,12 +1225,16 @@
             _sincronizarCabecerasTecnicos();
             try {
                 const colName = isVistaHistorico ? "historico_produccion" : "produccion";
-                const querySnapshot = await getDocs(collection(db, colName));
-
-                // Leer y agregar horas de partes_horas (con caché en memoria)
                 const now = Date.now();
-                if (!_cachedPartesHoras || (now - _cachedPartesHorasTimestamp) > PARTES_CACHE_TTL) {
-                    const partesSnap = await getDocs(collection(db, "partes_horas"));
+                const needsPartes = !_cachedPartesHoras || (now - _cachedPartesHorasTimestamp) > PARTES_CACHE_TTL;
+
+                // Leer produccion y partes_horas en paralelo (partes solo si la caché está vencida)
+                const [querySnapshot, partesSnap] = await Promise.all([
+                    getDocs(collection(db, colName)),
+                    needsPartes ? getDocs(collection(db, "partes_horas")) : Promise.resolve(null)
+                ]);
+
+                if (needsPartes) {
                     _cachedPartesHoras = [];
                     partesSnap.forEach(d => _cachedPartesHoras.push(d.data()));
                     _cachedPartesHorasTimestamp = now;
@@ -3038,14 +3044,20 @@
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
-                        // 0. Asegurar que listaTecnicos está actualizada desde Firestore
-                        try {
-                            const tecSnap = await getDoc(doc(db, "listas_config", "tecnicos"));
-                            if (tecSnap.exists()) {
-                                listaTecnicos = tecSnap.data().items || listaTecnicos;
-                            }
-                        } catch (tecErr) {
-                            console.warn("No se pudo precargar lista de técnicos:", tecErr);
+                        // 0+permisos en paralelo: técnicos y permisos_roles no dependen entre sí
+                        const [tecSnap, permDoc] = await Promise.all([
+                            getDoc(doc(db, "listas_config", "tecnicos")).catch(e => { console.warn("No se pudo precargar lista de técnicos:", e); return null; }),
+                            getDoc(doc(db, "configuracion", "permisos_roles")).catch(e => { console.error("Error cargando permisos:", e); return null; })
+                        ]);
+
+                        if (tecSnap && tecSnap.exists()) {
+                            listaTecnicos = tecSnap.data().items || listaTecnicos;
+                        }
+                        if (permDoc && permDoc.exists()) {
+                            const saved = permDoc.data();
+                            ['admin','edicion','ofertador','lectura','consultor','financiero'].forEach(rol => {
+                                if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
+                            });
                         }
 
                         // 1. Resolver técnico y rol desde la tabla de técnicos (fuente principal)
@@ -3060,43 +3072,20 @@
                             currentUserRole = tecMatch.rol;
                             console.log("🔑 Rol asignado desde tabla de técnicos:", currentUserRole, "para", userEmail);
                         } else {
-                            // 2. Fallback: buscar en colección usuarios/{email} o usuarios/{uid}
-                            let userDoc = null;
-                            
-                            if (user.email) {
-                                try {
-                                    userDoc = await getDoc(doc(db, "usuarios", user.email));
-                                } catch (emailErr) {
-                                    console.warn("No se pudo leer usuarios por email:", emailErr.code || emailErr);
-                                }
-                            }
-                            
-                            if (!userDoc || !userDoc.exists()) {
-                                try {
-                                    userDoc = await getDoc(doc(db, "usuarios", user.uid));
-                                } catch (uidErr) {
-                                    console.warn("No se pudo leer usuarios por UID:", uidErr.code || uidErr);
-                                }
-                            }
+                            // 2. Fallback: buscar en colección usuarios/{email} y usuarios/{uid} en paralelo
+                            const lookups = [];
+                            if (user.email) lookups.push(getDoc(doc(db, "usuarios", user.email)).catch(() => null));
+                            lookups.push(getDoc(doc(db, "usuarios", user.uid)).catch(() => null));
+                            const userDocs = await Promise.all(lookups);
+                            const userDoc = userDocs.find(d => d && d.exists()) || null;
 
-                            if (userDoc && userDoc.exists()) {
+                            if (userDoc) {
                                 currentUserRole = userDoc.data().rol || 'lectura';
                             } else {
                                 currentUserRole = 'lectura';
                             }
                             console.log("🔑 Rol asignado desde colección usuarios:", currentUserRole, "para", userEmail);
                         }
-
-                        // Cargar permisos personalizados desde Firestore (si existen)
-                        try {
-                            const permDoc = await getDoc(doc(db, "configuracion", "permisos_roles"));
-                            if (permDoc && permDoc.exists()) {
-                                const saved = permDoc.data();
-                                ['admin','edicion','ofertador','lectura','consultor','financiero'].forEach(rol => {
-                                    if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
-                                });
-                            }
-                        } catch(ep) { console.error("Error cargando permisos:", ep); }
                     } catch (e) {
                         console.error("Error obteniendo rol", e);
                         currentUserRole = 'lectura';
@@ -3359,8 +3348,9 @@
 
             async function initAppContent() {
                 isAppInitialized = false;
-                await cargarPreferenciasUsuario();
-                await cargarSettings();
+
+                // Preferencias y settings en paralelo (colecciones independientes)
+                await Promise.all([cargarPreferenciasUsuario(), cargarSettings()]);
 
                 inyectarColumnasDinamicas();
                 await setupTableHeaders();
@@ -3371,13 +3361,11 @@
                     setTimeout(() => updateDynamicStickyColumns(t), 100);
                 });
 
-                await cargarProduccion();
-                
-                try {
-                    await cargarOfertas();
-                } catch (ofeErr) {
-                    console.error("Error cargando ofertas:", ofeErr);
-                }
+                // Producción y ofertas en paralelo (colecciones independientes)
+                await Promise.all([
+                    cargarProduccion(),
+                    cargarOfertas().catch(ofeErr => console.error("Error cargando ofertas:", ofeErr))
+                ]);
 
                 tableProd = document.querySelector('#view-produccion .data-table');
                 tableOfe = document.querySelector('#view-ofertas .data-table');
@@ -4195,9 +4183,9 @@
                                 const ofertaTd = tr.querySelector('td[data-field="oferta_gestiona"]');
                                 const ofertaId = ofertaTd ? ofertaTd.textContent.trim() : '';
                                 if (ofertaId) {
-                                    const ofertaDoc = await getDocs(query(collection(db, 'ofertas'), where('__name__', '==', ofertaId)));
-                                    if (!ofertaDoc.empty) {
-                                        const ofData = ofertaDoc.docs[0].data();
+                                    const ofertaDoc = await getDoc(doc(db, 'ofertas', ofertaId));
+                                    if (ofertaDoc.exists()) {
+                                        const ofData = ofertaDoc.data();
                                         const prevAcepts = Array.isArray(ofData.aceptaciones) ? ofData.aceptaciones : [];
                                         const idx = prevAcepts.findIndex(a => a.num_trabajo === docId);
                                         if (idx !== -1) {
