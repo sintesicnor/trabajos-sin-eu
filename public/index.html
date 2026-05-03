@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.68</title>
+    <title>Proyectos SIN v1.69</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -1777,6 +1777,8 @@
                                 if (!match) show = false;
                                 }
                             }
+                        } else if (filterVal === '__activas__') {
+                            if (!rawText) show = false;
                         } else if (filterVal && !rawText.toLowerCase().includes(filterVal)) {
                             show = false;
                         }
@@ -1872,8 +1874,7 @@
 
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
 
-                    // isTecCol añade multi-select automático con valores del tbody
-                    const isMulti = !isNoFilter && (isTecCol || targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t)));
+                    const isMulti = !isNoFilter && !isTecCol && (targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t)));
 
                     if (isNoFilter) {
                         // No crear filtro para esta columna
@@ -2155,15 +2156,6 @@
                                 if (tds[colIdx]) { const v = tds[colIdx].textContent.trim(); if (v) vals.add(v); }
                             });
                             options = [...vals].sort();
-                        } else if (isTecCol) {
-                            // Columnas de técnico: valores únicos del tbody
-                            const vals = new Set();
-                            table.querySelectorAll('tbody tr').forEach(tr => {
-                                const tds = tr.querySelectorAll('td');
-                                const colIdx = Array.from(th.parentNode.children).indexOf(th);
-                                if (tds[colIdx]) { const v = tds[colIdx].textContent.trim(); if (v) vals.add(v); }
-                            });
-                            options = [...vals].sort();
                         }
 
                         // Remover duplicados y falsy
@@ -2268,6 +2260,17 @@
                             applyTableFilters(table);
                             guardarPreferenciasUsuario();
                         });
+                    } else if (isTecCol) {
+                        // Toggle directo "Mostrar activas": sin popup, el icono activa/desactiva al clic
+                        const tblIdTec = table.dataset.tableId;
+                        const colIdxTec = Array.from(th.parentNode.children).indexOf(th);
+                        if (tableFilters[tblIdTec]?.[colIdxTec] === '__activas__') {
+                            iconContainer.dataset.active = 'true';
+                            iconContainer.innerHTML = activeSvg;
+                            iconContainer.style.color = '#ef4444';
+                        }
+                        popup.style.display = 'none'; // no popup para este tipo
+
                     } else {
                         const input = document.createElement('input');
                         input.type = 'text';
@@ -2313,6 +2316,22 @@
 
                     iconContainer.addEventListener('click', (e) => {
                         e.stopPropagation();
+
+                        // Toggle directo para columnas de técnico (sin popup)
+                        if (isTecCol) {
+                            const tblId = table.dataset.tableId;
+                            if (!tableFilters[tblId]) tableFilters[tblId] = {};
+                            const colIndex = Array.from(th.parentNode.children).indexOf(th);
+                            const isActive = iconContainer.dataset.active === 'true';
+                            iconContainer.dataset.active = isActive ? 'false' : 'true';
+                            iconContainer.innerHTML = isActive ? normalSvg : activeSvg;
+                            iconContainer.style.color = isActive ? '' : '#ef4444';
+                            tableFilters[tblId][colIndex] = isActive ? '' : '__activas__';
+                            applyTableFilters(table);
+                            guardarPreferenciasUsuario();
+                            return;
+                        }
+
                         if (iconContainer.dataset.active === 'true') {
                             iconContainer.dataset.active = 'false';
                             iconContainer.innerHTML = normalSvg;
