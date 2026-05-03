@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.69</title>
+    <title>Proyectos SIN v1.70</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -9306,19 +9306,13 @@
                     style="color: var(--tesicnor-blue); font-weight: 700; font-size: 28px; margin-left: 12px; margin-bottom: 0;">
                     Proyectos SIN</h2>
             </div>
-            <h2>Iniciar Sesión</h2>
-            <form id="login-form">
-                <input type="email" id="login-email" class="login-input" placeholder="Correo electrónico" required>
-                <input type="password" id="login-password" class="login-input" placeholder="Contraseña" required>
+            <form id="login-form" style="display:none;">
+                <input type="email" id="login-email" class="login-input" placeholder="Correo electrónico">
+                <input type="password" id="login-password" class="login-input" placeholder="Contraseña">
                 <button type="submit" class="login-btn">Entrar</button>
             </form>
-            <a href="#" id="btn-forgot-password" style="display:block;text-align:center;margin-top:12px;font-size:13px;color:#2176AC;text-decoration:none;">¿Has olvidado tu contraseña?</a>
-            <div style="margin: 16px 0; display: flex; align-items: center; justify-content: center;">
-                <div style="flex: 1; height: 1px; background-color: #e2e8f0;"></div>
-                <span style="margin: 0 10px; font-size: 12px; color: #94a3b8; font-weight: 500;">O</span>
-                <div style="flex: 1; height: 1px; background-color: #e2e8f0;"></div>
-            </div>
-            <button id="btn-login-microsoft" class="login-btn" style="background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <a href="#" id="btn-forgot-password" style="display:none;"></a>
+            <button id="btn-login-microsoft" class="login-btn" style="background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px;">
                 <svg width="20" height="20" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fbb00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
                 Iniciar sesión con Microsoft
             </button>
