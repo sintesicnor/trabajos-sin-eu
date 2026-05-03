@@ -7207,6 +7207,8 @@
                             alert("Nombre y Acrónimo son obligatorios.");
                         }
                         renderListaTecnicos();
+                        reinjectarColumnasDinamicas();
+                        cargarProduccion();
                     };
 
                     tr.querySelector('.btn-save-tec').addEventListener('click', saveTecEdit);
@@ -7301,6 +7303,7 @@
                 btnAddTec.addEventListener('click', async () => {
                     const nombre = document.getElementById('input-tec-nom').value.trim();
                     const acronimo = document.getElementById('input-tec-acr').value.trim();
+                    const nombre_pila = document.getElementById('input-tec-pila')?.value.trim() || '';
                     const id_tec = document.getElementById('input-tec-id').value.trim();
                     const email = document.getElementById('input-tec-email').value.trim();
                     const rol = document.getElementById('input-tec-rol').value;
@@ -7308,7 +7311,7 @@
 
                     const prod = document.getElementById('input-tec-prod')?.checked !== false;
                     if (nombre && acronimo) {
-                        listaTecnicos.push({ nombre, acronimo, id_tec, email, color, rol, prod });
+                        listaTecnicos.push({ nombre, acronimo, nombre_pila, id_tec, email, color, rol, prod });
                         await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
                         // Sincronizar con usuarios/{email} y usuarios_activos si hay email
                         if (email && email.includes('@')) {
@@ -7317,6 +7320,8 @@
                         }
                         document.getElementById('input-tec-nom').value = '';
                         document.getElementById('input-tec-acr').value = '';
+                        const pilaInput = document.getElementById('input-tec-pila');
+                        if (pilaInput) pilaInput.value = '';
                         document.getElementById('input-tec-id').value = '';
                         document.getElementById('input-tec-email').value = '';
                         document.getElementById('input-tec-color').value = '#ffffff';
@@ -9945,6 +9950,8 @@
                                     <input type="text" id="input-tec-nom" placeholder="Nombre completo"
                                         style="flex: 2; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <input type="text" id="input-tec-acr" placeholder="Acrónimo"
+                                        style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                    <input type="text" id="input-tec-pila" placeholder="Nombre de pila"
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <input type="text" id="input-tec-id" placeholder="Nº Téc. (ERP)"
                                         style="flex: 0.7; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
