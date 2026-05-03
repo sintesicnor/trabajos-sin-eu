@@ -2009,6 +2009,7 @@
                         if (!tableFilters[tblIdDate]) tableFilters[tblIdDate] = {};
 
                         const actualizarFiltroFecha = () => {
+                            const colIdxDate = Array.from(th.parentNode.children).indexOf(th);
                             const vals = Array.from(popup.querySelectorAll('input.cb-mes-ym:checked')).map(cb => cb.dataset.ym);
                             tableFilters[tblIdDate][colIdxDate] = vals;
                             if (vals.length > 0) {
@@ -2026,6 +2027,7 @@
 
                         // Lazy population: build/rebuild checkboxes each time popup opens
                         popup._poblarFecha = () => {
+                            const colIdxDate = Array.from(th.parentNode.children).indexOf(th);
                             const savedFilterDate = Array.isArray(tableFilters[tblIdDate][colIdxDate]) ? tableFilters[tblIdDate][colIdxDate] : [];
                             popup.innerHTML = '';
                             const ymMap = {};
