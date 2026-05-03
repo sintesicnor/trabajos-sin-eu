@@ -1845,7 +1845,7 @@
                         );
                     }
                     const _colIdxDate = Array.from(th.parentNode.children).indexOf(th);
-                    const isDateYearMonthFilter = originalText.toLowerCase().startsWith('fecha');
+                    const isDateYearMonthFilter = originalText.toLowerCase().startsWith('fecha') || originalText.startsWith('F. Fin');
                     const isNoFilter = isTecCol || noFilterCols.some(t => originalText === t || originalText.includes(t));
 
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
@@ -7808,8 +7808,8 @@
                                         oferta_gestiona: row[1] ? row[1].trim() : '',
                                         exp_gestiona: row[2] ? row[2].trim() : '',
                                         tipo_expediente: row[3] ? row[3].trim() : '',
-                                        fecha_inicio: row[4] ? row[4].trim() : '',
-                                        fecha_fin: row[5] ? row[5].trim() : '',
+                                        fecha_inicio: row[4] ? formatearFechaDisplay(row[4].trim()) : '',
+                                        fecha_fin: row[5] ? formatearFechaDisplay(row[5].trim()) : '',
                                         responsable_g: row[6] ? row[6].trim() : '',
                                         ejecutor_t1: row[7] ? row[7].trim() : '',
                                         apoyo_am: row[8] ? row[8].trim() : '',
