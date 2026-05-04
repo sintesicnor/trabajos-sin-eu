@@ -1,6 +1,7 @@
-const CACHE_NAME = 'gestor-sin-v1.65';
+const CACHE_NAME = 'gestor-sin-v1.71';
 
 const LOCAL_ASSETS = [
+    '/',
     '/index.html',
     '/icon.svg',
 ];
@@ -17,7 +18,7 @@ const CDN_ASSETS = [
     'https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js',
 ];
 
-// Hosts whose requests should never be intercepted (live API calls)
+// Hosts whose requests should never be intercepted (live API + fonts)
 const BYPASS_HOSTS = [
     'firestore.googleapis.com',
     'firebase.googleapis.com',
@@ -25,6 +26,8 @@ const BYPASS_HOSTS = [
     'securetoken.googleapis.com',
     'recaptchaenterprise.googleapis.com',
     'www.googleapis.com',
+    'fonts.googleapis.com',
+    'fonts.gstatic.com',
 ];
 
 self.addEventListener('install', event => {
@@ -60,6 +63,7 @@ self.addEventListener('fetch', event => {
     if (BYPASS_HOSTS.some(h => url.hostname.includes(h))) return;
 
     const isCDN = url.hostname !== self.location.hostname;
+    const isNavigation = event.request.mode === 'navigate';
 
     if (isCDN) {
         // CDN assets: cache-first (versioned URLs won't change)
@@ -77,6 +81,7 @@ self.addEventListener('fetch', event => {
         );
     } else {
         // App shell: network-first, fall back to cache
+        // For navigation requests (HTML pages), always fall back to /index.html if not found
         event.respondWith(
             fetch(event.request)
                 .then(response => {
@@ -86,7 +91,11 @@ self.addEventListener('fetch', event => {
                     }
                     return response;
                 })
-                .catch(() => caches.match(event.request))
+                .catch(() =>
+                    caches.match(event.request).then(cached =>
+                        cached || (isNavigation ? caches.match('/index.html') : null)
+                    )
+                )
         );
     }
 });
