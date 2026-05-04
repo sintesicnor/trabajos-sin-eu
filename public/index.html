@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.72</title>
+    <title>Proyectos SIN v1.73</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -4157,10 +4157,10 @@
                 if (fieldName.startsWith('tec_')) return;
                 if (fieldName === 'total_horas_calc' || fieldName === 'pct_uso' || fieldName === 'horas_disponibles') return;
 
-                // ── Restricción INTERNO: solo admin puede editar expedientes INTERNO ──
+                // ── Restricción INTERNO: admin y edicion pueden editar; otros roles no ──
                 const tdTipoExp = tr.querySelector('td[data-field="tipo_expediente"]');
                 const tipoExpVal = tdTipoExp ? tdTipoExp.textContent.trim().toUpperCase() : '';
-                if (tipoExpVal === 'INTERNO' && !tienePermiso('crear_trabajo_interno')) return;
+                if (tipoExpVal === 'INTERNO' && currentUserRole !== 'admin' && currentUserRole !== 'edicion') return;
 
                 // ── Restricción ofertador: solo puede editar trabajos donde figure como técnico ──
                 if (currentUserRole === 'ofertador' && currentUserAcronym) {
@@ -4187,9 +4187,10 @@
                 } else if (camposFinancieros.includes(fieldName)) {
                     if (!tienePermiso('editar_campos_financieros')) return;
                 } else if (fieldName === 'fecha_fin') {
-                    // Admin, financiero, o técnico responsable pueden editar fecha_fin
-                    if (!tienePermiso('editar_fecha_fin') && !tienePermiso('editar_campos_financieros')) {
-                        // Comprobar si es el técnico responsable de esta fila
+                    // Admin y edicion pueden editar fecha_fin en cualquier fila
+                    const puedeEditarFechaFin = currentUserRole === 'admin' || currentUserRole === 'edicion' ||
+                        tienePermiso('editar_fecha_fin') || tienePermiso('editar_campos_financieros');
+                    if (!puedeEditarFechaFin) {
                         const tdResp = tr.querySelector('td[data-field="responsable_g"]');
                         const respVal = tdResp ? tdResp.textContent.trim() : '';
                         const esResponsable = currentUserAcronym && (respVal === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === respVal || t.nombre === respVal)));
