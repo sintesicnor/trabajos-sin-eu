@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gestor-sin-v1.71';
+const CACHE_NAME = 'gestor-sin-v1.72';
 
 const LOCAL_ASSETS = [
     '/',
@@ -18,7 +18,6 @@ const CDN_ASSETS = [
     'https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js',
 ];
 
-// Hosts whose requests should never be intercepted (live API + fonts)
 const BYPASS_HOSTS = [
     'firestore.googleapis.com',
     'firebase.googleapis.com',
@@ -66,28 +65,27 @@ self.addEventListener('fetch', event => {
     const isNavigation = event.request.mode === 'navigate';
 
     if (isCDN) {
-        // CDN assets: cache-first (versioned URLs won't change)
         event.respondWith(
             caches.match(event.request).then(cached => {
                 if (cached) return cached;
                 return fetch(event.request).then(response => {
                     if (response.ok) {
-                        caches.open(CACHE_NAME)
-                            .then(cache => cache.put(event.request, response.clone()));
+                        // Clonar ANTES de cualquier operación asíncrona para evitar "body already used"
+                        const copy = response.clone();
+                        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
                     }
                     return response;
                 });
             })
         );
     } else {
-        // App shell: network-first, fall back to cache
-        // For navigation requests (HTML pages), always fall back to /index.html if not found
         event.respondWith(
             fetch(event.request)
                 .then(response => {
                     if (response.ok) {
-                        caches.open(CACHE_NAME)
-                            .then(cache => cache.put(event.request, response.clone()));
+                        // Clonar ANTES de abrir el cache (caches.open es asíncrono)
+                        const copy = response.clone();
+                        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
                     }
                     return response;
                 })
