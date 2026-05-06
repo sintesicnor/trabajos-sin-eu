@@ -548,7 +548,8 @@
 
             // Activar tab y vista seleccionada
             document.getElementById(activeTabId).classList.add('active');
-            document.getElementById(activeViewId).style.display = 'block';
+            // #view-produccion usa flex para apilar tabla + barra resumen admin
+            document.getElementById(activeViewId).style.display = activeViewId === 'view-produccion' ? 'flex' : 'block';
 
             // Mostrar u ocultar botones de la cabecera global
             const btnNuevoTrabajo = document.getElementById('btn-nuevo-trabajo');
@@ -1305,7 +1306,7 @@
 
                 querySnapshot.forEach((docSnap) => {
                     const data = docSnap.data();
-                    if (data.visible === false) return;
+                    if (data.visible === false || data.deleted === true) return;
                     datosProduccionMemoria.push(data);
 
                     const numTrabajoId = String(data['num_trabajo'] || '').trim();
@@ -1792,6 +1793,102 @@
                 allRows.forEach(r => r.style.display = '');
                 guardarPreferenciasUsuario();
             }
+            actualizarSumarioAdmin();
+        }
+
+        function limpiarFiltrosActivos() {
+            const view = document.querySelector('.app-view:not([style*="display: none"]):not([style*="display:none"])');
+            const table = view?.querySelector('.data-table');
+            if (!table) return;
+            const tblId = table.dataset.tableId;
+            if (!tblId) return;
+            if (tableFilters[tblId]) delete tableFilters[tblId];
+            const NORMAL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>`;
+            table.querySelectorAll('.header-filter-icon[data-active="true"]').forEach(ic => {
+                ic.dataset.active = 'false';
+                ic.innerHTML = NORMAL_SVG;
+                ic.style.color = '';
+            });
+            applyTableFilters(table);
+            guardarPreferenciasUsuario();
+        }
+
+        function actualizarSumarioAdmin() {
+            const bar = document.getElementById('admin-summary-bar');
+            if (!bar || bar.style.display === 'none') return;
+            const tbody = document.getElementById('table-body');
+            if (!tbody) return;
+            let pendiente = 0, realizada = 0, horasDisp = 0, horasUsadas = 0;
+            Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+                if (tr.style.display === 'none') return;
+                const presup   = parseSpanishNum(tr.querySelector('td[data-field="presupuesto_m"]')?.textContent.trim() || '');
+                const numAt    = (tr.querySelector('td[data-field="num_at"]')?.textContent.trim() || '');
+                const hDisp    = parseSpanishNum(tr.querySelector('td[data-field="horas_disponibles"]')?.textContent.trim() || '');
+                const hCalc    = parseSpanishNum(tr.querySelector('td[data-field="total_horas_calc"]')?.textContent.trim() || '');
+                if (numAt) { realizada += presup; } else { pendiente += presup; }
+                horasDisp   += hDisp;
+                horasUsadas += hCalc;
+            });
+            const fmt = v => v > 0 ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:0,maximumFractionDigits:0}).format(Math.round(v)) + '€' : '—';
+            const fmtH = v => v > 0 ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:0,maximumFractionDigits:1}).format(v) + 'h' : '—';
+            const elP = document.getElementById('sum-factura-pendiente');
+            const elR = document.getElementById('sum-factura-realizada');
+            const elH = document.getElementById('sum-horas-pendientes');
+            if (elP) elP.textContent = fmt(pendiente);
+            if (elR) elR.textContent = fmt(realizada);
+            if (elH) elH.textContent = fmtH(Math.max(0, horasDisp - horasUsadas));
+        }
+
+        async function mostrarPapelera() {
+            try {
+                const papSnap = await getDocs(collection(db, 'produccion'));
+                const deleted = papSnap.docs.filter(d => d.data().deleted === true);
+                const modalId = 'modal-papelera-' + Date.now();
+                const rowsHtml = deleted.length === 0
+                    ? '<p style="color:#64748b;font-size:13px;text-align:center;padding:20px;">No hay filas borradas.</p>'
+                    : deleted.map(d => {
+                        const data = d.data();
+                        const dt = data.deletedAt?.toDate ? data.deletedAt.toDate().toLocaleDateString('es-ES') : '';
+                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;">
+                            <span><strong>${escapeHTML(data.num_trabajo || d.id)}</strong> — ${escapeHTML(data.cliente || '')} ${escapeHTML(data.servicio || '')} <span style="color:#94a3b8;font-size:11px;">${dt}</span></span>
+                            <div style="display:flex;gap:6px;">
+                                <button data-docid="${d.id}" class="pap-restaurar btn-secondary" style="padding:4px 10px;font-size:12px;cursor:pointer;">↩ Restaurar</button>
+                                <button data-docid="${d.id}" class="pap-eliminar" style="padding:4px 10px;font-size:12px;cursor:pointer;background:#fee2e2;border:1px solid #fca5a5;border-radius:4px;color:#ef4444;">⛔ Eliminar</button>
+                            </div>
+                        </div>`;
+                    }).join('');
+                document.body.insertAdjacentHTML('beforeend', `
+                    <div id="${modalId}" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
+                        <div style="background:white;border-radius:12px;width:min(700px,95vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+                            <div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+                                <h3 style="margin:0;font-size:15px;">🗑️ Papelera (${deleted.length} filas borradas)</h3>
+                                <button onclick="document.getElementById('${modalId}').remove()" style="background:none;border:none;cursor:pointer;font-size:18px;color:#64748b;">✕</button>
+                            </div>
+                            <div style="overflow-y:auto;flex:1;">${rowsHtml}</div>
+                        </div>
+                    </div>
+                `);
+                const modal = document.getElementById(modalId);
+                modal.querySelectorAll('.pap-restaurar').forEach(btn => {
+                    btn.onclick = async () => {
+                        if (!confirm('¿Restaurar esta fila?')) return;
+                        try {
+                            await updateDoc(doc(db, 'produccion', btn.dataset.docid), { deleted: false, deletedAt: null });
+                            btn.closest('div[style]').remove();
+                            cargarProduccion();
+                        } catch (err) { alert('Error al restaurar: ' + err.message); }
+                    };
+                });
+                modal.querySelectorAll('.pap-eliminar').forEach(btn => {
+                    btn.onclick = async () => {
+                        if (!confirm('¿Eliminar definitivamente? Esta acción NO se puede deshacer.')) return;
+                        try {
+                            await deleteDoc(doc(db, 'produccion', btn.dataset.docid));
+                            btn.closest('div[style]').remove();
+                        } catch (err) { alert('Error al eliminar: ' + err.message); }
+                    };
+                });
+            } catch (err) { alert('Error al abrir papelera: ' + err.message); }
         }
 
         async function setupTableHeaders() {
@@ -3237,6 +3334,15 @@
                         panelAuditoria.style.display = currentUserRole === 'admin' ? '' : 'none';
                     }
 
+                    // Barra resumen y controles exclusivos de admin
+                    const isAdmin = currentUserRole === 'admin';
+                    const adminBar = document.getElementById('admin-summary-bar');
+                    if (adminBar) adminBar.style.display = isAdmin ? 'flex' : 'none';
+                    const btnPap = document.getElementById('btn-papelera');
+                    if (btnPap) btnPap.style.display = isAdmin ? 'inline-flex' : 'none';
+                    const btnBF = document.getElementById('btn-borrar-filtros');
+                    if (btnBF) btnBF.style.display = 'inline-flex';
+
                     if (!isAppInitialized) {
                         isAppInitialized = true;
                         await initAppContent();
@@ -4118,13 +4224,13 @@
                 });
             })();
 
-            // Delegación de eventos para la edición inline en Producción
-            tbody.addEventListener('dblclick', (e) => {
+            // Delegación de eventos para la edición inline en Producción (un solo clic)
+            tbody.addEventListener('click', (e) => {
                 // Bloquear si no tiene ningún permiso de edición y no podría ser responsable de la fila
                 if (!tienePermiso('editar_campos_generales') && !tienePermiso('editar_campos_financieros') && !tienePermiso('editar_fecha_fin') && !currentUserAcronym) return;
 
-                // Evitar atrapar dblclick sobre filtros o arrastres de columnas u otros inputs
-                if (e.target.closest('.header-filter-icon') || e.target.closest('input') || e.target.closest('.col-resizer')) return;
+                // Evitar atrapar click sobre filtros o arrastres de columnas u otros inputs
+                if (e.target.closest('.header-filter-icon') || e.target.closest('input') || e.target.closest('.col-resizer') || e.target.closest('select') || e.target.closest('button')) return;
 
                 const td = e.target.closest('td');
                 if (!td) return;
@@ -4135,20 +4241,44 @@
 
                 if (!docId || !fieldName) return;
 
-                // Doble-clic en Nº Trabajo: eliminar fila (solo admin/edicion)
+                // Doble-clic en Nº Trabajo: menú borrar/eliminar (solo admin/edicion)
                 if (fieldName === 'num_trabajo') {
+                    if (e.detail < 2) return; // requiere doble clic para acción destructiva
                     if (tienePermiso('editar_campos_generales') && (currentUserRole === 'admin' || currentUserRole === 'edicion')) {
                         const numTrabajo = td.textContent.trim();
-                        if (!confirm(`¿Eliminar el trabajo Nº ${numTrabajo}?\n\nEsta acción no se puede deshacer.`)) return;
-                        (async () => {
+                        const colDel = isVistaHistorico ? "historico_produccion" : "produccion";
+                        // Mini-menú contextual
+                        document.querySelectorAll('._row-action-menu').forEach(m => m.remove());
+                        const menu = document.createElement('div');
+                        menu.className = '_row-action-menu';
+                        const rect = td.getBoundingClientRect();
+                        menu.style.cssText = `position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15);padding:8px;min-width:230px;left:${Math.min(rect.left, window.innerWidth - 250)}px;top:${rect.bottom + 4}px;`;
+                        menu.innerHTML = `
+                            <div style="padding:4px 8px 6px;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #f1f5f9;margin-bottom:6px;">Trabajo Nº ${escapeHTML(numTrabajo)}</div>
+                            <button id="_mnu-borrar" style="width:100%;text-align:left;padding:7px 10px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent;" onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='transparent'">🗑️ Borrar fila <span style="font-size:10px;color:#64748b;">(recuperable)</span></button>
+                            <button id="_mnu-eliminar" style="width:100%;text-align:left;padding:7px 10px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent;color:#ef4444;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='transparent'">⛔ Eliminar definitivamente</button>
+                        `;
+                        document.body.appendChild(menu);
+                        const closeMenu = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', closeMenu); } };
+                        setTimeout(() => document.addEventListener('click', closeMenu), 0);
+                        menu.querySelector('#_mnu-borrar').onclick = async () => {
+                            menu.remove();
+                            if (!confirm(`¿Borrar la fila del trabajo Nº ${numTrabajo}?\nPodrás recuperarla desde la Papelera.`)) return;
                             try {
-                                const colDel = isVistaHistorico ? "historico_produccion" : "produccion";
+                                await updateDoc(doc(db, colDel, docId), { deleted: true, deletedAt: serverTimestamp() });
+                                tr.remove();
+                                actualizarSumarioAdmin();
+                            } catch (err) { manejarErrorFirebase(err, "Error al borrar la fila."); }
+                        };
+                        menu.querySelector('#_mnu-eliminar').onclick = async () => {
+                            menu.remove();
+                            if (!confirm(`¿Eliminar definitivamente el trabajo Nº ${numTrabajo}?\n\nEsta acción NO se puede deshacer.`)) return;
+                            try {
                                 await deleteDoc(doc(db, colDel, docId));
                                 tr.remove();
-                            } catch (err) {
-                                manejarErrorFirebase(err, "Error al eliminar el trabajo.");
-                            }
-                        })();
+                                actualizarSumarioAdmin();
+                            } catch (err) { manejarErrorFirebase(err, "Error al eliminar el trabajo."); }
+                        };
                     }
                     return;
                 }
@@ -8395,6 +8525,18 @@
                     });
                 });
             }
+
+            // Botón "Borrar filtros" — limpia todos los filtros de columna activos
+            const btnBorrarFiltros = document.getElementById('btn-borrar-filtros');
+            if (btnBorrarFiltros) {
+                btnBorrarFiltros.addEventListener('click', limpiarFiltrosActivos);
+            }
+
+            // Botón "Papelera" — muestra filas borradas (admin)
+            const btnPapelera = document.getElementById('btn-papelera');
+            if (btnPapelera) {
+                btnPapelera.addEventListener('click', mostrarPapelera);
+            }
         });
 
     </script>
@@ -8788,7 +8930,7 @@
         }
 
         #view-produccion {
-            display: block;
+            flex-direction: column;
         }
 
         /* ── Config Panel ── */
@@ -9046,6 +9188,33 @@
         .data-table tbody tr:hover td {
             transition: background-color 0.1s;
         }
+
+        /* ── Columnas pares ligeramente sombreadas ── */
+        .data-table tbody tr td:nth-child(even) {
+            background-color: rgba(0, 0, 0, 0.018);
+        }
+
+        /* ── Barra resumen admin ── */
+        #admin-summary-bar {
+            display: flex; gap: 12px; padding: 8px 14px;
+            background: #f1f5f9; border-top: 1px solid #e2e8f0;
+            flex-shrink: 0; flex-wrap: wrap;
+        }
+        .admin-summary-card {
+            flex: 1; min-width: 160px; background: white;
+            border: 1px solid #e2e8f0; border-radius: 8px;
+            padding: 8px 14px; display: flex; flex-direction: column; gap: 1px;
+        }
+        .admin-summary-card .sc-label {
+            font-size: 10px; color: #64748b; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .admin-summary-card .sc-value {
+            font-size: 17px; font-weight: 700; color: #1e293b;
+        }
+        .admin-summary-card.sc-pendiente { border-left: 3px solid #f59e0b; }
+        .admin-summary-card.sc-realizada { border-left: 3px solid #22c55e; }
+        .admin-summary-card.sc-horas     { border-left: 3px solid #3b82f6; }
 
         /* ── Progress Bar ── */
         .progress-container {
@@ -9411,6 +9580,8 @@
                     style="padding: 8px 12px; height: auto;">Buscar</button>
                 <button id="btn-global-clear" class="btn-secondary"
                     style="padding: 8px 12px; height: auto; background: white;">Limpiar</button>
+                <button id="btn-borrar-filtros" class="btn-secondary"
+                    style="padding: 8px 12px; height: auto; display: none;" title="Borrar todos los filtros de columna activos">Borrar filtros</button>
             </div>
 
             <select class="filter-select" style="display: none;">
@@ -9442,6 +9613,7 @@
                     Oferta
                 </button>
 
+                <button id="btn-papelera" class="btn-secondary" title="Papelera — filas borradas (recuperables)" style="display: none; padding: 8px 12px; font-size: 13px;">🗑️ Papelera</button>
                 <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="display: none; padding: 10px;">
                     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -9481,7 +9653,7 @@
             <div class="views-container">
                 <!-- Vista: Producción -->
                 <div id="view-produccion" class="app-view">
-                    <div class="table-container" style="height: calc(100vh - 160px);">
+                    <div class="table-container" style="flex: 1; min-height: 0; overflow: auto;">
                         <table id="table-produccion" class="data-table">
                             <thead>
                                 <tr>
@@ -9523,6 +9695,21 @@
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                    <!-- Barra resumen admin (visible solo para rol admin) -->
+                    <div id="admin-summary-bar" style="display: none;">
+                        <div class="admin-summary-card sc-pendiente">
+                            <span class="sc-label">Facturación pendiente</span>
+                            <span class="sc-value" id="sum-factura-pendiente">—</span>
+                        </div>
+                        <div class="admin-summary-card sc-realizada">
+                            <span class="sc-label">Facturación realizada</span>
+                            <span class="sc-value" id="sum-factura-realizada">—</span>
+                        </div>
+                        <div class="admin-summary-card sc-horas">
+                            <span class="sc-label">Horas pendientes</span>
+                            <span class="sc-value" id="sum-horas-pendientes">—</span>
+                        </div>
                     </div>
                 </div>
 
