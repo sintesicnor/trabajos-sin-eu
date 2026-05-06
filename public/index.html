@@ -4564,7 +4564,11 @@
                         }
 
                         if (['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an'].includes(fieldName)) {
-                            td.innerHTML = getTecnicoLabelForValue(newValue);
+                            const _tObj = listaTecnicos.find(t => t.acronimo === newValue || t.nombre_pila === newValue || t.nombre === newValue);
+                            const _tLabel = _tObj ? ((preferenciaTecnicos === 'nombre_pila' && _tObj.nombre_pila) ? _tObj.nombre_pila : _tObj.acronimo) : newValue;
+                            td.innerHTML = escapeHTML(_tLabel || '');
+                            const _legClr = { "TTG":"#fee2e2","JMR":"#ffedd5","CPV":"#fef3c7","BRL":"#fef08a","RAP":"#d9f99d","AEL":"#bbf7d0","BLO":"#a7f3d0","MMB":"#99f6e4","IRE":"#cffafe","JML":"#e0f2fe","MCM":"#dbeafe","PLR":"#e0e7ff","PRW":"#ede9fe","DPV":"#f3e8ff","JDR":"#fae8ff","ELA":"#fce7f3","LAR":"#f1f5f9","HMR":"#e2e8f0" };
+                            td.style.backgroundColor = _tObj ? (_tObj.color || _legClr[_tObj.acronimo] || '#ffffff') : '#ffffff';
                         } else if (fieldName === 'presupuesto_m' || fieldName === 'gastos_n') {
                             td.innerHTML = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (newValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(newValue) + '€';
                         } else {
