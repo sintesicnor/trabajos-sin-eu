@@ -548,8 +548,7 @@
 
             // Activar tab y vista seleccionada
             document.getElementById(activeTabId).classList.add('active');
-            // #view-produccion usa flex para apilar tabla + barra resumen admin
-            document.getElementById(activeViewId).style.display = activeViewId === 'view-produccion' ? 'flex' : 'block';
+            document.getElementById(activeViewId).style.display = 'block';
 
             // Mostrar u ocultar botones de la cabecera global
             const btnNuevoTrabajo = document.getElementById('btn-nuevo-trabajo');
@@ -3338,6 +3337,8 @@
                     const isAdmin = currentUserRole === 'admin';
                     const adminBar = document.getElementById('admin-summary-bar');
                     if (adminBar) adminBar.style.display = isAdmin ? 'flex' : 'none';
+                    const prodTblCont = document.getElementById('prod-table-container');
+                    if (prodTblCont) prodTblCont.style.height = isAdmin ? 'calc(100vh - 224px)' : 'calc(100vh - 160px)';
                     const btnPap = document.getElementById('btn-papelera');
                     if (btnPap) btnPap.style.display = isAdmin ? 'inline-flex' : 'none';
                     const btnBF = document.getElementById('btn-borrar-filtros');
@@ -8929,9 +8930,6 @@
             min-width: 0;
         }
 
-        #view-produccion {
-            flex-direction: column;
-        }
 
         /* ── Config Panel ── */
         .config-panel {
@@ -9653,7 +9651,7 @@
             <div class="views-container">
                 <!-- Vista: Producción -->
                 <div id="view-produccion" class="app-view">
-                    <div class="table-container" style="flex: 1; min-height: 0; overflow: auto;">
+                    <div class="table-container" id="prod-table-container" style="height: calc(100vh - 160px);">
                         <table id="table-produccion" class="data-table">
                             <thead>
                                 <tr>
