@@ -1654,7 +1654,7 @@
             }
         }
 
-        function solicitarDatosModalAceptar() {
+        function solicitarDatosModalAceptar(defaultT1 = '') {
             return new Promise((resolve) => {
                 const modal = document.getElementById('modal-aceptar-oferta');
                 const inputExpediente = document.getElementById('modal-input-expediente');
@@ -1668,7 +1668,7 @@
                 const btnCancelar = document.getElementById('modal-btn-cancelar');
 
                 inputExpediente.value = '';
-                inputT1.value = '';
+                inputT1.value = defaultT1;
                 if (checkParcial) { checkParcial.checked = false; }
                 if (seccionParcial) { seccionParcial.style.display = 'none'; }
                 if (inputImporteParcial) { inputImporteParcial.value = ''; }
@@ -3759,7 +3759,7 @@
                                     : "¿Aceptar esta oferta y crear un nuevo trabajo en Producción?");
                                 if (!confirmacion) { menuEstado.style.display = 'none'; return; }
 
-                                const datosExtra = await solicitarDatosModalAceptar();
+                                const datosExtra = await solicitarDatosModalAceptar(ofertaData?.tecnico_t1 || '');
                                 if (!datosExtra) { menuEstado.style.display = 'none'; return; }
 
                                 const nuevoId = await getSiguienteIdTrabajo();
@@ -3782,7 +3782,7 @@
                                     total_horas_historico: "", visto_vb_cliente: "No",
                                     fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "", gestionado: "No",
                                     oferta_gestiona: docId, exp_gestiona: datosExtra.expediente,
-                                    tipo_expediente: "", observaciones: "", grupo: ofertaData ? (ofertaData.grupo || "") : "", tipo_servicio: ""
+                                    tipo_expediente: "", observaciones: "", grupo: ofertaData ? (ofertaData.grupo || "") : "", tipo_servicio: ofertaData ? (ofertaData.servicio || "") : ""
                                 };
 
                                 await setDoc(doc(db, "produccion", nuevoId.toString()), nuevoDoc);
@@ -4082,7 +4082,7 @@
                     const ts = new Date().toISOString();
                     const nuevaOferta = {
                         num_gestiona: numOfe,
-                        cliente: cliOfe,
+                        grupo: cliOfe,
                         estado: 'En curso',
                         creado_por: currentUserAcronym || '',
                         timestamp_creacion: ts,
@@ -10698,7 +10698,7 @@
             </div>
             <div style="margin-bottom: 24px;">
                 <label
-                    style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Cliente</label>
+                    style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Grupo</label>
                 <input type="text" id="modal-ofe-cli"
                     style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
             </div>
