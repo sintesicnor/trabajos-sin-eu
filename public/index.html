@@ -1775,6 +1775,8 @@
                             }
                         } else if (filterVal === '__activas__') {
                             if (!rawText) show = false;
+                        } else if (filterVal === '__archivable__') {
+                            if (rawText !== 'Archivar') show = false;
                         } else if (filterVal && !rawText.toLowerCase().includes(filterVal)) {
                             show = false;
                         }
@@ -1951,7 +1953,7 @@
                     const isOfertasTable = table.id === 'table-ofertas' || table.closest('#view-ofertas');
 
                     // Columnas sin filtro (producción: desde Presupuesto en adelante + horas/uso/técnicos)
-                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Observaciones', 'Nº Fact', 'Mes Facturación', 'Archivar', 'Fecha Finalización', 'Total Hrs', 'Total Horas', '% Uso'];
+                    const noFilterCols = ['Presupuesto (M)', 'Gastos (N)', 'Horas Disponibles', 'Total Hrs Hist.', 'Observaciones', 'Mes Facturación', 'Fecha Finalización', 'Total Hrs', 'Total Horas', '% Uso'];
                     // Detectar columnas de técnicos por nombre en el header
                     let isTecCol = false;
                     if (!isOfertasTable) {
@@ -1960,13 +1962,15 @@
                             (t.acronimo && t.acronimo === originalText)
                         );
                     }
+                    const isFactCol = !isOfertasTable && originalText === 'Nº Fact';
+                    const isArchivarCol = !isOfertasTable && originalText === 'Archivar';
                     const _colIdxDate = Array.from(th.parentNode.children).indexOf(th);
                     const isDateYearMonthFilter = originalText.toLowerCase().startsWith('fecha') || originalText.startsWith('F. Fin');
-                    const isNoFilter = noFilterCols.some(t => originalText === t || originalText.includes(t));
+                    const isNoFilter = !isFactCol && !isArchivarCol && noFilterCols.some(t => originalText === t || originalText.includes(t));
 
                     const targetCols = isOfertasTable ? multiSelectColsOfertas : multiSelectColsProd;
 
-                    const isMulti = !isNoFilter && !isTecCol && (targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t)));
+                    const isMulti = !isNoFilter && !isTecCol && !isFactCol && !isArchivarCol && (targetCols.includes(originalText) || targetCols.some(t => originalText.includes(t)));
 
                     if (isNoFilter) {
                         // No crear filtro para esta columna
@@ -2363,6 +2367,18 @@
                         }
                         popup.style.display = 'none'; // no popup para este tipo
 
+                    } else if (isFactCol || isArchivarCol) {
+                        // Toggle directo: sin popup, filtra por contenido (Fact) o por valor "Archivar" (Archivar)
+                        const tblIdTog = table.dataset.tableId;
+                        const colIdxTog = Array.from(th.parentNode.children).indexOf(th);
+                        const sentinel = isArchivarCol ? '__archivable__' : '__activas__';
+                        if (tableFilters[tblIdTog]?.[colIdxTog] === sentinel) {
+                            iconContainer.dataset.active = 'true';
+                            iconContainer.innerHTML = activeSvg;
+                            iconContainer.style.color = '#ef4444';
+                        }
+                        popup.style.display = 'none';
+
                     } else {
                         const input = document.createElement('input');
                         input.type = 'text';
@@ -2419,6 +2435,22 @@
                             iconContainer.innerHTML = isActive ? normalSvg : activeSvg;
                             iconContainer.style.color = isActive ? '' : '#ef4444';
                             tableFilters[tblId][colIndex] = isActive ? '' : '__activas__';
+                            applyTableFilters(table);
+                            guardarPreferenciasUsuario();
+                            return;
+                        }
+
+                        // Toggle directo para Nº Fact y Archivar (sin popup)
+                        if (isFactCol || isArchivarCol) {
+                            const tblId = table.dataset.tableId;
+                            if (!tableFilters[tblId]) tableFilters[tblId] = {};
+                            const colIndex = Array.from(th.parentNode.children).indexOf(th);
+                            const sentinel = isArchivarCol ? '__archivable__' : '__activas__';
+                            const isActive = iconContainer.dataset.active === 'true';
+                            iconContainer.dataset.active = isActive ? 'false' : 'true';
+                            iconContainer.innerHTML = isActive ? normalSvg : activeSvg;
+                            iconContainer.style.color = isActive ? '' : '#ef4444';
+                            tableFilters[tblId][colIndex] = isActive ? '' : sentinel;
                             applyTableFilters(table);
                             guardarPreferenciasUsuario();
                             return;
