@@ -2724,8 +2724,8 @@
                         <td data-field="fecha_oferta">${escapeHTML(formatearFechaDisplay(data.fecha_oferta))}</td>
                         <td data-field="agente_comercial">${escapeHTML(data.agente_comercial || '')}</td>
                         <td data-field="oficina">${escapeHTML(data.oficina || '')}</td>
-                        <td data-field="grupo">${escapeHTML(data.grupo || '')}</td>
                         <td data-field="cliente">${escapeHTML(data.cliente || '')}</td>
+                        <td data-field="grupo">${escapeHTML(data.grupo || '')}</td>
                         <td data-field="objeto">${escapeHTML(data.objeto || '')}</td>
                         <td data-field="servicio">${escapeHTML(data.servicio || '')}</td>
                         <td data-field="origen">${escapeHTML(data.origen || '')}</td>
@@ -2814,6 +2814,16 @@
                     if (prefs.orden_columnas) {
                         Object.keys(prefs.orden_columnas).forEach(tblId => {
                             let order = prefs.orden_columnas[tblId];
+                            // Migrate table-ofertas: ensure 'Cliente' appears before 'Grupo'
+                            if (tblId === 'table-ofertas') {
+                                const gi = order.indexOf('Grupo');
+                                const ci = order.indexOf('Cliente');
+                                if (gi > -1 && ci > -1 && gi < ci) {
+                                    order = [...order];
+                                    order[gi] = 'Cliente';
+                                    order[ci] = 'Grupo';
+                                }
+                            }
                             // For the production table, strip any dynamically-injected labels
                             // from the stored order before writing to localStorage.
                             // This ensures that even a previously-saved wrong order (e.g. with
@@ -4572,6 +4582,14 @@
                         else saveSubmition();
                     } else if (ev.key === 'Escape') {
                         td.innerHTML = currentValue; // Cancelar
+                    } else if (ev.key === 'Tab') {
+                        ev.preventDefault();
+                        const row = inputElement.closest('tr');
+                        const allTds = Array.from(row.querySelectorAll('td[data-field]'));
+                        const curIdx = allTds.indexOf(inputElement.closest('td'));
+                        const nextTd = allTds.find((t, i) => i > curIdx && !t.querySelector('input') && !t.querySelector('select'));
+                        inputElement.blur();
+                        if (nextTd) setTimeout(() => nextTd.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })), 30);
                     }
                 });
 
@@ -4789,6 +4807,14 @@
                             currentValue = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (num % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(num) + '€';
                         }
                         td.innerHTML = currentValue;
+                    } else if (ev.key === 'Tab') {
+                        ev.preventDefault();
+                        const row = inputElement.closest('tr');
+                        const allTds = Array.from(row.querySelectorAll('td[data-field]'));
+                        const curIdx = allTds.indexOf(inputElement.closest('td'));
+                        const nextTd = allTds.find((t, i) => i > curIdx && !t.querySelector('input') && !t.querySelector('select'));
+                        inputElement.blur();
+                        if (nextTd) setTimeout(() => nextTd.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })), 30);
                     }
                 });
 
@@ -9758,8 +9784,8 @@
                                             style="font-size: 10px; color: #94a3b8; margin-left: 4px;">▼</span></th>
                                     <th>Agente Comercial</th>
                                     <th>Oficina</th>
-                                    <th>Grupo</th>
                                     <th>Cliente</th>
+                                    <th>Grupo</th>
                                     <th>Objeto</th>
                                     <th>Servicio</th>
                                     <th>Origen</th>
