@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.77</title>
+    <title>Proyectos SIN v1.80</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -34,7 +34,7 @@
 
     <script type="module">
         // Import the functions you need from the SDKs you need
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { initializeFirestore, persistentLocalCache, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
@@ -3383,6 +3383,8 @@
                     if (prodTblCont) prodTblCont.style.height = isAdmin ? 'calc(100vh - 224px)' : 'calc(100vh - 160px)';
                     const btnPap = document.getElementById('btn-papelera');
                     if (btnPap) btnPap.style.display = isAdmin ? 'inline-flex' : 'none';
+                    const btnToggleSummary = document.getElementById('btn-toggle-summary');
+                    if (btnToggleSummary) btnToggleSummary.style.display = isAdmin ? 'inline-flex' : 'none';
                     const btnBF = document.getElementById('btn-borrar-filtros');
                     if (btnBF) btnBF.style.display = 'inline-flex';
 
@@ -8602,6 +8604,56 @@
             if (btnPapelera) {
                 btnPapelera.addEventListener('click', mostrarPapelera);
             }
+
+            // Botón "Crear cuentas" — crea cuentas Firebase Auth para cada técnico (admin)
+            const btnCrearCuentas = document.getElementById('btn-crear-cuentas');
+            if (btnCrearCuentas) {
+                btnCrearCuentas.addEventListener('click', async () => {
+                    if (!confirm('Se crearán cuentas de acceso para todos los técnicos con email registrado. La contraseña será el prefijo del email (antes del @). ¿Continuar?')) return;
+                    btnCrearCuentas.disabled = true;
+                    btnCrearCuentas.textContent = '⏳ Creando...';
+                    const tecnicosConEmail = listaTecnicos.filter(t => t.email && t.email.includes('@'));
+                    let ok = 0, skip = 0, err = 0;
+                    let secondaryApp = null;
+                    try {
+                        secondaryApp = initializeApp(firebaseConfig, 'uc_' + Date.now());
+                        const secondaryAuth = getAuth(secondaryApp);
+                        for (const tec of tecnicosConEmail) {
+                            const email = tec.email.trim().toLowerCase();
+                            const password = email.split('@')[0];
+                            try {
+                                await createUserWithEmailAndPassword(secondaryAuth, email, password);
+                                ok++;
+                            } catch (e) {
+                                if (e.code === 'auth/email-already-in-use') { skip++; }
+                                else { console.warn('Error creando cuenta para', email, e.code); err++; }
+                            }
+                        }
+                    } catch (globalErr) {
+                        console.error('Error inicializando app secundaria:', globalErr);
+                    }
+                    if (secondaryApp) {
+                        try { await deleteApp(secondaryApp); } catch (_) {}
+                    }
+                    alert(`Cuentas creadas: ${ok} nuevas, ${skip} ya existían, ${err} errores.\nTotal técnicos con email: ${tecnicosConEmail.length}`);
+                    btnCrearCuentas.disabled = false;
+                    btnCrearCuentas.textContent = '🔑 Crear cuentas';
+                });
+            }
+
+            // Botón "Resumen" — toggle barra de resumen inferior (admin)
+            const btnToggleSummaryEl = document.getElementById('btn-toggle-summary');
+            if (btnToggleSummaryEl) {
+                let summaryVisible = true;
+                btnToggleSummaryEl.addEventListener('click', () => {
+                    summaryVisible = !summaryVisible;
+                    const bar = document.getElementById('admin-summary-bar');
+                    const cont = document.getElementById('prod-table-container');
+                    if (bar) bar.style.display = summaryVisible ? 'flex' : 'none';
+                    if (cont) cont.style.height = summaryVisible ? 'calc(100vh - 224px)' : 'calc(100vh - 160px)';
+                    btnToggleSummaryEl.style.opacity = summaryVisible ? '1' : '0.5';
+                });
+            }
         });
 
     </script>
@@ -9534,12 +9586,12 @@
                     style="color: var(--tesicnor-blue); font-weight: 700; font-size: 28px; margin-left: 12px; margin-bottom: 0;">
                     Proyectos SIN</h2>
             </div>
-            <form id="login-form" style="display:none;">
+            <form id="login-form">
                 <input type="email" id="login-email" class="login-input" placeholder="Correo electrónico">
                 <input type="password" id="login-password" class="login-input" placeholder="Contraseña">
                 <button type="submit" class="login-btn">Entrar</button>
             </form>
-            <a href="#" id="btn-forgot-password" style="display:none;"></a>
+            <a href="#" id="btn-forgot-password"></a>
             <button id="btn-login-microsoft" class="login-btn" style="background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 8px;">
                 <svg width="20" height="20" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fbb00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
                 Iniciar sesión con Microsoft
@@ -9674,6 +9726,7 @@
                     Oferta
                 </button>
 
+                <button id="btn-toggle-summary" class="btn-secondary" title="Mostrar/ocultar resumen de facturación" style="display: none; padding: 8px 12px; font-size: 13px;">📊 Resumen</button>
                 <button id="btn-papelera" class="btn-secondary" title="Papelera — filas borradas (recuperables)" style="display: none; padding: 8px 12px; font-size: 13px;">🗑️ Papelera</button>
                 <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="display: none; padding: 10px;">
                     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -10365,6 +10418,8 @@
                                     </label>
                                     <button id="btn-add-tecnico" class="btn-primary"
                                         style="padding: 6px 12px; font-size: 13px;">Añadir</button>
+                                    <button id="btn-crear-cuentas" class="btn-secondary"
+                                        style="padding: 6px 12px; font-size: 13px; white-space: nowrap;" title="Crear cuentas Firebase Auth para cada técnico (contraseña = prefijo email)">🔑 Crear cuentas</button>
                                 </div>
                                 <div
                                     style="overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
