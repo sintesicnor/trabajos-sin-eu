@@ -3804,7 +3804,7 @@
                                 const _tipoMin = datosExtra.tipoExpediente === 'ANUAL' ? 3000 : 4000;
                                 const _tipoMax = datosExtra.tipoExpediente === 'ANUAL' ? 3999 : 4999;
                                 const nuevoId = await getSiguienteIdRango(_tipoMin, _tipoMax);
-                                const prespTotal = ofertaData ? ofertaData.presupuesto_total : "";
+                                const prespTotal = ofertaData ? (ofertaData.presupuesto_total ?? "") : "";
 
                                 // Determine presupuesto_m for new produccion record
                                 const presupM = isAceptarParcial && datosExtra.importeParcial
