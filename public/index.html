@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.85</title>
+    <title>Proyectos SIN v1.86</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -4300,13 +4300,18 @@
                         const menu = document.createElement('div');
                         menu.className = '_row-action-menu';
                         const rect = td.getBoundingClientRect();
-                        menu.style.cssText = `position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15);padding:8px;min-width:230px;left:${Math.min(rect.left, window.innerWidth - 250)}px;top:${rect.bottom + 4}px;`;
+                        menu.style.cssText = `position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15);padding:8px;min-width:230px;left:${Math.min(rect.left, window.innerWidth - 250)}px;top:-9999px;visibility:hidden;`;
                         menu.innerHTML = `
                             <div style="padding:4px 8px 6px;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #f1f5f9;margin-bottom:6px;">Trabajo Nº ${escapeHTML(numTrabajo)}</div>
                             <button id="_mnu-borrar" style="width:100%;text-align:left;padding:7px 10px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent;" onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='transparent'">🗑️ Borrar fila <span style="font-size:10px;color:#64748b;">(recuperable)</span></button>
                             <button id="_mnu-eliminar" style="width:100%;text-align:left;padding:7px 10px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent;color:#ef4444;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='transparent'">⛔ Eliminar definitivamente</button>
                         `;
                         document.body.appendChild(menu);
+                        // Posicionar: debajo si cabe, arriba si no
+                        const mh = menu.offsetHeight;
+                        const top = (rect.bottom + 4 + mh < window.innerHeight) ? rect.bottom + 4 : rect.top - mh - 4;
+                        menu.style.top = Math.max(4, top) + 'px';
+                        menu.style.visibility = '';
                         const closeMenu = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', closeMenu); } };
                         setTimeout(() => document.addEventListener('click', closeMenu), 0);
                         menu.querySelector('#_mnu-borrar').onclick = async () => {
