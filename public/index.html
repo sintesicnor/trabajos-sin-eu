@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.82</title>
+    <title>Proyectos SIN v1.83</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -101,7 +101,7 @@
         let permisosRoles = {
             admin:      { ver_tab_configuracion:true, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            ofertador:  { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            ofertador:  { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             lectura:    { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
             consultor:  { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:true },
             financiero: { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:true }
@@ -3945,7 +3945,7 @@
                     menuEstado.dataset.currentId = docId;
 
                     // Mostrar/ocultar opción Eliminar según rol
-                    const canDelete = currentUserRole === 'admin' || currentUserRole === 'edicion';
+                    const canDelete = currentUserRole === 'admin' || currentUserRole === 'edicion' || currentUserRole === 'ofertador';
                     menuEstado.querySelector('.menu-estado-delete').style.display = canDelete ? '' : 'none';
                     menuEstado.querySelector('.menu-estado-delete-sep').style.display = canDelete ? '' : 'none';
 
@@ -4289,7 +4289,7 @@
                 // Doble-clic en Nº Trabajo: menú borrar/eliminar (solo admin/edicion)
                 if (fieldName === 'num_trabajo') {
                     if (e.detail < 2) return; // requiere doble clic para acción destructiva
-                    if (tienePermiso('editar_campos_generales') && (currentUserRole === 'admin' || currentUserRole === 'edicion')) {
+                    if (tienePermiso('editar_campos_generales') && (currentUserRole === 'admin' || currentUserRole === 'edicion' || currentUserRole === 'ofertador')) {
                         const numTrabajo = td.textContent.trim();
                         const colDel = isVistaHistorico ? "historico_produccion" : "produccion";
                         // Mini-menú contextual
