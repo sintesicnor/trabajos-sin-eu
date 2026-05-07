@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.91</title>
+    <title>Proyectos SIN v1.92</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -102,7 +102,7 @@
         let permisosRoles = {
             admin:      { ver_tab_configuracion:true, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            ofertador:  { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            ofertador:  { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             lectura:    { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
             consultor:  { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:true },
             financiero: { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:true }
@@ -4370,27 +4370,10 @@
                 if (fieldName.startsWith('tec_')) return;
                 if (fieldName === 'total_horas_calc' || fieldName === 'pct_uso' || fieldName === 'horas_disponibles') return;
 
-                // ── Restricción INTERNO: admin y edicion pueden editar; otros roles no ──
+                // ── Restricción INTERNO: admin, edicion y ofertador pueden editar ──
                 const tdTipoExp = tr.querySelector('td[data-field="tipo_expediente"]');
                 const tipoExpVal = tdTipoExp ? tdTipoExp.textContent.trim().toUpperCase() : '';
-                if (tipoExpVal === 'INTERNO' && currentUserRole !== 'admin' && currentUserRole !== 'edicion') return;
-
-                // ── Restricción ofertador: solo puede editar trabajos donde figure como técnico ──
-                if (currentUserRole === 'ofertador' && currentUserAcronym) {
-                    const camposFinCheck = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
-                    if (!camposFinCheck.includes(fieldName)) {
-                        // Comprobar si el usuario figura como Rble, T1, T2 o T3
-                        const tdResp = tr.querySelector('td[data-field="responsable_g"]');
-                        const tdT1 = tr.querySelector('td[data-field="ejecutor_t1"]');
-                        const tdAm = tr.querySelector('td[data-field="apoyo_am"]');
-                        const tdAn = tr.querySelector('td[data-field="apoyo_an"]');
-                        const vals = [tdResp, tdT1, tdAm, tdAn].map(t => t ? t.textContent.trim() : '');
-                        const esTecnicoEnFila = vals.some(v => 
-                            v === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === v || t.nombre === v))
-                        );
-                        if (!esTecnicoEnFila) return;
-                    }
-                }
+                if (tipoExpVal === 'INTERNO' && currentUserRole !== 'admin' && currentUserRole !== 'edicion' && currentUserRole !== 'ofertador') return;
 
                 // Campos financieros redefinidos: fecha_ap, visto_vb_cliente, fecha_ar, observaciones, num_at, mes_facturacion, fecha_fin
                 const camposFinancieros = ['fecha_ap', 'visto_vb_cliente', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion'];
@@ -4670,19 +4653,7 @@
 
                 if (!docId || !fieldName) return;
 
-                // ── Rol edicion: puede editar todas las ofertas (sin restricción) ──
-
-                // ── Restricción por rol: ofertador solo edita ofertas donde es agente o técnico ──
-                if (currentUserRole === 'ofertador' && currentUserAcronym) {
-                    const tdAgente = tr.querySelector('td[data-field="agente_comercial"]');
-                    const tdTecnico = tr.querySelector('td[data-field="tecnico_t1"]');
-                    const agenteVal = tdAgente ? tdAgente.textContent.trim() : '';
-                    const tecVal = tdTecnico ? tdTecnico.textContent.trim() : '';
-                    const esAgenteOTec = [agenteVal, tecVal].some(v => 
-                        v === currentUserAcronym || listaTecnicos.some(t => t.acronimo === currentUserAcronym && (t.nombre_pila === v))
-                    );
-                    if (!esAgenteOTec) return;
-                }
+                // ── Rol edicion y ofertador: pueden editar todas las ofertas (sin restricción) ──
 
                 // Lista blanca de edición de Ofertas
                 const editAllowedFields = [
@@ -4695,8 +4666,8 @@
 
                 // num_gestiona requiere doble clic (acción destructiva)
                 if (fieldName === 'num_gestiona' && e.detail < 2) return;
-                // ── Punto 2: num_gestiona solo editable por admin y edicion ──
-                if (fieldName === 'num_gestiona' && currentUserRole !== 'admin' && currentUserRole !== 'edicion') return;
+                // ── num_gestiona: editable por admin, edicion y ofertador ──
+                if (fieldName === 'num_gestiona' && currentUserRole !== 'admin' && currentUserRole !== 'edicion' && currentUserRole !== 'ofertador') return;
 
                 if (td.querySelector('input') || td.querySelector('select')) return;
 
