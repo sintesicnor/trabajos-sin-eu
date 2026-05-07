@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.88</title>
+    <title>Proyectos SIN v1.89</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -1669,9 +1669,11 @@
                 const btnCancelar = document.getElementById('modal-btn-cancelar');
                 const infoRestante = document.getElementById('modal-info-restante');
                 const infoRestanteValor = document.getElementById('modal-info-restante-valor');
+                const selectTipoExp = document.getElementById('modal-select-tipo-exp');
 
                 inputExpediente.value = '';
                 inputT1.value = defaultT1;
+                if (selectTipoExp) selectTipoExp.value = '';
                 if (checkParcial) { checkParcial.checked = false; }
                 if (seccionParcial) { seccionParcial.style.display = 'none'; }
                 if (inputImporteParcial) { inputImporteParcial.value = ''; }
@@ -1708,6 +1710,11 @@
                 const onAceptar = () => {
                     const expediente = inputExpediente.value.trim();
                     const t1 = inputT1.value.trim();
+                    const tipoExpediente = selectTipoExp ? selectTipoExp.value : '';
+                    if (!tipoExpediente) {
+                        alert("Selecciona el tipo de expediente (Anual o Puntual).");
+                        return;
+                    }
                     if (!expediente || !t1) {
                         alert("Expediente y T1 son obligatorios.");
                         return;
@@ -1730,7 +1737,7 @@
                         if (!isNaN(d)) fechaFin = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
                     }
                     closeModal();
-                    resolve({ expediente, t1, fechaInicio, fechaFin, parcial, importeParcial });
+                    resolve({ expediente, t1, fechaInicio, fechaFin, parcial, importeParcial, tipoExpediente });
                 };
 
                 const onCancelar = () => {
@@ -3798,7 +3805,9 @@
                                 const datosExtra = await solicitarDatosModalAceptar(ofertaData?.tecnico_t1 || '', importeRestante);
                                 if (!datosExtra) { menuEstado.style.display = 'none'; return; }
 
-                                const nuevoId = await getSiguienteIdTrabajo();
+                                const _tipoMin = datosExtra.tipoExpediente === 'ANUAL' ? 3000 : 4000;
+                                const _tipoMax = datosExtra.tipoExpediente === 'ANUAL' ? 3999 : 4999;
+                                const nuevoId = await getSiguienteIdRango(_tipoMin, _tipoMax);
                                 const prespTotal = ofertaData ? ofertaData.presupuesto_total : "";
 
                                 // Determine presupuesto_m for new produccion record
@@ -3818,7 +3827,7 @@
                                     total_horas_historico: "", visto_vb_cliente: "No",
                                     fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "", gestionado: "No",
                                     oferta_gestiona: docId, exp_gestiona: datosExtra.expediente,
-                                    tipo_expediente: "", observaciones: "", grupo: ofertaData ? (ofertaData.grupo || "") : "", tipo_servicio: ofertaData ? (ofertaData.servicio || "") : ""
+                                    tipo_expediente: datosExtra.tipoExpediente || "", observaciones: "", grupo: ofertaData ? (ofertaData.grupo || "") : "", tipo_servicio: ofertaData ? (ofertaData.servicio || "") : ""
                                 };
 
                                 await setDoc(doc(db, "produccion", nuevoId.toString()), nuevoDoc);
@@ -10753,6 +10762,15 @@
                     (Ejecutor) *</label>
                 <input type="text" id="modal-input-t1"
                     style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;" required>
+            </div>
+
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Tipo de Expediente *</label>
+                <select id="modal-select-tipo-exp" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; background: white;">
+                    <option value="">— Seleccionar —</option>
+                    <option value="ANUAL">Anual (correlativo 3000)</option>
+                    <option value="PUNTUAL">Puntual (correlativo 4000)</option>
+                </select>
             </div>
 
             <div style="display: flex; gap: 12px; margin-bottom: 16px;">
