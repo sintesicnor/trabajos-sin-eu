@@ -31,13 +31,17 @@ exports.callGoogleApi = onCall({
     }
 });
 
-// ─── SHAREPOINT SECRETS ───────────────────────────────────────────────────────
+// ─── SHAREPOINT CONFIG (no sensible — hardcodeado) ───────────────────────────
+const SP_SITE_URL  = "https://tesicnorsl.sharepoint.com/sites/sin";
+const SP_FILE_PATH = "GESTION DEPARTAMENTO/PO04-REG03-2026.xlsm";
+const SP_SHEET_OFERTAS    = "Ofertas";
+const SP_SHEET_PRODUCCION = "Producción";   // con tilde tal como está en el Excel
+
+// Solo las credenciales de Azure son secrets
 const SP_SECRETS = [
     "SHAREPOINT_TENANT_ID",
     "SHAREPOINT_CLIENT_ID",
     "SHAREPOINT_CLIENT_SECRET",
-    "SHAREPOINT_SITE_URL",
-    "SHAREPOINT_FILE_PATH",
 ];
 
 // ─── COLUMN DEFINITIONS ───────────────────────────────────────────────────────
@@ -116,173 +120,158 @@ const produccionToRow = (d) => [
 // ─── GRAPH API HELPERS ────────────────────────────────────────────────────────
 
 async function getMsToken() {
-    const tenantId = process.env.SHAREPOINT_TENANT_ID;
-    const clientId = process.env.SHAREPOINT_CLIENT_ID;
-    const clientSecret = process.env.SHAREPOINT_CLIENT_SECRET;
     const resp = await axios.post(
-        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+        `https://login.microsoftonline.com/${process.env.SHAREPOINT_TENANT_ID}/oauth2/v2.0/token`,
         new URLSearchParams({
-            grant_type: "client_credentials",
-            client_id: clientId,
-            client_secret: clientSecret,
-            scope: "https://graph.microsoft.com/.default",
+            grant_type:    "client_credentials",
+            client_id:     process.env.SHAREPOINT_CLIENT_ID,
+            client_secret: process.env.SHAREPOINT_CLIENT_SECRET,
+            scope:         "https://graph.microsoft.com/.default",
         }),
         { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
     );
     return resp.data.access_token;
 }
 
-async function getGraphResource(token, url) {
-    const resp = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
-    return resp.data;
-}
-
-// Devuelve { siteId, itemId } cacheados en Firestore para no llamar a Graph en cada trigger
+// siteId e itemId se resuelven una vez y se cachean 24 h en Firestore
 async function getSpIds(token) {
     const cacheRef = db.doc("metadata/sharepoint_ids");
     const cacheSnap = await cacheRef.get();
     if (cacheSnap.exists) {
         const c = cacheSnap.data();
-        // Caché válida 24 horas
         if (c.cached_at && (Date.now() - c.cached_at) < 86400000) {
             return { siteId: c.siteId, itemId: c.itemId };
         }
     }
 
-    const siteUrl = process.env.SHAREPOINT_SITE_URL; // ej: https://empresa.sharepoint.com/sites/nombre
-    const filePath = process.env.SHAREPOINT_FILE_PATH; // ej: Documentos compartidos/Gestion/Datos.xlsx
+    // Resolver siteId desde la URL del sitio
+    const urlObj  = new URL(SP_SITE_URL);
+    const siteResp = await axios.get(
+        `https://graph.microsoft.com/v1.0/sites/${urlObj.hostname}:${urlObj.pathname}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const siteId = siteResp.data.id;
 
-    const urlObj = new URL(siteUrl);
-    const hostname = urlObj.hostname;
-    const sitePath = urlObj.pathname;
-
-    const siteData = await getGraphResource(token, `https://graph.microsoft.com/v1.0/sites/${hostname}:${sitePath}`);
-    const siteId = siteData.id;
-
-    const fileData = await getGraphResource(token, `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(filePath)}`);
-    const itemId = fileData.id;
+    // Resolver itemId del fichero (codificar cada segmento de ruta por separado)
+    const encodedPath = SP_FILE_PATH.split("/").map(encodeURIComponent).join("/");
+    const fileResp = await axios.get(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodedPath}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const itemId = fileResp.data.id;
 
     await cacheRef.set({ siteId, itemId, cached_at: Date.now() });
+    logger.info("🔗 SharePoint IDs resueltos y cacheados", { siteId, itemId });
     return { siteId, itemId };
 }
 
-// Convierte índice de columna (1-based) a letras Excel: 1→A, 26→Z, 27→AA…
+// Índice de columna (1-based) → letras Excel  (1→A, 26→Z, 27→AA…)
 function colLetter(n) {
     let s = "";
-    while (n > 0) {
-        s = String.fromCharCode(64 + ((n - 1) % 26 + 1)) + s;
-        n = Math.floor((n - 1) / 26);
-    }
+    while (n > 0) { s = String.fromCharCode(64 + ((n - 1) % 26 + 1)) + s; n = Math.floor((n - 1) / 26); }
     return s;
 }
 
 async function writeSheet(token, siteId, itemId, sheetName, headers, rows) {
-    const data = [headers, ...rows];
-    const nRows = data.length;
-    const nCols = headers.length;
+    const data   = [headers, ...rows];
+    const nRows  = data.length;
+    const nCols  = headers.length;
     const endCol = colLetter(nCols);
-    const baseUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${itemId}/workbook/worksheets/${encodeURIComponent(sheetName)}`;
+    const sheet  = encodeURIComponent(sheetName);
+    const base   = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${itemId}/workbook/worksheets/${sheet}`;
 
-    // 1. Limpiar contenido existente (rango generoso para borrar filas antiguas)
-    await axios.post(
-        `${baseUrl}/range(address='A1:${endCol}10000')/clear`,
+    // 1. Borrar contenido existente (rango amplio para cubrir filas antiguas)
+    await axios.post(`${base}/range(address='A1:${endCol}5000')/clear`,
         { applyTo: "Contents" },
         { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
     );
 
-    // 2. Escribir datos nuevos desde A1
-    await axios.patch(
-        `${baseUrl}/range(address='A1:${endCol}${nRows}')`,
+    // 2. Escribir datos desde A1
+    await axios.patch(`${base}/range(address='A1:${endCol}${nRows}')`,
         { values: data },
         { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
     );
 
-    logger.info(`✅ SharePoint sync OK — hoja "${sheetName}": ${rows.length} filas`);
+    logger.info(`✅ SharePoint "${sheetName}" actualizado: ${rows.length} filas`);
 }
 
 async function readSheet(token, siteId, itemId, sheetName) {
-    const baseUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${itemId}/workbook/worksheets/${encodeURIComponent(sheetName)}`;
-    const resp = await axios.get(`${baseUrl}/usedRange`, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
-    return resp.data.values || []; // array 2D
+    const sheet = encodeURIComponent(sheetName);
+    const base  = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${itemId}/workbook/worksheets/${sheet}`;
+    const resp  = await axios.get(`${base}/usedRange`,
+        { headers: { Authorization: `Bearer ${token}` } }
+    );
+    return resp.data.values || [];
 }
 
 // ─── SYNC FIRESTORE → SHAREPOINT ─────────────────────────────────────────────
+// Debounce: si otra instancia sincronizó en los últimos 15 s, marca pending y sale.
+// El siguiente trigger lo recoge igualmente.
 
-// Guarda en Firestore un timestamp de "última sincronización" para cada colección.
-// Si otra instancia ya sincronizó en los últimos 15 s, marcamos como pendiente
-// y salimos — el siguiente trigger lo enviará igualmente.
-async function runSync(collection, sheetName, headers, buildRow) {
-    const lockRef = db.doc(`metadata/sharepoint_sync_${collection}`);
+async function runSync(coleccion, sheetName, headers, buildRow) {
+    const lockRef  = db.doc(`metadata/sharepoint_sync_${coleccion}`);
     const lockSnap = await lockRef.get();
     const lastSync = lockSnap.data()?.last_sync_ms || 0;
 
     if (Date.now() - lastSync < 15000) {
-        // Demasiado reciente: marcar pendiente y dejar que el siguiente trigger lo procese
         await lockRef.set({ pending: true, last_sync_ms: lastSync }, { merge: true });
-        logger.info(`⏳ Sync ${collection} diferido (última sync hace <15 s)`);
+        logger.info(`⏳ Sync ${coleccion} diferido (<15 s desde la última sync)`);
         return;
     }
-
-    // Reservar slot
     await lockRef.set({ last_sync_ms: Date.now(), pending: false }, { merge: true });
 
-    const snap = await db.collection(collection).get();
+    const snap = await db.collection(coleccion).get();
     const rows = [];
-    snap.forEach((doc) => rows.push(buildRow(doc.id, doc.data())));
+    snap.forEach((d) => rows.push(buildRow(d.id, d.data())));
 
     const token = await getMsToken();
     const { siteId, itemId } = await getSpIds(token);
     await writeSheet(token, siteId, itemId, sheetName, headers, rows);
 
-    // Si quedó pendiente durante la sync, programar otro ciclo inmediato
+    // Si quedó pendiente durante esta sync, relanzar inmediatamente
     const after = await lockRef.get();
     if (after.data()?.pending) {
         await lockRef.set({ pending: false }, { merge: true });
-        await runSync(collection, sheetName, headers, buildRow);
+        await runSync(coleccion, sheetName, headers, buildRow);
     }
 }
 
 exports.syncOfertasToSharePoint = onDocumentWritten({
-    document: "ofertas/{docId}",
-    secrets: SP_SECRETS,
+    document:       "ofertas/{docId}",
+    secrets:        SP_SECRETS,
     timeoutSeconds: 120,
-    memory: "256MiB",
+    memory:         "256MiB",
 }, async () => {
     try {
-        await runSync("ofertas", "Ofertas", OFERTAS_HEADERS, ofertaToRow);
+        await runSync("ofertas", SP_SHEET_OFERTAS, OFERTAS_HEADERS, ofertaToRow);
     } catch (err) {
-        logger.error("❌ syncOfertasToSharePoint error:", err.message, err.response?.data);
+        logger.error("❌ syncOfertasToSharePoint:", err.message, err.response?.data);
     }
 });
 
 exports.syncProduccionToSharePoint = onDocumentWritten({
-    document: "produccion/{docId}",
-    secrets: SP_SECRETS,
+    document:       "produccion/{docId}",
+    secrets:        SP_SECRETS,
     timeoutSeconds: 120,
-    memory: "256MiB",
+    memory:         "256MiB",
 }, async () => {
     try {
-        await runSync("produccion", "Produccion", PRODUCCION_HEADERS,
+        await runSync("produccion", SP_SHEET_PRODUCCION, PRODUCCION_HEADERS,
             (_id, d) => produccionToRow(d));
     } catch (err) {
-        logger.error("❌ syncProduccionToSharePoint error:", err.message, err.response?.data);
+        logger.error("❌ syncProduccionToSharePoint:", err.message, err.response?.data);
     }
 });
 
 // ─── SYNC SHAREPOINT → FIRESTORE (callable desde la web) ─────────────────────
-// Lee la hoja de SharePoint y devuelve las filas al cliente como array de objetos.
-// El cliente hace el upsert en Firestore (reutiliza la lógica de import existente).
-
 exports.syncFromSharePoint = onCall({
-    secrets: SP_SECRETS,
+    secrets:        SP_SECRETS,
     timeoutSeconds: 120,
-    memory: "256MiB",
+    memory:         "256MiB",
 }, async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Debes estar autenticado.");
 
-    const { coleccion } = request.data; // "ofertas" | "produccion"
+    const { coleccion } = request.data;
     if (!["ofertas", "produccion"].includes(coleccion)) {
         throw new HttpsError("invalid-argument", "coleccion debe ser 'ofertas' o 'produccion'.");
     }
@@ -290,24 +279,24 @@ exports.syncFromSharePoint = onCall({
     try {
         const token = await getMsToken();
         const { siteId, itemId } = await getSpIds(token);
-        const sheetName = coleccion === "ofertas" ? "Ofertas" : "Produccion";
-        const values = await readSheet(token, siteId, itemId, sheetName);
+        const sheetName = coleccion === "ofertas" ? SP_SHEET_OFERTAS : SP_SHEET_PRODUCCION;
+        const values    = await readSheet(token, siteId, itemId, sheetName);
 
         if (values.length < 2) return { filas: [] };
 
         const headers = values[0].map((h) => String(h || "").trim());
-        const filas = values.slice(1)
-            .filter((row) => row.some((cell) => cell !== "" && cell !== null))
+        const filas   = values.slice(1)
+            .filter((row) => row.some((c) => c !== "" && c !== null))
             .map((row) => {
                 const obj = {};
                 headers.forEach((h, i) => { obj[h] = row[i] ?? ""; });
                 return obj;
             });
 
-        logger.info(`📥 syncFromSharePoint ${coleccion}: ${filas.length} filas leídas`);
+        logger.info(`📥 syncFromSharePoint ${coleccion}: ${filas.length} filas`);
         return { filas };
     } catch (err) {
-        logger.error("❌ syncFromSharePoint error:", err.message, err.response?.data);
+        logger.error("❌ syncFromSharePoint:", err.message, err.response?.data);
         throw new HttpsError("internal", `Error leyendo SharePoint: ${err.message}`);
     }
 });
