@@ -686,46 +686,38 @@
                 const enOfertas = document.getElementById('view-ofertas')?.style.display === 'block';
 
                 if (enOfertas) {
-                    // ── Export OFERTAS: 25 columnas, mismo orden que el Excel de producción ──
+                    // ── Export OFERTAS: columnas idénticas a la tabla web, valores numéricos sin formato ──
                     const headers = [
-                        'N° GESTIONA','AÑO','FECHA OFERTA','CLIENTE','MES',
-                        'OBJETO DE LA OFERTA','ES UNA LICITACION?','TIPO CLIENTE','ZONA','LOTE',
-                        'DEPARTAMENTO','TIPO SERVICIO','SECTOR','APROBACION','GASTOS',
-                        'COMENTARIOS','SERVICIO','PRESUPUESTO','T1','FIN LICITACION',
+                        'ESTADO','N° GESTIONA','PERTENECE A LICITACION','ES UNA LICITACION?',
+                        'FECHA OFERTA','AGENTE COMERCIAL','OFICINA','CLIENTE','GRUPO',
+                        'OBJETO DE LA OFERTA','TIPO SERVICIO','ORIGEN','COMENTARIOS',
+                        'PRESUPUESTO','GASTOS','T1','FIN LICITACION',
                         'INGRESOS 2026','INGRESOS 2027','INGRESOS 2028','INGRESOS 2029','INGRESOS 2030'
                     ];
-                    const fmtNum = v => {
-                        if (v === '' || v === null || v === undefined) return '';
-                        const n = parseFloat(String(v).replace(',', '.'));
-                        if (isNaN(n)) return v;
-                        return new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n) + '€';
-                    };
+                    const toNum = v => { const n = parseFloat(String(v || '').replace(',', '.')); return isNaN(n) ? '' : n; };
                     const rows = datosOfertasMemoria.map(o => [
-                        o.num_gestiona || '',
-                        (() => { const m = String(o.fecha_oferta || '').match(/(\d{4})/); return m ? m[1] : ''; })(),
-                        o.fecha_oferta || '',
-                        o.cliente || '',
-                        '',
-                        o.objeto || '',
-                        o.es_licitacion || '',
-                        o.tipo_cliente || '',
-                        o.zona || '',
-                        o.lote || '',
-                        o.departamento || '',
-                        o.servicio || '',
-                        o.sector || '',
                         o.estado || '',
-                        fmtNum(o.gastos_estimados),
+                        o.num_gestiona || o._docId || '',
+                        o.pertenece_a_licitacion || '',
+                        o.es_licitacion || '',
+                        o.fecha_oferta || '',
+                        o.agente_comercial || '',
+                        o.oficina || '',
+                        o.cliente || '',
+                        o.grupo || '',
+                        o.objeto || '',
+                        o.servicio || '',
+                        o.origen || '',
                         o.comentarios || '',
-                        o.servicio_p_a_loto || '',
-                        fmtNum(o.presupuesto_total),
+                        toNum(o.presupuesto_total),
+                        toNum(o.gastos_estimados),
                         o.tecnico_t1 || '',
                         o.fin_licitacion || '',
-                        fmtNum(o.ingresos_2026),
-                        fmtNum(o.ingresos_2027),
-                        fmtNum(o.ingresos_2028),
-                        fmtNum(o.ingresos_2029),
-                        fmtNum(o.ingresos_2030),
+                        toNum(o.ingresos_2026),
+                        toNum(o.ingresos_2027),
+                        toNum(o.ingresos_2028),
+                        toNum(o.ingresos_2029),
+                        toNum(o.ingresos_2030),
                     ]);
                     const wsData = [headers, ...rows];
                     const wb = XLSX.utils.book_new();
@@ -3896,7 +3888,7 @@
                                 if (clienteOferta) updateObj[`clientes.${clienteOferta}`] = increment(1);
                                 if (grupoOferta) updateObj[`grupos.${grupoOferta}`] = increment(1);
                                 if (Object.keys(updateObj).length > 0) {
-                                    await updateDoc(doc(db, "metadata", "contadores_nombres"), updateObj);
+                                    await setDoc(doc(db, "metadata", "contadores_nombres"), updateObj, { merge: true });
                                 }
 
                             } else if (isRevertir) {
@@ -4543,7 +4535,7 @@
                             }
 
                             if (Object.keys(updateObj).length > 0) {
-                                await updateDoc(doc(db, "metadata", "contadores_nombres"), updateObj);
+                                await setDoc(doc(db, "metadata", "contadores_nombres"), updateObj, { merge: true });
                             }
                         }
 
