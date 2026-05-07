@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.81</title>
+    <title>Proyectos SIN v1.82</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -100,7 +100,7 @@
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
         let permisosRoles = {
             admin:      { ver_tab_configuracion:true, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             ofertador:  { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             lectura:    { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
             consultor:  { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:true },
@@ -2230,7 +2230,7 @@
                         if (originalText === 'Eº') options = ['Aceptada', 'Rechazada', 'En curso'];
                         else if (originalText.includes('Oficina')) options = listaOficinas;
                         else if (['T1', 'Agente Comercial', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)'].some(t => originalText.includes(t))) {
-                            options = listaTecnicos.map(t => t.nombre_pila || t.acronimo);
+                            options = listaTecnicos.filter(t => t.prod !== false).map(t => t.nombre_pila || t.acronimo);
                         } else if (originalText.includes('VB Cliente')) options = ['Si', 'No'];
                         else if (originalText.includes('Tipo Exp.')) options = listaTiposExpediente;
                         else if (originalText.includes('Tipo Servicio')) options = listaTiposServicio;
@@ -4399,7 +4399,7 @@
                     } else if (fieldName === 'tipo_expediente') {
                         optionsHTML = `<option value="">-</option>` + listaTiposExpediente.map(v => `<option value="${v}" ${currentValue === v ? 'selected' : ''}>${v}</option>`).join('');
                     } else { // Técnicos (responsable_g, ejecutor_t1, apoyo_am, apoyo_an)
-                        optionsHTML = `<option value="">-</option>` + listaTecnicos.map(t => {
+                        optionsHTML = `<option value="">-</option>` + listaTecnicos.filter(t => t.prod !== false).map(t => {
                             const val = preferenciaTecnicos === 'nombre_pila' ? t.nombre_pila : t.acronimo;
                             return `<option value="${val}" ${currentValue === val ? 'selected' : ''}>${val}</option>`;
                         }).join('');
@@ -4668,7 +4668,7 @@
                     } else if (fieldName === 'origen') {
                         optionsHTML = `<option value="">-</option>` + listaOrigenes.map(v => `<option value="${v}" ${currentValue === v ? 'selected' : ''}>${v}</option>`).join('');
                     } else if (fieldName === 'agente_comercial' || fieldName === 'tecnico_t1') {
-                        optionsHTML = `<option value="">-</option>` + listaTecnicos.map(t => {
+                        optionsHTML = `<option value="">-</option>` + listaTecnicos.filter(t => t.prod !== false).map(t => {
                             const val = preferenciaTecnicos === 'nombre_pila' ? t.nombre_pila : t.acronimo;
                             return `<option value="${val}" ${currentValue === val ? 'selected' : ''}>${val}</option>`;
                         }).join('');
@@ -4960,7 +4960,7 @@
             if (yPro && yPro.children.length === 0) yPro.innerHTML = proYHtml;
 
             // 2. Opciones de técnicos y T1 por defecto
-            const tecOpts = listaTecnicos.map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
+            const tecOpts = listaTecnicos.filter(t => t.prod !== false).map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
             if (rble && rble.children.length === 0) rble.innerHTML = tecOpts;
             if (t1 && t1.children.length === 0) {
                 t1.innerHTML = tecOpts;
