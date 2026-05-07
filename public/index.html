@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.93</title>
+    <title>Proyectos SIN v1.94</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -1831,7 +1831,9 @@
                 ic.innerHTML = NORMAL_SVG;
                 ic.style.color = '';
             });
-            applyTableFilters(table);
+            // Mostrar todas las filas explícitamente (applyTableFilters sale si no hay filtros)
+            const tbody = table.querySelector('tbody');
+            if (tbody) tbody.querySelectorAll('tr').forEach(tr => { tr.style.display = ''; });
             guardarPreferenciasUsuario();
         }
 
@@ -1934,6 +1936,7 @@
                 const ths = table.querySelectorAll('th');
 
                 ths.forEach(th => {
+                    if (th.querySelector('[data-original-text]')) return; // ya procesado
                     const text = th.textContent.trim();
                     if (text === '') return;
 
@@ -3589,8 +3592,6 @@
             }
 
             async function initAppContent() {
-                isAppInitialized = false;
-
                 // Preferencias y settings en paralelo (colecciones independientes)
                 await Promise.all([cargarPreferenciasUsuario(), cargarSettings()]);
 
