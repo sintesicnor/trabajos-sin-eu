@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.86</title>
+    <title>Proyectos SIN v1.87</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -7937,22 +7937,35 @@
                         const ultimoRegistroDoc = snapshot.docs[0];
                         const data = ultimoRegistroDoc.data();
 
-                        if (confirm(`¿Deshacer la última acción?\\n\\nColección: ${data.coleccion}\\nCampo: ${data.campo}\\nValor actual: ${data.valorNuevo}\\nSe restaurará a: ${data.valorAnterior}`)) {
+                        // Validar que el registro tiene la estructura esperada
+                        if (!data.coleccion || !data.docId || !data.campo) {
+                            alert("El último registro del historial no tiene el formato correcto y no puede deshacerse.");
+                            return;
+                        }
+
+                        // Los borrados de fila no se registran en historial — indicar al usuario
+                        if (data.campo === 'deleted') {
+                            alert("El borrado de filas no se puede deshacer desde aquí.\n\nPara restaurar una fila borrada usa el botón 🗑️ Papelera.");
+                            return;
+                        }
+
+                        if (confirm(`¿Deshacer la última acción?\n\nTabla: ${data.coleccion}\nCampo: ${data.campo}\nValor actual: ${data.valorNuevo}\nSe restaurará a: ${data.valorAnterior}`)) {
                             await updateDoc(doc(db, data.coleccion, data.docId), {
                                 [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior,
                                 _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
                             });
 
-                            // No borramos el registro del historial: la Cloud Function registrará
-                            // la reversión automáticamente (trazabilidad ISO 27001)
-
                             alert("Deshecho correctamente. La reversión quedará registrada en el historial.");
                             if (data.coleccion === 'produccion') cargarProduccion();
                             if (data.coleccion === 'ofertas') cargarOfertas();
-                            cargarHistorial(); // Refrescar pestaña si estuviese abierta
+                            cargarHistorial();
                         }
                     } catch (e) {
-                        manejarErrorFirebase(e, "Error al intentar deshacer la acción.");
+                        if (e && e.code === 'not-found') {
+                            alert("❌ El documento al que hace referencia el historial ya no existe en la base de datos.");
+                        } else {
+                            manejarErrorFirebase(e, "Error al intentar deshacer la acción.");
+                        }
                     }
                 });
             }
