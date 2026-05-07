@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.89</title>
+    <title>Proyectos SIN v1.90</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -4507,7 +4507,7 @@
                         // ── v0.093: Registrar cambio en historial ──
                         registrarCambioHistorial('produccion', docId, fieldName, currentValue, newValue);
 
-                        // Sync presupuesto_m → offer aceptaciones importe
+                        // Sync presupuesto_m → oferta (aceptaciones + presupuesto_total si 1:1)
                         if (fieldName === 'presupuesto_m') {
                             try {
                                 const ofertaTd = tr.querySelector('td[data-field="oferta_gestiona"]');
@@ -4518,9 +4518,22 @@
                                         const ofData = ofertaDoc.data();
                                         const prevAcepts = Array.isArray(ofData.aceptaciones) ? ofData.aceptaciones : [];
                                         const idx = prevAcepts.findIndex(a => a.num_trabajo === docId);
+                                        const updateOferta = {};
                                         if (idx !== -1) {
                                             prevAcepts[idx].importe = parseFloat(newValue) || 0;
-                                            await updateDoc(doc(db, 'ofertas', ofertaId), { aceptaciones: prevAcepts });
+                                            updateOferta.aceptaciones = prevAcepts;
+                                            // 1:1 → sincronizar también presupuesto_total
+                                            if (prevAcepts.length === 1) updateOferta.presupuesto_total = parseFloat(newValue) || 0;
+                                        } else if (prevAcepts.length === 0) {
+                                            // Sin aceptaciones registradas (importado/directo): sincronizar total
+                                            updateOferta.presupuesto_total = parseFloat(newValue) || 0;
+                                        }
+                                        if (Object.keys(updateOferta).length > 0) {
+                                            await updateDoc(doc(db, 'ofertas', ofertaId), updateOferta);
+                                            // Actualizar memoria de ofertas
+                                            const memOf = datosOfertasMemoria.find(o => (o.num_gestiona || o._docId) === ofertaId);
+                                            if (memOf && updateOferta.presupuesto_total !== undefined) memOf.presupuesto_total = updateOferta.presupuesto_total;
+                                            if (memOf && updateOferta.aceptaciones) memOf.aceptaciones = updateOferta.aceptaciones;
                                         }
                                     }
                                 }
@@ -4812,18 +4825,31 @@
                         const memItem = datosOfertasMemoria.find(o => (o.num_gestiona || o._docId) === docId);
                         if (memItem) memItem[fieldName] = parsedValue;
 
-                        // Sync presupuesto_total → single linked produccion record
+                        // Sync presupuesto_total → produccion vinculada
                         if (fieldName === 'presupuesto_total') {
                             try {
                                 const memOferta = memItem || {};
-                                const tieneAceptaciones = Array.isArray(memOferta.aceptaciones) && memOferta.aceptaciones.length > 0;
-                                if (!tieneAceptaciones) {
+                                const aceptaciones = Array.isArray(memOferta.aceptaciones) ? memOferta.aceptaciones : [];
+                                if (aceptaciones.length === 1) {
+                                    // 1:1 → sincronizar con el único trabajo de producción
+                                    const numTrab = aceptaciones[0].num_trabajo;
+                                    if (numTrab) {
+                                        await updateDoc(doc(db, 'produccion', numTrab), { presupuesto_m: parsedValue });
+                                        const memProd = datosProduccionMemoria.find(p => p.num_trabajo === numTrab);
+                                        if (memProd) memProd.presupuesto_m = parsedValue;
+                                    }
+                                } else if (aceptaciones.length === 0) {
+                                    // Sin aceptaciones registradas (importado/directo): buscar por oferta_gestiona
                                     const qProd = query(collection(db, 'produccion'), where('oferta_gestiona', '==', docId));
                                     const snapProd = await getDocs(qProd);
                                     if (snapProd.size === 1) {
                                         await updateDoc(snapProd.docs[0].ref, { presupuesto_m: parsedValue });
+                                        const numTrab = snapProd.docs[0].data().num_trabajo;
+                                        const memProd = datosProduccionMemoria.find(p => p.num_trabajo === numTrab);
+                                        if (memProd) memProd.presupuesto_m = parsedValue;
                                     }
                                 }
+                                // Múltiples aceptaciones: no cascadar (distribución ambigua)
                             } catch (_e) { console.warn('Sync presupuesto_total→produccion failed', _e); }
                         }
 
