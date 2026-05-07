@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.83</title>
+    <title>Proyectos SIN v1.84</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -96,6 +96,7 @@
         let costeHoraActual = 60; // Valor por defecto
         let currentUserRole = null; // 'admin', 'edicion', 'lectura', 'financiero', 'consultor'
         let currentUserAcronym = null; // Acrónimo del técnico logueado
+        let mostrarDetalleProductividad = false;
 
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
         let permisosRoles = {
@@ -3378,13 +3379,15 @@
                     // Barra resumen y controles exclusivos de admin
                     const isAdmin = currentUserRole === 'admin';
                     const adminBar = document.getElementById('admin-summary-bar');
-                    if (adminBar) adminBar.style.display = isAdmin ? 'flex' : 'none';
+                    if (adminBar) adminBar.style.display = 'none';
                     const prodTblCont = document.getElementById('prod-table-container');
-                    if (prodTblCont) prodTblCont.style.height = isAdmin ? 'calc(100vh - 224px)' : 'calc(100vh - 160px)';
+                    if (prodTblCont) prodTblCont.style.height = 'calc(100vh - 160px)';
                     const btnPap = document.getElementById('btn-papelera');
                     if (btnPap) btnPap.style.display = isAdmin ? 'inline-flex' : 'none';
                     const btnToggleSummary = document.getElementById('btn-toggle-summary');
                     if (btnToggleSummary) btnToggleSummary.style.display = isAdmin ? 'inline-flex' : 'none';
+                    const btnDetalleProd = document.getElementById('btn-detalle-productividad');
+                    if (btnDetalleProd) btnDetalleProd.style.display = isAdmin ? 'inline-flex' : 'none';
                     const btnBF = document.getElementById('btn-borrar-filtros');
                     if (btnBF) btnBF.style.display = 'inline-flex';
 
@@ -6229,7 +6232,7 @@
 
                     html += '</div>';  // close bar
                     html += '</div>';  // close flex:1 bar column
-                    html += '<div style="width:80px;text-align:right;flex-shrink:0;">';
+                    html += '<div class="col-factmes" style="width:80px;text-align:right;flex-shrink:0;">';
                     html += '<div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px;">Fact/mes</div>';
                     html += '<div style="font-size:13px;font-weight:600;color:#10b981;">' + factMesStr + '</div>';
                     html += '</div>';
@@ -6238,6 +6241,9 @@
 
                 if (cargaKeys.length === 0) html += '<p style="color:#64748b;font-size:13px;">No hay datos para el periodo seleccionado.</p>';
                 container1.innerHTML = html;
+                if (currentUserRole !== 'admin' || !mostrarDetalleProductividad) {
+                    container1.querySelectorAll('.col-factmes').forEach(el => el.style.display = 'none');
+                }
             }
 
             // ══════════════════════════════════════
@@ -8644,7 +8650,8 @@
             // Botón "Resumen" — toggle barra de resumen inferior (admin)
             const btnToggleSummaryEl = document.getElementById('btn-toggle-summary');
             if (btnToggleSummaryEl) {
-                let summaryVisible = true;
+                let summaryVisible = false;
+                btnToggleSummaryEl.style.opacity = '0.5';
                 btnToggleSummaryEl.addEventListener('click', () => {
                     summaryVisible = !summaryVisible;
                     const bar = document.getElementById('admin-summary-bar');
@@ -8654,6 +8661,16 @@
                     btnToggleSummaryEl.style.opacity = summaryVisible ? '1' : '0.5';
                 });
             }
+
+            // Botón "Detalle" — muestra/oculta columna Fact/mes en productividad (admin)
+            document.getElementById('btn-detalle-productividad')?.addEventListener('click', () => {
+                mostrarDetalleProductividad = !mostrarDetalleProductividad;
+                const btnDet = document.getElementById('btn-detalle-productividad');
+                if (btnDet) btnDet.style.opacity = mostrarDetalleProductividad ? '1' : '0.5';
+                document.querySelectorAll('.col-factmes').forEach(el => {
+                    el.style.display = mostrarDetalleProductividad ? '' : 'none';
+                });
+            });
         });
 
     </script>
@@ -10041,6 +10058,7 @@
                                 </div>
                                 <button id="btn-update-productividad" class="btn-primary" style="height: 36px;">Aplicar</button>
                                 <button id="btn-clear-productividad" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar filtros</button>
+                                <button id="btn-detalle-productividad" class="btn-secondary" title="Mostrar/ocultar dato Fact/mes por técnico" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1; opacity: 0.5; display: none;">Detalle</button>
                             </div>
                             <div id="container-carga-rendimiento"></div>
                         </div>
