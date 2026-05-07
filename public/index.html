@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.80</title>
+    <title>Proyectos SIN v1.81</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -100,11 +100,11 @@
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
         let permisosRoles = {
             admin:      { ver_tab_configuracion:true, crear_trabajo:true, crear_trabajo_interno:true, editar_campos_generales:true, editar_campos_financieros:true, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
-            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
+            edicion:    { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:true, ver_importes:true, ver_columnas_horas:true, ver_todas_columnas_tec:true, historial_global:true, exportar_excel:true, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             ofertador:  { ver_tab_configuracion:false, crear_trabajo:true, crear_trabajo_interno:false, editar_campos_generales:true, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:true, ver_dashboard:true },
             lectura:    { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:true, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:true, editar_ofertas:false, ver_dashboard:true },
             consultor:  { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:false, editar_fecha_fin:false, ver_importes:false, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:false, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:true },
-            financiero: { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:false }
+            financiero: { ver_tab_configuracion:false, crear_trabajo:false, crear_trabajo_interno:false, editar_campos_generales:false, editar_campos_financieros:true, editar_fecha_fin:false, ver_importes:true, ver_columnas_horas:false, ver_todas_columnas_tec:false, historial_global:true, exportar_excel:false, ver_ofertas:false, editar_ofertas:false, ver_dashboard:true }
         };
 
         function tienePermiso(permiso) {
@@ -1551,7 +1551,7 @@
 
             // Lectura: ocultar columnas de gestión/financieras y archivar
             if (!tienePermiso('editar_campos_generales') && !tienePermiso('editar_campos_financieros')) {
-                const camposOcultar = ['fecha_fin', 'visto_vb_cliente', 'fecha_ap', 'fecha_ar', 'observaciones', 'num_at', 'mes_facturacion', 'gestionado'];
+                const camposOcultar = ['fecha_fin', 'visto_vb_cliente', 'fecha_ap', 'fecha_ar', 'num_at', 'mes_facturacion', 'gestionado'];
                 camposOcultar.forEach(f => {
                     const idx = idxByField(f);
                     if (idx > -1) indicesToHide.add(idx);
