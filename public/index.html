@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.90</title>
+    <title>Proyectos SIN v1.91</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -8747,6 +8747,25 @@
             });
         });
 
+        window.switchConfigTab = function(tab) {
+            const paneGeneral = document.getElementById('config-pane-general');
+            const paneFaq = document.getElementById('config-pane-faq');
+            const btnGeneral = document.getElementById('config-tab-btn-general');
+            const btnFaq = document.getElementById('config-tab-btn-faq');
+            if (paneGeneral) paneGeneral.style.display = tab === 'general' ? '' : 'none';
+            if (paneFaq) paneFaq.style.display = tab === 'faq' ? '' : 'none';
+            if (btnGeneral) {
+                btnGeneral.style.color = tab === 'general' ? '#2176AC' : '#64748b';
+                btnGeneral.style.fontWeight = tab === 'general' ? '600' : '500';
+                btnGeneral.style.borderBottom = tab === 'general' ? '2px solid #2176AC' : '2px solid transparent';
+            }
+            if (btnFaq) {
+                btnFaq.style.color = tab === 'faq' ? '#2176AC' : '#64748b';
+                btnFaq.style.fontWeight = tab === 'faq' ? '600' : '500';
+                btnFaq.style.borderBottom = tab === 'faq' ? '2px solid #2176AC' : '2px solid transparent';
+            }
+        };
+
     </script>
 
     <!-- Estilos de la aplicación -->
@@ -10248,6 +10267,12 @@
                     style="overflow-y: auto; height: calc(100vh - 60px); padding-bottom: 40px;">
                     <h1>Configuración</h1>
 
+                    <div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:28px;margin-top:4px;">
+                        <button id="config-tab-btn-general" onclick="switchConfigTab('general')" style="padding:9px 22px;border:none;background:none;font-size:14px;font-weight:600;color:#2176AC;border-bottom:2px solid #2176AC;margin-bottom:-2px;cursor:pointer;">⚙️ Configuración</button>
+                        <button id="config-tab-btn-faq" onclick="switchConfigTab('faq')" style="padding:9px 22px;border:none;background:none;font-size:14px;font-weight:500;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">❓ Ayuda y Reglas</button>
+                    </div>
+
+                    <div id="config-pane-general">
                     <div class="config-panel" style="margin-bottom: 30px;">
                         <h2 class="config-section-title">Variables de la Aplicación</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 16px;">
@@ -10696,6 +10721,179 @@
                             <span id="sync-status" style="font-size: 14px; font-weight: 500;"></span>
                         </div>
                     </div>
+                    </div><!-- /config-pane-general -->
+
+                    <!-- ══════════ FAQ / AYUDA ══════════ -->
+                    <div id="config-pane-faq" style="display:none;">
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">📋 Numeración de Trabajos</h2>
+                        <p style="color:#64748b;font-size:14px;margin-bottom:16px;">Cada trabajo de producción tiene un número único asignado automáticamente dentro de un rango según su tipo.</p>
+                        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Rango</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Tipo</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Color en tabla</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Descripción</th></tr></thead>
+                            <tbody>
+                                <tr><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">1000–1999</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">—</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">Blanco</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">General / sin clasificar</td></tr>
+                                <tr><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">2000–2999</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">MATRIZ</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">Blanco</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">Expedientes de tipo matriz</td></tr>
+                                <tr style="background:#f0fdf4;"><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">3000–3999</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">ANUAL</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;"><span style="background:#f0fdf4;border:1px solid #bbf7d0;padding:2px 8px;border-radius:4px;">Verde claro</span></td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">Expedientes anuales. Seleccionable al aceptar una oferta.</td></tr>
+                                <tr style="background:#fff7ed;"><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">4000–4999</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">PUNTUAL</td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;"><span style="background:#fff7ed;border:1px solid #fed7aa;padding:2px 8px;border-radius:4px;">Naranja claro</span></td><td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">Expedientes puntuales. Seleccionable al aceptar una oferta.</td></tr>
+                                <tr><td style="padding:8px 12px;">—</td><td style="padding:8px 12px;">INTERNO</td><td style="padding:8px 12px;">Blanco</td><td style="padding:8px 12px;">Trabajos internos. Solo visible para admin.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">👥 Roles y Permisos</h2>
+                        <p style="color:#64748b;font-size:14px;margin-bottom:16px;">Cada usuario tiene un rol que determina qué puede ver y hacer. El rol se asigna en el panel de Técnicos.</p>
+                        <div style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px;">
+                            <thead><tr style="background:#f1f5f9;">
+                                <th style="padding:8px 10px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Acción / Vista</th>
+                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Admin</th>
+                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Edición</th>
+                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Ofertador</th>
+                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Lectura</th>
+                                <th style="padding:8px 10px;text-align:center;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Financiero</th>
+                            </tr></thead>
+                            <tbody style="font-size:12px;">
+                                <tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Tab Producción</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Tab Ofertas</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td></tr>
+                                <tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Tab Informes</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅ (solo Financiero)</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Tab Configuración</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td></tr>
+                                <tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Crear trabajo</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Crear trabajo INTERNO</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td></tr>
+                                <tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Editar campos generales</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Editar campos financieros</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td></tr>
+                                <tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Editar fecha fin</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">Solo si es responsable</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Editar campo Gestionado</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td></tr>
+                                <tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Borrar / Eliminar fila</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Exportar Excel</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td></tr>
+                                <tr><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Ver importes / presupuestos</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:500;">Ver columnas de horas</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">✅</td><td style="text-align:center;border-bottom:1px solid #f1f5f9;">❌</td></tr>
+                                <tr><td style="padding:7px 10px;font-weight:500;">Informe Rendimiento</td><td style="text-align:center;">✅</td><td style="text-align:center;">✅</td><td style="text-align:center;">❌</td><td style="text-align:center;">❌</td><td style="text-align:center;">❌</td></tr>
+                            </tbody>
+                        </table>
+                        </div>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">📨 Ofertas — Estados y Aceptación</h2>
+                        <details open style="margin-bottom:16px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Estados posibles de una oferta</summary>
+                        <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
+                            <li><strong>En curso</strong>: oferta activa, pendiente de decisión</li>
+                            <li><strong>Aceptada</strong>: oferta aceptada en su totalidad → fila en verde</li>
+                            <li><strong>Aceptada parcialmente</strong>: se han aceptado una o varias partes, pero el importe total de las aceptaciones no cubre el presupuesto total → fila en verde claro</li>
+                            <li><strong>Rechazada</strong>: oferta descartada</li>
+                        </ul></details>
+                        <details style="margin-bottom:16px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Proceso de aceptación</summary>
+                        <ol style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.9;">
+                            <li>Haz clic en el icono de estado de la oferta y selecciona <em>Aceptada</em> o <em>Aceptada parcialmente</em>.</li>
+                            <li>El modal pide: <strong>Tipo de expediente</strong> (Anual → rango 3000, Puntual → rango 4000), <strong>Nº Expediente Gestiona</strong>, <strong>T1 (ejecutor)</strong> y fechas inicio/fin.</li>
+                            <li>Para aceptación parcial, marca la casilla e introduce el importe de esta aceptación.</li>
+                            <li>Se crea automáticamente un trabajo en Producción con el número correlativo del rango correspondiente.</li>
+                            <li>El estado de la oferta pasa a <em>Aceptada</em> si la suma de todas las aceptaciones ≥ presupuesto total; si no, queda en <em>Aceptada parcialmente</em>.</li>
+                        </ol></details>
+                        <details style="margin-bottom:16px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Aceptación total tras aceptaciones parciales previas</summary>
+                        <p style="margin:10px 0 0;font-size:13px;color:#475569;line-height:1.7;">Al elegir <em>Aceptada</em> cuando ya hay aceptaciones parciales previas, el modal muestra un banner verde con el <strong>importe pendiente</strong> (= presupuesto total − suma de aceptaciones anteriores). Ese importe restante se usa como presupuesto del nuevo trabajo de producción.</p>
+                        </details>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">🔄 Sincronización de Importes Oferta ↔ Producción</h2>
+                        <p style="font-size:13px;color:#475569;margin-bottom:14px;">Cuando se modifica el importe en una tabla, se actualiza automáticamente en la otra si existe vínculo entre los registros (<code>oferta_gestiona</code>).</p>
+                        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Caso</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Dirección</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Qué sincroniza</th></tr></thead>
+                            <tbody>
+                                <tr><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">1 sola aceptación (caso habitual)</td><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">Producción → Oferta</td><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">Actualiza <code>aceptaciones[i].importe</code> y <code>presupuesto_total</code></td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">1 sola aceptación</td><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">Oferta → Producción</td><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">Actualiza <code>presupuesto_m</code> del trabajo vinculado</td></tr>
+                                <tr><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">Sin aceptaciones (importado / creado directo con <code>oferta_gestiona</code>)</td><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">Ambas direcciones</td><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">Sincroniza si hay exactamente 1 trabajo de producción vinculado</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 12px;">Múltiples aceptaciones parciales</td><td style="padding:7px 12px;">Producción → Oferta</td><td style="padding:7px 12px;">Solo actualiza la entrada en <code>aceptaciones</code>; no cambia <code>presupuesto_total</code></td></tr>
+                                <tr><td style="padding:7px 12px;">Múltiples aceptaciones parciales</td><td style="padding:7px 12px;">Oferta → Producción</td><td style="padding:7px 12px;">No sincroniza (distribución ambigua entre varios trabajos)</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">🗑️ Borrado y Recuperación de Filas</h2>
+                        <ul style="font-size:13px;color:#475569;line-height:1.9;margin:0 0 0 16px;">
+                            <li><strong>Borrar fila (recuperable)</strong>: doble clic en el Nº de Trabajo → menú → 🗑️ Borrar fila. La fila queda oculta con <code>deleted: true</code> pero sigue existiendo en Firestore.</li>
+                            <li><strong>Restaurar</strong>: botón 🗑️ <em>Papelera</em> en la barra de herramientas (solo admin) → lista de filas borradas → ↩ Restaurar.</li>
+                            <li><strong>Eliminar definitivamente</strong>: desde el mismo menú de doble clic o desde la Papelera. <span style="color:#ef4444;font-weight:500;">Esta acción no se puede deshacer.</span></li>
+                            <li><strong>Botón Deshacer</strong> (↩): deshace únicamente la última <em>edición de campo</em> registrada en el historial. No sirve para restaurar filas borradas; usa la Papelera para eso.</li>
+                        </ul>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">👤 Técnicos en Desplegables</h2>
+                        <ul style="font-size:13px;color:#475569;line-height:1.9;margin:0 0 0 16px;">
+                            <li>En los desplegables de selección de técnico (Responsable, T1, T2, T3) solo aparecen los técnicos que tienen la casilla <strong>Prod</strong> marcada en el panel de Técnicos de Configuración.</li>
+                            <li>La preferencia de visualización (acrónimo o nombre de pila) se aplica globalmente y se guarda en Firestore.</li>
+                            <li>Los técnicos sin casilla Prod marcada siguen apareciendo en las columnas de horas de la tabla de producción si previamente se les inyectó una columna.</li>
+                        </ul>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">🔍 Filtros Especiales en Tablas</h2>
+                        <p style="font-size:13px;color:#475569;margin-bottom:12px;">Algunas columnas tienen filtros especiales que no son texto libre:</p>
+                        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                            <thead><tr style="background:#f1f5f9;"><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Columna</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569;border-bottom:1px solid #e2e8f0;">Comportamiento</th></tr></thead>
+                            <tbody>
+                                <tr><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;font-weight:500;">Nº Fact</td><td style="padding:7px 12px;border-bottom:1px solid #f1f5f9;">Toggle que muestra solo filas con contenido en ese campo (tiene número de factura asignado)</td></tr>
+                                <tr style="background:#fafafa;"><td style="padding:7px 12px;font-weight:500;">Archivar</td><td style="padding:7px 12px;">Toggle que muestra solo filas cuyo botón sea <em>Archivar</em> (excluye las que muestran <em>Bloqueado</em>)</td></tr>
+                            </tbody>
+                        </table>
+                        <p style="font-size:13px;color:#64748b;margin-top:12px;">El resto de columnas admiten texto libre que se busca por inclusión (no sensible a mayúsculas). Las columnas de técnico usan un desplegable con los valores disponibles.</p>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">📊 Gráficos de Informes</h2>
+                        <details open style="margin-bottom:14px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Informe de Producción</summary>
+                        <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
+                            <li>KPIs: facturación pendiente, facturación realizada, trabajos activos</li>
+                            <li>Distribución de presupuesto por tipo de servicio, por cliente y por técnico responsable</li>
+                            <li>Evolución mensual de importes</li>
+                        </ul></details>
+                        <details style="margin-bottom:14px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Informe de Rendimiento <span style="font-size:11px;color:#94a3b8;">(admin, edición)</span></summary>
+                        <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
+                            <li><strong>Productividad por técnico</strong>: barras de facturado / por facturar / pendiente por cada técnico, con filtros de año y mes</li>
+                            <li><strong>Fact/mes</strong>: dato de facturación media mensual por técnico. Solo visible para admin tras pulsar el botón <em>Detalle</em> (junto a "Borrar filtros"). Está oculto por defecto.</li>
+                            <li><strong>Distribución interno vs productivo</strong>: horas internas frente a horas productivas por técnico (basado en partes)</li>
+                            <li><strong>Facturado y por facturar mensual</strong>: gráfico de barras de los últimos 12 meses</li>
+                        </ul></details>
+                        <details style="margin-bottom:14px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Informe Financiero <span style="font-size:11px;color:#94a3b8;">(admin, financiero)</span></summary>
+                        <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
+                            <li>Resumen de importes facturados y pendientes agrupados por mes</li>
+                            <li>Totales anuales y media mensual</li>
+                        </ul></details>
+                        <details><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Facturación por Hora <span style="font-size:11px;color:#94a3b8;">(solo admin)</span></summary>
+                        <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
+                            <li>Precio medio de facturación por hora de cada técnico</li>
+                            <li>Comparativa entre técnicos y totales</li>
+                        </ul></details>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">⌨️ Preferencias y Navegación</h2>
+                        <ul style="font-size:13px;color:#475569;line-height:1.9;margin:0 0 0 16px;">
+                            <li><strong>Orden de columnas</strong>: se puede reordenar arrastrando las cabeceras. El orden queda guardado por usuario en Firestore y se restaura al recargar.</li>
+                            <li><strong>Tecla Tab</strong>: al editar una celda inline, Tab guarda el valor actual y salta a la siguiente celda editable de la misma fila.</li>
+                            <li><strong>Tecla Enter / Escape</strong>: Enter guarda el valor; Escape cancela la edición sin guardar.</li>
+                            <li><strong>Barra de Resumen</strong> (admin): el botón 📊 Resumen en la barra de herramientas muestra u oculta las tarjetas de facturación en la parte inferior de la vista de Producción. Empieza oculta por defecto.</li>
+                            <li><strong>Renombrar columnas</strong>: doble clic en la cabecera de una columna (solo admin). El nuevo nombre se guarda y se aplica a todos los usuarios.</li>
+                        </ul>
+                    </div>
+
+                    <div class="config-panel" style="margin-bottom:24px;">
+                        <h2 class="config-section-title">🔑 Cuentas de Acceso</h2>
+                        <ul style="font-size:13px;color:#475569;line-height:1.9;margin:0 0 0 16px;">
+                            <li>Acceso principal mediante cuenta <strong>Microsoft</strong> (@tesicnor.com).</li>
+                            <li>También disponible acceso con <strong>email y contraseña</strong> de Firebase (para cuentas manuales).</li>
+                            <li>El botón <strong>🔑 Crear cuentas</strong> en el panel de Técnicos crea automáticamente una cuenta Firebase Auth para cada técnico con email registrado. La contraseña inicial es el prefijo del email (antes del @). Ejemplo: <code>plopez@tesicnor.com</code> → contraseña <code>plopez</code>.</li>
+                            <li>La operación usa una app Firebase secundaria para no cerrar la sesión del administrador.</li>
+                            <li>Si la cuenta ya existe, se omite sin error.</li>
+                        </ul>
+                    </div>
+
+                    </div><!-- /config-pane-faq -->
                 </div>
 
             </div>
