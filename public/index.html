@@ -558,6 +558,8 @@
             const btnSubirOfe = document.getElementById('btn-subir-ofertas');
             const btnExport = document.getElementById('btn-export');
             const btnDeshacer = document.getElementById('btn-deshacer');
+            const btnSyncSpOfe = document.getElementById('btn-sync-sp-ofertas');
+            const btnSyncSpProd = document.getElementById('btn-sync-sp-produccion');
 
             const canCreate = tienePermiso('crear_trabajo');
             const canEditOfe = tienePermiso('editar_ofertas');
@@ -571,6 +573,8 @@
                 if (btnSubirProd) btnSubirProd.style.display = canImport ? 'inline-flex' : 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = 'none';
                 if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
+                if (btnSyncSpOfe) btnSyncSpOfe.style.display = 'none';
+                if (btnSyncSpProd) btnSyncSpProd.style.display = canImport ? 'inline-flex' : 'none';
             } else if (activeViewId === 'view-ofertas') {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = canEditOfe ? 'flex' : 'none';
@@ -578,6 +582,8 @@
                 if (btnSubirProd) btnSubirProd.style.display = 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'inline-flex' : 'none';
                 if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
+                if (btnSyncSpOfe) btnSyncSpOfe.style.display = canImport ? 'inline-flex' : 'none';
+                if (btnSyncSpProd) btnSyncSpProd.style.display = 'none';
             } else {
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
                 if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
@@ -585,6 +591,8 @@
                 if (btnSubirProd) btnSubirProd.style.display = 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = 'none';
                 if (btnExport) btnExport.style.display = 'none';
+                if (btnSyncSpOfe) btnSyncSpOfe.style.display = 'none';
+                if (btnSyncSpProd) btnSyncSpProd.style.display = 'none';
             }
         }
 
@@ -1201,6 +1209,101 @@
                 this.value = '';
             }
         });
+
+        // ═══ SYNC DESDE SHAREPOINT ═══
+        async function syncDesdeSharePoint(coleccion, cargarFn) {
+            const btn = document.getElementById(coleccion === 'ofertas' ? 'btn-sync-sp-ofertas' : 'btn-sync-sp-produccion');
+            const textoOriginal = btn ? btn.innerHTML : '';
+            if (btn) btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg> Leyendo…';
+            if (btn) btn.disabled = true;
+            try {
+                if (typeof XLSX === 'undefined') throw new Error('Librería XLSX no cargada.');
+                const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js');
+                const fns = getFunctions(app, 'us-central1');
+                const callable = httpsCallable(fns, 'syncFromSharePoint');
+                const result = await callable({ coleccion });
+                const { filas } = result.data;
+                if (!filas || filas.length === 0) { alert('No se encontraron filas en SharePoint.'); return; }
+
+                if (!confirm(`SharePoint tiene ${filas.length} registros.\n¿Actualizar/crear en Firestore? (Los registros no incluidos no se tocarán.)`)) return;
+
+                // Reutilizar normCol del import existente
+                const normCol = s => String(s || '').replace(/^﻿/, '').trim()
+                    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+                    .replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+
+                // Mapeo de cabeceras SharePoint → campos Firestore (mismo colMap del import)
+                const colMapOfe = {
+                    'estado': 'estado', 'n gestiona': 'num_gestiona', 'num gestiona': 'num_gestiona',
+                    'pertenece a licitacion': 'pertenece_a_licitacion', 'es una licitacion': 'es_licitacion',
+                    'fecha oferta': 'fecha_oferta', 'agente comercial': 'agente_comercial',
+                    'oficina': 'oficina', 'cliente': 'cliente', 'grupo': 'grupo',
+                    'objeto de la oferta': 'objeto', 'tipo servicio': 'servicio',
+                    'origen': 'origen', 'comentarios': 'comentarios',
+                    'presupuesto': 'presupuesto_total', 'gastos': 'gastos_estimados',
+                    't1': 'tecnico_t1', 'fin licitacion': 'fin_licitacion',
+                    'ingresos 2026': 'ingresos_2026', 'ingresos 2027': 'ingresos_2027',
+                    'ingresos 2028': 'ingresos_2028', 'ingresos 2029': 'ingresos_2029',
+                    'ingresos 2030': 'ingresos_2030',
+                };
+                const colMapProd = {
+                    'n trabajo': 'num_trabajo', 'no trabajo': 'num_trabajo',
+                    'tipo expediente': 'tipo_expediente', 'exp gestiona': 'exp_gestiona',
+                    'oferta gestiona': 'oferta_gestiona', 'fecha inicio': 'fecha_inicio',
+                    'fecha fin': 'fecha_fin', 'cliente': 'cliente', 'servicio': 'servicio',
+                    'tipo servicio': 'tipo_servicio', 'grupo': 'grupo',
+                    'responsable': 'responsable_g', 'ejecutor t1': 'ejecutor_t1',
+                    'apoyo am': 'apoyo_am', 'apoyo an': 'apoyo_an',
+                    'presupuesto': 'presupuesto_m', 'gastos': 'gastos_n',
+                    'gestionado': 'gestionado', 'vb cliente': 'visto_vb_cliente',
+                    'fecha ap': 'fecha_ap', 'fecha ar': 'fecha_ar',
+                    'n at': 'num_at', 'mes facturacion': 'mes_facturacion',
+                    'observaciones': 'observaciones',
+                };
+                const colMap = coleccion === 'ofertas' ? colMapOfe : colMapProd;
+                const idField = coleccion === 'ofertas' ? 'num_gestiona' : 'num_trabajo';
+
+                const batch = writeBatch(db);
+                let count = 0, skipped = 0;
+                filas.forEach(fila => {
+                    const docData = {};
+                    Object.keys(fila).forEach(col => {
+                        const field = colMap[normCol(col)];
+                        if (!field) return;
+                        const raw = fila[col];
+                        let val = (raw === null || raw === undefined) ? '' : String(raw).trim();
+                        if ((field === 'presupuesto_total' || field === 'gastos_estimados' ||
+                             field === 'presupuesto_m' || field === 'gastos_n') && typeof raw === 'number') {
+                            val = String(raw);
+                        }
+                        if (val !== '') docData[field] = val;
+                    });
+                    const docId = docData[idField];
+                    if (!docId) { skipped++; return; }
+                    delete docData[idField];
+                    batch.set(doc(db, coleccion === 'ofertas' ? 'ofertas' : 'produccion', docId), docData, { merge: true });
+                    count++;
+                });
+                if (count === 0) { alert('No se encontraron filas válidas.'); return; }
+                await batch.commit();
+                if (btn) btn.innerHTML = textoOriginal;
+                if (btn) btn.disabled = false;
+                alert(`✅ ${count} registro(s) actualizados/creados desde SharePoint.${skipped ? '\n' + skipped + ' fila(s) sin ID omitidas.' : ''}`);
+                await cargarFn();
+            } catch (err) {
+                console.error('Error sync SharePoint:', err);
+                alert('❌ Error al sincronizar desde SharePoint: ' + (err.message || err));
+            } finally {
+                if (btn) btn.innerHTML = textoOriginal;
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        document.getElementById('btn-sync-sp-ofertas')?.addEventListener('click', () =>
+            syncDesdeSharePoint('ofertas', cargarOfertas));
+
+        document.getElementById('btn-sync-sp-produccion')?.addEventListener('click', () =>
+            syncDesdeSharePoint('produccion', cargarProduccion));
 
         // Función para cargar datos de Firestore
         let isVistaHistorico = false;
@@ -9166,6 +9269,7 @@
             height: 100%;
         }
 
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .btn-secondary {
             padding: 10px 20px;
             background-color: var(--bg);
@@ -9824,6 +9928,18 @@
                     Importar
                     <input type="file" id="csv-import-ofertas" accept=".csv,.xlsx,.xls" style="display:none;" />
                 </label>
+
+                <!-- Sync desde SharePoint — Ofertas -->
+                <button id="btn-sync-sp-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;" title="Leer Ofertas desde Excel de SharePoint y actualizar Firestore">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>
+                    SharePoint →
+                </button>
+
+                <!-- Sync desde SharePoint — Producción -->
+                <button id="btn-sync-sp-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;" title="Leer Producción desde Excel de SharePoint y actualizar Firestore">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>
+                    SharePoint →
+                </button>
 
                 <!-- Exportar -->
                 <button id="btn-export" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;">
