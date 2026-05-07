@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.92</title>
+    <title>Proyectos SIN v1.93</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -3283,6 +3283,9 @@
                                 if (saved[rol]) permisosRoles[rol] = { ...permisosRoles[rol], ...saved[rol] };
                             });
                         }
+                        // Permisos mínimos garantizados para ofertador (no sobreescribibles por config guardada)
+                        permisosRoles.ofertador.ver_importes = true;
+                        permisosRoles.ofertador.editar_fecha_fin = true;
 
                         // 1. Resolver técnico y rol desde la tabla de técnicos (fuente principal)
                         // user.email puede ser null con Microsoft — fallback a providerData
