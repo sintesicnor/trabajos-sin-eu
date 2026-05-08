@@ -368,6 +368,11 @@
                                 const inputColsOfer = document.getElementById('input-cols-ofer');
                                 if (inputColsOfer) inputColsOfer.value = freezeColsOfer;
                             }
+                            const chk = document.getElementById('toggle-login-password');
+                            if (chk) {
+                                chk.checked = data.login_password_enabled === true;
+                                chk.dispatchEvent(new Event('change'));
+                            }
                         }
                     });
                 }
@@ -3363,6 +3368,14 @@
 
             let isAppInitialized = false;
 
+            // Leer login_password_enabled antes de auth para mostrar/ocultar el form de contraseña
+            getDoc(doc(db, "settings", "global")).then(snap => {
+                if (snap.exists() && snap.data().login_password_enabled === true) {
+                    const lf = document.getElementById('login-form');
+                    if (lf) lf.style.display = '';
+                }
+            }).catch(() => {});
+
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
@@ -4098,12 +4111,14 @@
                     const select = document.getElementById('preferencia-tecnicos');
                     const inputColsProd = document.getElementById('input-cols-prod');
                     const inputColsOfer = document.getElementById('input-cols-ofer');
+                    const chkLoginPwd = document.getElementById('toggle-login-password');
                     if (!input || !select || !inputColsProd || !inputColsOfer) return;
 
                     const nuevoValor = parseFloat(input.value);
                     const pref = select.value;
                     const nuevoColsProd = parseInt(inputColsProd.value, 10);
                     const nuevoColsOfer = parseInt(inputColsOfer.value, 10);
+                    const loginPwdEnabled = chkLoginPwd ? chkLoginPwd.checked : false;
 
                     if (isNaN(nuevoValor) || nuevoValor <= 0) {
                         alert("Por favor, introduce un coste por hora válido (> 0).");
@@ -4119,8 +4134,12 @@
                             coste_hora: nuevoValor,
                             display_tecnicos: pref,
                             cols_fijas_prod: nuevoColsProd,
-                            cols_fijas_ofer: nuevoColsOfer
+                            cols_fijas_ofer: nuevoColsOfer,
+                            login_password_enabled: loginPwdEnabled
                         }, { merge: true });
+
+                        const loginFormEl = document.getElementById('login-form');
+                        if (loginFormEl) loginFormEl.style.display = loginPwdEnabled ? '' : 'none';
 
                         costeHoraActual = nuevoValor;
                         preferenciaTecnicos = pref;
@@ -9767,7 +9786,7 @@
                     style="color: var(--tesicnor-blue); font-weight: 700; font-size: 28px; margin-left: 12px; margin-bottom: 0;">
                     Proyectos SIN</h2>
             </div>
-            <form id="login-form">
+            <form id="login-form" style="display:none">
                 <input type="email" id="login-email" class="login-input" placeholder="Correo electrónico">
                 <input type="password" id="login-password" class="login-input" placeholder="Contraseña">
                 <button type="submit" class="login-btn">Entrar</button>
@@ -10356,6 +10375,33 @@
                     </div>
 
                     <div id="config-pane-general">
+                    <div class="config-panel" style="margin-bottom: 30px;">
+                        <h2 class="config-section-title">Acceso con Contraseña</h2>
+                        <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 16px;">
+                            Activa esta opción para mostrar el formulario de correo y contraseña en la pantalla de inicio de sesión. Por defecto solo aparece el acceso con Microsoft.
+                        </p>
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none;">
+                            <span style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;">
+                                <input type="checkbox" id="toggle-login-password" style="opacity:0;width:0;height:0;position:absolute;">
+                                <span id="toggle-login-password-track" style="position:absolute;inset:0;background:#cbd5e1;border-radius:24px;transition:background .2s;"></span>
+                                <span id="toggle-login-password-thumb" style="position:absolute;left:3px;top:3px;width:18px;height:18px;background:#fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s;"></span>
+                            </span>
+                            <span style="font-size: 14px; font-weight: 500; color: #334155;">Mostrar login con contraseña</span>
+                        </label>
+                        <script>
+                            (function() {
+                                const chk = document.getElementById('toggle-login-password');
+                                const track = document.getElementById('toggle-login-password-track');
+                                const thumb = document.getElementById('toggle-login-password-thumb');
+                                function update() {
+                                    track.style.background = chk.checked ? '#2563eb' : '#cbd5e1';
+                                    thumb.style.transform = chk.checked ? 'translateX(20px)' : 'translateX(0)';
+                                }
+                                chk.addEventListener('change', update);
+                                update();
+                            })();
+                        </script>
+                    </div>
                     <div class="config-panel" style="margin-bottom: 30px;">
                         <h2 class="config-section-title">Variables de la Aplicación</h2>
                         <p style="color: #64748b; font-size: 14px; line-height: 1.5; margin-bottom: 16px;">
