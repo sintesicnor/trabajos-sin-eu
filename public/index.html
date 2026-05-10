@@ -4728,6 +4728,67 @@
                         } else {
                             td.innerHTML = finalValue;
                         }
+
+                        // Al vincular oferta_gestiona: auto-rellenar campos y aceptar oferta si procede
+                        if (fieldName === 'oferta_gestiona' && newValue) {
+                            try {
+                                const _legClrAuto = { "TTG":"#fee2e2","JMR":"#ffedd5","CPV":"#fef3c7","BRL":"#fef08a","RAP":"#d9f99d","AEL":"#bbf7d0","BLO":"#a7f3d0","MMB":"#99f6e4","IRE":"#cffafe","JML":"#e0f2fe","MCM":"#dbeafe","PLR":"#e0e7ff","PRW":"#ede9fe","DPV":"#f3e8ff","JDR":"#fae8ff","ELA":"#fce7f3","LAR":"#f1f5f9","HMR":"#e2e8f0" };
+                                let ofMatch = datosOfertasMemoria.find(o => o._docId === newValue || o.num_gestiona === newValue);
+                                if (!ofMatch) {
+                                    const ofSnap = await getDoc(doc(db, 'ofertas', newValue));
+                                    if (ofSnap.exists()) ofMatch = { _docId: newValue, ...ofSnap.data() };
+                                }
+                                if (ofMatch) {
+                                    const camposAuto = {};
+                                    if (ofMatch.cliente)     camposAuto.cliente       = ofMatch.cliente;
+                                    if (ofMatch.servicio)  { camposAuto.servicio      = ofMatch.servicio;
+                                                             camposAuto.tipo_servicio = ofMatch.servicio; }
+                                    if (ofMatch.grupo)       camposAuto.grupo         = ofMatch.grupo;
+                                    if (ofMatch.tecnico_t1)  camposAuto.ejecutor_t1   = ofMatch.tecnico_t1;
+                                    const _presup = ofMatch.presupuesto_total;
+                                    if (_presup !== undefined && _presup !== null && _presup !== '') camposAuto.presupuesto_m = _presup;
+                                    const _gastos = ofMatch.gastos_estimados;
+                                    if (_gastos !== undefined && _gastos !== null && _gastos !== '') camposAuto.gastos_n = _gastos;
+
+                                    if (Object.keys(camposAuto).length > 0) {
+                                        await updateDoc(doc(db, 'produccion', docId), { ...camposAuto, _usuario_edicion: auth.currentUser?.email || 'Desconocido' });
+                                        const LABELS_AUTO = { cliente:'Cliente', servicio:'Servicio', tipo_servicio:'Tipo Servicio', grupo:'Grupo', ejecutor_t1:'T1', presupuesto_m:'Presupuesto', gastos_n:'Gastos' };
+                                        for (const [field, val] of Object.entries(camposAuto)) {
+                                            const cell = tr.querySelector(`td[data-field="${field}"]`);
+                                            if (!cell) continue;
+                                            if (field === 'presupuesto_m' || field === 'gastos_n') {
+                                                const n = parseFloat(val) || 0;
+                                                cell.innerHTML = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (n % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(n) + '€';
+                                            } else if (field === 'ejecutor_t1') {
+                                                const _tO = listaTecnicos.find(t => t.acronimo === val || t.nombre_pila === val || t.nombre === val);
+                                                const _tL = _tO ? ((preferenciaTecnicos === 'nombre_pila' && _tO.nombre_pila) ? _tO.nombre_pila : _tO.acronimo) : val;
+                                                cell.innerHTML = escapeHTML(_tL || '');
+                                                cell.style.backgroundColor = _tO ? (_tO.color || _legClrAuto[_tO.acronimo] || '#ffffff') : '#ffffff';
+                                            } else {
+                                                cell.innerHTML = escapeHTML(String(val));
+                                            }
+                                        }
+                                        const nombresLegibles = Object.keys(camposAuto).map(f => LABELS_AUTO[f] || f);
+                                        const msgCampos = `Campos completados desde la oferta: ${nombresLegibles.join(', ')}.`;
+
+                                        // Aceptar oferta si no lo está ya
+                                        const estadoActual = (ofMatch.estado || '').toLowerCase();
+                                        if (!estadoActual.startsWith('aceptada')) {
+                                            await updateDoc(doc(db, 'ofertas', ofMatch._docId), {
+                                                estado: 'Aceptada',
+                                                timestamp_estado: new Date().toISOString(),
+                                                _usuario_edicion: auth.currentUser?.email || 'Desconocido'
+                                            });
+                                            ofMatch.estado = 'Aceptada';
+                                            alert(`${msgCampos}\n\nLa oferta ${newValue} ha sido marcada automáticamente como Aceptada.`);
+                                        } else {
+                                            alert(msgCampos);
+                                        }
+                                    }
+                                }
+                            } catch (_eAuto) { console.warn('Auto-fill oferta_gestiona:', _eAuto); }
+                        }
+
                     } catch (err) {
                         manejarErrorFirebase(err, "Error guardando el cambio en Producción.");
                         td.innerHTML = currentValue; // Revertir
