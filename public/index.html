@@ -5135,6 +5135,13 @@
             return true;
         }
 
+        function normalizarAgente(v) {
+            if (!v) return '';
+            const val = v.trim();
+            const tec = listaTecnicos.find(t => t.acronimo === val || t.nombre_pila === val || t.nombre === val);
+            return tec ? (tec.nombre_pila || tec.acronimo) : val;
+        }
+
         function initFiltrosDashboard() {
             const yOfe = document.getElementById('filt-ofe-year'); const yPro = document.getElementById('filt-pro-year');
             const rble = document.getElementById('filt-pro-rble'); const t1 = document.getElementById('filt-pro-t1');
@@ -5191,7 +5198,7 @@
             const srvOfe    = document.getElementById('filt-ofe-servicio');
             if (agenteOfe && datosOfertasMemoria.length > 0) {
                 const prevAgente = Array.from(agenteOfe.selectedOptions).map(o => o.value);
-                const agentes = [...new Set(datosOfertasMemoria.map(o => (o.agente_comercial || '').trim()).filter(Boolean))].sort();
+                const agentes = [...new Set(datosOfertasMemoria.map(o => normalizarAgente(o.agente_comercial)).filter(Boolean))].sort();
                 agenteOfe.innerHTML = agentes.map(a => `<option value="${a}"${prevAgente.includes(a) ? ' selected' : ''}>${a}</option>`).join('');
             }
             if (srvOfe && datosOfertasMemoria.length > 0) {
@@ -5266,7 +5273,7 @@
                 const pertLic = normSiNo(of.pertenece_a_licitacion);
                 if (licFil.length > 0 && !licFil.includes(esLic)) return;
                 if (pertFil.length > 0 && !pertFil.includes(pertLic)) return;
-                if (agenteFil.length > 0 && !agenteFil.includes((of.agente_comercial || '').trim())) return;
+                if (agenteFil.length > 0 && !agenteFil.includes(normalizarAgente(of.agente_comercial))) return;
                 if (srvFil.length > 0 && !srvFil.includes((of.servicio || '').trim())) return;
 
                 const est = (of.estado || 'En curso').trim();
