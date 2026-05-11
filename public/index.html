@@ -5242,9 +5242,11 @@
                 return 'No';
             };
 
-            // First pass: collect all data for unfiltered charts
+            // First pass: collect data for evolution/annual charts — filtered by agente y servicio
             datosOfertasMemoria.forEach(of => {
                 if (filtrarPorUsuario && !esUsuarioEnOferta(of)) return;
+                if (agenteFil.length > 0 && !agenteFil.includes(normalizarAgente(of.agente_comercial))) return;
+                if (srvFil.length > 0 && !srvFil.includes((of.servicio || '').trim())) return;
                 const est = (of.estado || 'En curso').trim();
                 const estLower = est.toLowerCase();
                 const ppto = parseSpanishNum(of.presupuesto_total) || 0;
