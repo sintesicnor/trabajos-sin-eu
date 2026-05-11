@@ -5288,7 +5288,7 @@
                 else if (estLower === 'aceptada' || estLower === 'aceptado') { aceptadas++; pptoAcep += ppto; }
                 else if (estLower === 'rechazada' || estLower === 'rechazado') { rechazadas++; pptoRech += ppto; }
 
-                const ag = of.agente_comercial ? of.agente_comercial.trim() : 'Sin Asignar';
+                const ag = normalizarAgente(of.agente_comercial) || 'Sin Asignar';
                 if (!agentesData[ag]) agentesData[ag] = { acep: 0, curso: 0, rech: 0, pptoAcep: 0, pptoCurso: 0, pptoRech: 0 };
                 if (estLower === 'aceptada' || estLower === 'aceptado') { agentesData[ag].acep++; agentesData[ag].pptoAcep += ppto; }
                 else if (estLower === 'rechazada' || estLower === 'rechazado') { agentesData[ag].rech++; agentesData[ag].pptoRech += ppto; }
