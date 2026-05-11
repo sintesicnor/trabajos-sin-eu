@@ -5185,11 +5185,26 @@
 
             const srvOpts = listaTiposServicio.map(s => `<option value="${s}">${s}</option>`).join('');
             if (srv && srv.children.length === 0) srv.innerHTML = srvOpts;
+
+            // Agente comercial y Servicio del informe de ofertas — dinámicos desde datosOfertasMemoria
+            const agenteOfe = document.getElementById('filt-ofe-agente');
+            const srvOfe    = document.getElementById('filt-ofe-servicio');
+            if (agenteOfe && datosOfertasMemoria.length > 0) {
+                const prevAgente = Array.from(agenteOfe.selectedOptions).map(o => o.value);
+                const agentes = [...new Set(datosOfertasMemoria.map(o => (o.agente_comercial || '').trim()).filter(Boolean))].sort();
+                agenteOfe.innerHTML = agentes.map(a => `<option value="${a}"${prevAgente.includes(a) ? ' selected' : ''}>${a}</option>`).join('');
+            }
+            if (srvOfe && datosOfertasMemoria.length > 0) {
+                const prevSrv = Array.from(srvOfe.selectedOptions).map(o => o.value);
+                const srvs = [...new Set(datosOfertasMemoria.map(o => (o.servicio || '').trim()).filter(Boolean))].sort();
+                srvOfe.innerHTML = srvs.map(s => `<option value="${s}"${prevSrv.includes(s) ? ' selected' : ''}>${s}</option>`).join('');
+            }
 }
 
         function cargarDashboardOfertas() {
             const yFil = getMulti('filt-ofe-year'); const mFil = getMulti('filt-ofe-month');
             const licFil = getMulti('filt-ofe-es-lic'); const pertFil = getMulti('filt-ofe-pert-lic');
+            const agenteFil = getMulti('filt-ofe-agente'); const srvFil = getMulti('filt-ofe-servicio');
 
             // Helper: comprobar si el usuario figura como agente o T1 en una oferta
             function esUsuarioEnOferta(of) {
@@ -5251,6 +5266,8 @@
                 const pertLic = normSiNo(of.pertenece_a_licitacion);
                 if (licFil.length > 0 && !licFil.includes(esLic)) return;
                 if (pertFil.length > 0 && !pertFil.includes(pertLic)) return;
+                if (agenteFil.length > 0 && !agenteFil.includes((of.agente_comercial || '').trim())) return;
+                if (srvFil.length > 0 && !srvFil.includes((of.servicio || '').trim())) return;
 
                 const est = (of.estado || 'En curso').trim();
                 const estLower = est.toLowerCase();
@@ -7356,7 +7373,7 @@
         document.getElementById('btn-update-dash-financiero')?.addEventListener('click', () => cargarDashboardFinanciero());
 
         document.getElementById('btn-clear-dash-ofe')?.addEventListener('click', () => {
-            ['filt-ofe-year', 'filt-ofe-month', 'filt-ofe-es-lic', 'filt-ofe-pert-lic'].forEach(id => {
+            ['filt-ofe-year', 'filt-ofe-month', 'filt-ofe-es-lic', 'filt-ofe-pert-lic', 'filt-ofe-agente', 'filt-ofe-servicio'].forEach(id => {
                 const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
             });
             cargarDashboard();
@@ -10173,6 +10190,8 @@
                             <div class="filter-group"><label>Pertenece a Lic.</label><div class="filter-wrap"><select id="filt-ofe-pert-lic" class="multi-select" multiple>
                                     <option value="Si">Si</option><option value="No">No</option>
                                 </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-pert-lic').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Agente Comercial</label><div class="filter-wrap"><select id="filt-ofe-agente" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-agente').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Servicio</label><div class="filter-wrap"><select id="filt-ofe-servicio" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-ofe-servicio').selectedIndex=-1;">✕</button></div></div>
                             <div style="display: flex; gap: 8px; margin-bottom: 2px;">
                                 <button id="btn-update-dash-ofe" class="btn-primary" style="height: 38px;">Aplicar
                                     Filtros</button>
