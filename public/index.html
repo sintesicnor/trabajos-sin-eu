@@ -5577,6 +5577,8 @@
             const tecHorasPdte = {};
             const tecFactPdte = {};
             const srvFactPdte = {};
+            const tecFactRealizada = {};
+            const srvFactRealizada = {};
             const ganttLabels = []; const ganttBase = []; const ganttProg = []; const ganttMeta = [];
             let minGanttTime = null; let maxGanttTime = null;
             const hrsPorMes = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0 };
@@ -5629,6 +5631,18 @@
                 const fechaApStr = (prod.fecha_ap || '').trim();
                 if (vbCliente === 'si' && fechaApStr) {
                     factRealizada += ppto;
+
+                    // Facturación realizada por técnico (T1)
+                    if (prod.ejecutor_t1) {
+                        const check = typeof prod.ejecutor_t1 === 'string' ? prod.ejecutor_t1.trim() : prod.ejecutor_t1;
+                        const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
+                        const lbl = obj ? obj.acronimo : check;
+                        tecFactRealizada[lbl] = (tecFactRealizada[lbl] || 0) + ppto;
+                    }
+
+                    // Facturación realizada por servicio
+                    const srv = (prod.tipo_servicio || prod.servicio || 'Otros').trim();
+                    if (srv) srvFactRealizada[srv] = (srvFactRealizada[srv] || 0) + ppto;
                 }
                 // Facturación pendiente: solo presupuesto_m donde VB cliente NO es "Si"
                 if (vbCliente !== 'si') {
@@ -5757,6 +5771,22 @@
                 boxFactSrv.innerHTML = Object.keys(srvFactPdte).sort((a, b) => srvFactPdte[b] - srvFactPdte[a])
                     .filter(k => srvFactPdte[k] > 0)
                     .map(k => `<div><strong>${k}:</strong> ${fmtN.format(Math.round(srvFactPdte[k]))}€</div>`).join('');
+            }
+
+            // Facturación realizada por técnico
+            const boxFactTecReal = document.getElementById('kpi-pro-fact-tec-real');
+            if (boxFactTecReal) {
+                boxFactTecReal.innerHTML = Object.keys(tecFactRealizada).sort((a, b) => tecFactRealizada[b] - tecFactRealizada[a])
+                    .filter(k => tecFactRealizada[k] > 0)
+                    .map(k => `<div><strong>${k}:</strong> ${fmtN.format(Math.round(tecFactRealizada[k]))}€</div>`).join('');
+            }
+
+            // Facturación realizada por servicio
+            const boxFactSrvReal = document.getElementById('kpi-pro-fact-srv-real');
+            if (boxFactSrvReal) {
+                boxFactSrvReal.innerHTML = Object.keys(srvFactRealizada).sort((a, b) => srvFactRealizada[b] - srvFactRealizada[a])
+                    .filter(k => srvFactRealizada[k] > 0)
+                    .map(k => `<div><strong>${k}:</strong> ${fmtN.format(Math.round(srvFactRealizada[k]))}€</div>`).join('');
             }
 
             // Redimensionar contenedor Gantt para habilitar scroll vertical
@@ -10341,6 +10371,14 @@
                                 <div class="kpi-title">Fact. Pdte. por Servicio</div>
                                 <div id="kpi-pro-fact-srv" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
                             </div>
+                             <div class="kpi-card" style="padding: 12px 16px;">
+                                 <div class="kpi-title">Fact. Realizada por Técnico</div>
+                                 <div id="kpi-pro-fact-tec-real" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
+                             </div>
+                             <div class="kpi-card" style="padding: 12px 16px;">
+                                 <div class="kpi-title">Fact. Realizada por Servicio</div>
+                                 <div id="kpi-pro-fact-srv-real" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
+                             </div>
                         </div>
 
                         <div class="chart-box" style="margin-bottom: 24px;">
@@ -11363,7 +11401,7 @@
                 breakdown = JSON.parse(breakdownJson.replace(/&quot;/g, '"'));
             } catch (e) { console.error("Error parsing breakdown", e); }
 
-            let html = '<h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Desglose de Horas</h4>';
+            let html = '';
             
             let hasLiveHours = false;
             for (const [name, hours] of Object.entries(breakdown)) {
