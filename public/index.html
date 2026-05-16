@@ -1371,15 +1371,18 @@
                     // Si tras todos los fallbacks no hay ID, ignorar el registro
                     if (!idTrabajo) return;
 
-                    if (!horasAgregadas[idTrabajo]) horasAgregadas[idTrabajo] = { total: 0, tecnicos: {} };
+                    if (!horasAgregadas[idTrabajo]) horasAgregadas[idTrabajo] = { total: 0, tecnicos: {}, breakdownNames: {} };
                     horasAgregadas[idTrabajo].total += horas;
 
                     // Resolver técnico por id_tec (número del ERP)
                     const tec = resolverTecPorIdTec(trabajadorStr);
 
                     const tecKey = tec ? tec.acronimo : null;
+                    const tecName = tec ? (tec.nombre_pila || tec.acronimo) : 'Desconocido';
+
                     if (tecKey) {
                         horasAgregadas[idTrabajo].tecnicos[tecKey] = (horasAgregadas[idTrabajo].tecnicos[tecKey] || 0) + horas;
+                        horasAgregadas[idTrabajo].breakdownNames[tecName] = (horasAgregadas[idTrabajo].breakdownNames[tecName] || 0) + horas;
                     }
                 });
 
@@ -1558,7 +1561,12 @@
                         <td data-field="gastos_n">${formatCurrency(data['gastos_n'])}</td>
                         <td data-field="horas_disponibles">${horasDisponibles}</td>
                         <td data-field="total_horas_historico">${historicalHours > 0 ? formatHours(historicalHours) : ''}</td>
-                        <td data-field="total_horas_calc" style="font-weight: 600; text-align: center;">${totalHoras > 0 ? formatHours(totalHoras) : ''}</td>
+                        <td data-field="total_horas_calc" 
+                            style="font-weight: 600; text-align: center; cursor: help; position: relative;"
+                            onmouseover="showHorasTooltip(this, '${escapeHTML(JSON.stringify(horasAgregadas[numTrabajoId] ? horasAgregadas[numTrabajoId].breakdownNames : {}))}', ${historicalHours})"
+                            onmouseout="hideHorasTooltip()">
+                            ${totalHoras > 0 ? formatHours(totalHoras) : ''}
+                        </td>
                         <td data-field="pct_uso" style="background-color: ${pctColor}; color: ${pctTextColor}; text-align: center; font-weight: 600; text-shadow: 0 1px 1px rgba(0,0,0,0.1);">${pctText}</td>
                         ${techHtml}
                         <td data-field="fecha_ap" style="background-color: #fce7f3; color: #334155;">${escapeHTML(formatearFechaDisplay(data['fecha_ap']))}</td>
@@ -9835,6 +9843,31 @@
             color: var(--tesicnor-text);
             letter-spacing: -0.2px;
         }
+        /* --- Tooltip Horas Premium --- */
+        .tooltip-horas {
+            position: fixed;
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+            padding: 12px;
+            z-index: 10000;
+            pointer-events: none;
+            font-size: 13px;
+            color: #1e293b;
+            min-width: 220px;
+            backdrop-filter: blur(4px);
+            display: none;
+            transition: opacity 0.2s ease;
+        }
+        .tooltip-horas h4 { margin: 0 0 10px 0; font-size: 14px; color: #0f172a; border-bottom: 1px solid #f1f5f9; padding-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+        .tooltip-horas .breakdown-row { display: flex; justify-content: space-between; margin-bottom: 5px; padding: 2px 0; }
+        .tooltip-horas .breakdown-row .name { font-weight: 500; color: #475569; }
+        .tooltip-horas .breakdown-row .value { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #0284c7; }
+        .tooltip-horas .historical-section { border-top: 1px dashed #cbd5e1; margin-top: 10px; padding-top: 8px; }
+        .tooltip-horas .historical-section .label { color: #64748b; font-size: 12px; font-style: italic; }
+        .tooltip-horas .total-section { border-top: 2px solid #e2e8f0; margin-top: 10px; padding-top: 8px; font-weight: 700; color: #0f172a; }
+
     </style>
 </head>
 
@@ -11318,6 +11351,60 @@
             </div>
         </div>
     </div>
+
+    <!-- Elemento para Tooltip de Horas -->
+    <div id="horas-tooltip" class="tooltip-horas"></div>
+
+    <script>
+        function showHorasTooltip(element, breakdownJson, historical) {
+            const tooltip = document.getElementById('horas-tooltip');
+            let breakdown = {};
+            try {
+                breakdown = JSON.parse(breakdownJson.replace(/&quot;/g, '"'));
+            } catch (e) { console.error("Error parsing breakdown", e); }
+
+            let html = '<h4><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> Desglose de Horas</h4>';
+            
+            let hasLiveHours = false;
+            for (const [name, hours] of Object.entries(breakdown)) {
+                if (hours > 0) {
+                    html += `<div class="breakdown-row"><span class="name">${name}</span><span class="value">${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(hours)} h</span></div>`;
+                    hasLiveHours = true;
+                }
+            }
+
+            if (!hasLiveHours) {
+                html += '<div style="color: #94a3b8; font-style: italic; margin-bottom: 10px;">Sin horas registradas en partes</div>';
+            }
+
+            if (historical > 0) {
+                html += `<div class="historical-section">
+                            <div class="breakdown-row">
+                                <span class="name label">Horas históricas (2025)</span>
+                                <span class="value" style="color: #64748b;">${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(historical)} h</span>
+                            </div>
+                         </div>`;
+            }
+
+            tooltip.innerHTML = html;
+            tooltip.style.display = 'block';
+
+            const rect = element.getBoundingClientRect();
+            tooltip.style.left = (rect.right + 10) + 'px';
+            tooltip.style.top = (rect.top) + 'px';
+
+            // Ajustar si se sale por la derecha
+            const tooltipRect = tooltip.getBoundingClientRect();
+            if (tooltipRect.right > window.innerWidth) {
+                tooltip.style.left = (rect.left - tooltipRect.width - 10) + 'px';
+            }
+        }
+
+        function hideHorasTooltip() {
+            const tooltip = document.getElementById('horas-tooltip');
+            tooltip.style.display = 'none';
+        }
+    </script>
 </body>
 
 </html>
