@@ -3106,6 +3106,7 @@
                 alert("Error al guardar la vista en el servidor.");
             }
         }
+        window.guardarVistaActual = guardarVistaActual;
         
         async function aplicarVistaGuardada(id) {
             const vista = savedViews[id];
