@@ -2970,6 +2970,7 @@
         }
 
         let savedViews = {};
+        let savedViewsOrder = [];
 
         async function cargarPreferenciasUsuario() {
             const user = auth.currentUser;
@@ -3013,6 +3014,27 @@
                     
                     if (prefs.vistas_guardadas) {
                         savedViews = prefs.vistas_guardadas;
+                        savedViewsOrder = prefs.orden_vistas || Object.keys(savedViews);
+                        savedViewsOrder = savedViewsOrder.filter(id => savedViews[id]);
+                        Object.keys(savedViews).forEach(id => {
+                            if (!savedViewsOrder.includes(id)) savedViewsOrder.push(id);
+                        });
+
+                        // Aplicar por defecto la primera vista si existe
+                        if (savedViewsOrder.length > 0) {
+                            const defaultView = savedViews[savedViewsOrder[0]];
+                            if (defaultView && defaultView.filtros) {
+                                Object.assign(tableFilters, JSON.parse(JSON.stringify(defaultView.filtros)));
+                            }
+                            if (defaultView && defaultView.orden_columnas) {
+                                Object.keys(defaultView.orden_columnas).forEach(tblId => {
+                                    localStorage.setItem(_colKey(tblId), JSON.stringify(defaultView.orden_columnas[tblId]));
+                                });
+                            }
+                            if (defaultView && defaultView.pinned_cols_prod) pinnedColsProd = [...defaultView.pinned_cols_prod];
+                            if (defaultView && defaultView.pinned_cols_ofer) pinnedColsOfer = [...defaultView.pinned_cols_ofer];
+                        }
+
                         renderViewsManager();
                     }
                 }
@@ -3026,43 +3048,74 @@
             if (!list) return;
             list.innerHTML = '';
             
-            const viewKeys = Object.keys(savedViews);
-            if (viewKeys.length === 0) {
+            if (savedViewsOrder.length === 0) {
                 list.innerHTML = '<div style="font-size:11px; color:#64748b; font-style:italic; padding: 4px;">Ninguna vista guardada.</div>';
                 return;
             }
             
-            viewKeys.forEach(id => {
+            savedViewsOrder.forEach((id, index) => {
+                if (!savedViews[id]) return;
                 const view = savedViews[id];
                 const item = document.createElement('div');
                 item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding: 6px 8px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;';
                 
                 const nameBtn = document.createElement('button');
-                nameBtn.textContent = view.nombre;
+                nameBtn.textContent = view.nombre + (index === 0 ? ' (Por defecto)' : '');
                 nameBtn.title = 'Aplicar vista';
-                nameBtn.style.cssText = 'background:none; border:none; color:#e2e8f0; font-size:12px; cursor:pointer; text-align:left; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0; outline: none;';
+                nameBtn.style.cssText = `background:none; border:none; color:#e2e8f0; font-size:12px; cursor:pointer; text-align:left; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0; outline: none; ${index === 0 ? 'font-weight: 600; color: #38bdf8;' : ''}`;
                 nameBtn.onclick = () => aplicarVistaGuardada(id);
                 
                 const actions = document.createElement('div');
-                actions.style.cssText = 'display:flex; gap: 4px; margin-left: 8px;';
+                actions.style.cssText = 'display:flex; gap: 2px; margin-left: 4px; align-items:center;';
                 
+                const btnStyle = 'background:none; border:none; color:#94a3b8; cursor:pointer; padding:2px; display:flex; align-items:center; justify-content:center; border-radius:3px; outline: none; transition:all 0.1s;';
+                const hoverOn = 'this.style.background="rgba(255,255,255,0.1)"; this.style.color="#fff"';
+                const hoverOff = 'this.style.background="none"; this.style.color="#94a3b8"';
+
+                if (index > 0) {
+                    const upBtn = document.createElement('button');
+                    upBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg>';
+                    upBtn.title = 'Subir vista';
+                    upBtn.style.cssText = btnStyle;
+                    upBtn.onmouseover = new Function(hoverOn); upBtn.onmouseout = new Function(hoverOff);
+                    upBtn.onclick = () => moverVistaGuardada(index, -1);
+                    actions.appendChild(upBtn);
+                }
+
+                if (index < savedViewsOrder.length - 1) {
+                    const downBtn = document.createElement('button');
+                    downBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+                    downBtn.title = 'Bajar vista';
+                    downBtn.style.cssText = btnStyle;
+                    downBtn.onmouseover = new Function(hoverOn); downBtn.onmouseout = new Function(hoverOff);
+                    downBtn.onclick = () => moverVistaGuardada(index, 1);
+                    actions.appendChild(downBtn);
+                }
+                
+                const updateBtn = document.createElement('button');
+                updateBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>';
+                updateBtn.title = 'Sobrescribir con la configuración actual';
+                updateBtn.style.cssText = btnStyle;
+                updateBtn.onmouseover = () => { updateBtn.style.background = 'rgba(16, 185, 129, 0.2)'; updateBtn.style.color = '#10b981'; };
+                updateBtn.onmouseout = new Function(hoverOff);
+                updateBtn.onclick = () => sobrescribirVistaGuardada(id);
+                actions.appendChild(updateBtn);
+
                 const editBtn = document.createElement('button');
                 editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>';
-                editBtn.title = 'Editar nombre';
-                editBtn.style.cssText = 'background:none; border:none; color:#94a3b8; cursor:pointer; padding:2px; display:flex; align-items:center; justify-content:center; border-radius:3px; outline: none;';
-                editBtn.onmouseover = () => { editBtn.style.background = 'rgba(255,255,255,0.1)'; editBtn.style.color = '#fff'; };
-                editBtn.onmouseout = () => { editBtn.style.background = 'none'; editBtn.style.color = '#94a3b8'; };
+                editBtn.title = 'Renombrar';
+                editBtn.style.cssText = btnStyle;
+                editBtn.onmouseover = new Function(hoverOn); editBtn.onmouseout = new Function(hoverOff);
                 editBtn.onclick = () => renombrarVistaGuardada(id);
+                actions.appendChild(editBtn);
                 
                 const delBtn = document.createElement('button');
                 delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
-                delBtn.title = 'Eliminar vista';
-                delBtn.style.cssText = 'background:none; border:none; color:#94a3b8; cursor:pointer; padding:2px; display:flex; align-items:center; justify-content:center; border-radius:3px; outline: none;';
+                delBtn.title = 'Eliminar';
+                delBtn.style.cssText = btnStyle;
                 delBtn.onmouseover = () => { delBtn.style.background = 'rgba(239, 68, 68, 0.2)'; delBtn.style.color = '#ef4444'; };
-                delBtn.onmouseout = () => { delBtn.style.background = 'none'; delBtn.style.color = '#94a3b8'; };
+                delBtn.onmouseout = new Function(hoverOff);
                 delBtn.onclick = () => eliminarVistaGuardada(id);
-                
-                actions.appendChild(editBtn);
                 actions.appendChild(delBtn);
                 
                 item.appendChild(nameBtn);
@@ -3097,10 +3150,11 @@
             });
             
             savedViews[viewId] = vista;
+            savedViewsOrder.push(viewId);
             renderViewsManager();
             
             try {
-                await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), { vistas_guardadas: savedViews }, { merge: true });
+                await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), { vistas_guardadas: savedViews, orden_vistas: savedViewsOrder }, { merge: true });
             } catch (e) {
                 console.error("Error guardando vista:", e);
                 alert("Error al guardar la vista en el servidor.");
@@ -3130,6 +3184,39 @@
             if (typeof cargarProduccion === 'function') cargarProduccion();
             if (typeof cargarOfertas === 'function') cargarOfertas();
         }
+
+        async function sobrescribirVistaGuardada(id) {
+            const user = auth.currentUser;
+            if (!user || !savedViews[id]) return;
+            
+            if (!confirm(`¿Sobrescribir la vista "${savedViews[id].nombre}" con los filtros y columnas actuales?`)) return;
+            
+            const vista = {
+                nombre: savedViews[id].nombre,
+                filtros: JSON.parse(JSON.stringify(tableFilters)),
+                orden_columnas: {},
+                pinned_cols_prod: [...pinnedColsProd],
+                pinned_cols_ofer: [...pinnedColsOfer]
+            };
+            
+            document.querySelectorAll('.data-table').forEach(table => {
+                const tblId = table.id || table.dataset.tableId;
+                const savedOrder = localStorage.getItem(_colKey(tblId));
+                if (savedOrder) {
+                    vista.orden_columnas[tblId] = JSON.parse(savedOrder);
+                }
+            });
+            
+            savedViews[id] = vista;
+            renderViewsManager();
+            
+            try {
+                await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), { vistas_guardadas: savedViews }, { merge: true });
+            } catch (e) {
+                console.error("Error actualizando vista:", e);
+                alert("Error al actualizar la vista en el servidor.");
+            }
+        }
         
         async function renombrarVistaGuardada(id) {
             const user = auth.currentUser;
@@ -3155,12 +3242,36 @@
             if (!confirm(`¿Estás seguro de eliminar la vista "${savedViews[id].nombre}"?`)) return;
             
             delete savedViews[id];
+            savedViewsOrder = savedViewsOrder.filter(vId => vId !== id);
             renderViewsManager();
             
             try {
-                await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), { vistas_guardadas: savedViews }, { merge: true });
+                await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), { 
+                    vistas_guardadas: savedViews,
+                    orden_vistas: savedViewsOrder
+                }, { merge: true });
             } catch (e) {
                 console.error("Error eliminando vista:", e);
+            }
+        }
+
+        async function moverVistaGuardada(index, direction) {
+            const user = auth.currentUser;
+            if (!user) return;
+            
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= savedViewsOrder.length) return;
+            
+            const temp = savedViewsOrder[index];
+            savedViewsOrder[index] = savedViewsOrder[newIndex];
+            savedViewsOrder[newIndex] = temp;
+            
+            renderViewsManager();
+            
+            try {
+                await setDoc(doc(db, "usuarios", user.uid, "preferencias", "configuracion_vista"), { orden_vistas: savedViewsOrder }, { merge: true });
+            } catch (e) {
+                console.error("Error moviendo vista:", e);
             }
         }
 
