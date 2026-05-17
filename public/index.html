@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Proyectos SIN v1.94</title>
+    <title>Proyectos SIN v1.95</title>
     <link rel="icon" type="image/svg+xml" href="icon.svg">
 
     <!-- DM Sans font -->
@@ -6044,7 +6044,9 @@
                                 t3: getAcr(prod.apoyo_an),
                                 servicio: prod.servicio || '',
                                 grupo: prod.grupo || '',
-                                cliente: prod.cliente || ''
+                                cliente: prod.cliente || '',
+                                presupuesto: ppto,
+                                gastos: gast
                             });
 
                             if (!minGanttTime || dStart.getTime() < minGanttTime) minGanttTime = dStart.getTime();
@@ -6223,6 +6225,8 @@
                                     if (meta.t3) lines.push('T3: ' + meta.t3);
                                     if (meta.grupo) lines.push('Grupo: ' + meta.grupo);
                                     if (meta.cliente && meta.cliente !== meta.grupo) lines.push('Cliente: ' + meta.cliente);
+                                    if (meta.presupuesto != null) lines.push('Presupuesto: ' + fmtE.format(meta.presupuesto));
+                                    if (meta.gastos != null) lines.push('Gastos: ' + fmtE.format(meta.gastos));
                                     return lines;
                                 }
                             }
