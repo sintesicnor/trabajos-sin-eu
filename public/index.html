@@ -2972,6 +2972,28 @@
         let savedViews = {};
         let savedViewsOrder = [];
 
+        window._resetAllViews = async function() {
+            try {
+                console.log("Borrando preferencias de todos los usuarios...");
+                const snap = await getDocs(collection(db, "usuarios"));
+                let count = 0;
+                for (const userDoc of snap.docs) {
+                    await deleteDoc(doc(db, "usuarios", userDoc.id, "preferencias", "configuracion_vista"));
+                    count++;
+                }
+                console.log(`Borradas las vistas de ${count} usuarios exitosamente.`);
+                Object.keys(tableFilters).forEach(k => delete tableFilters[k]);
+                Object.keys(localStorage).forEach(k => {
+                    if (k.includes('_gestor_col_order_')) localStorage.removeItem(k);
+                });
+                alert("Todas las vistas y configuraciones han sido borradas. La página se recargará.");
+                location.reload();
+            } catch (error) {
+                console.error("Error al borrar vistas:", error);
+                alert("Error al borrar vistas. ¿Tienes permisos de admin?");
+            }
+        };
+
         async function cargarPreferenciasUsuario() {
             const user = auth.currentUser;
             if (!user) return;
@@ -2982,6 +3004,8 @@
                     const prefs = docSnap.data();
 
                     if (prefs.filtros) {
+                        // Limpiar filtros actuales antes de aplicar los guardados
+                        Object.keys(tableFilters).forEach(k => delete tableFilters[k]);
                         Object.assign(tableFilters, prefs.filtros);
                     }
 
@@ -3024,6 +3048,7 @@
                         if (savedViewsOrder.length > 0) {
                             const defaultView = savedViews[savedViewsOrder[0]];
                             if (defaultView && defaultView.filtros) {
+                                Object.keys(tableFilters).forEach(k => delete tableFilters[k]);
                                 Object.assign(tableFilters, JSON.parse(JSON.stringify(defaultView.filtros)));
                             }
                             if (defaultView && defaultView.orden_columnas) {
