@@ -745,35 +745,74 @@
                     return;
                 }
 
-                // ── Export PRODUCCIÓN: desde la tabla DOM ──
+                // ── Export PRODUCCIÓN: con orden exacto de Excel ──
                 const table = document.querySelector('#view-produccion .data-table');
                 if (!table) { alert('No se encontró la tabla.'); return; }
-                const headers = [];
-                const colIndices = [];
-                table.querySelectorAll('thead th').forEach((th, i) => {
-                    if (th.offsetParent !== null && th.style.display !== 'none') {
-                        headers.push(th.textContent.trim());
-                        colIndices.push(i);
-                    }
-                });
+                
+                const excelHeaders = [
+                  "Nº trabajo", "OFERTA GESTIONA", "EXP GESTIONA", "TIPO EXP.", "FECHA INICIO",
+                  "FECHA ENTREGA", "TECNICO RBLE", "T1", "SERVICIO ", "TIPO SERVICIO", "GRUPO",
+                  "ICA", "PPTO. TOTAL (SIN IVA)", "GASTOS (EST.)", "GASTOS (GEST.)", "HORAS PRESUP (HP)",
+                  "HORAS 2025", "HORAS RESTANTES", "TOTAL H (2024 + 2025)", "% HR/HP  AÑO",
+                  "Tomás", "Jokin", "Cristian", "Belén", "Raúl", "Ánder", "Bryan", "Maddie",
+                  "Iñaki", "Javier", "M. Ángel", "Paula", "Pilar", "David", "J. Antonio",
+                  "Elena", "Laura", "Hacomar", "T2", "T3", "PEDIDO", "FECHA FINALIZACIÓN",
+                  "VB CLIE. ", "FECHA FACTURACION", "Columna1", "Nº Fact", "Mes"
+                ];
+                
+                const dataFields = [
+                  "num_trabajo", "oferta_gestiona", "exp_gestiona", "tipo_expediente", "fecha_inicio",
+                  "fecha_fin", "responsable_g", "ejecutor_t1", "servicio", "tipo_servicio", "grupo",
+                  "cliente", "presupuesto_m", "gastos_n", "", "horas_disponibles",
+                  "total_horas_historico", "CALC_RESTANTES", "total_horas_calc", "pct_uso",
+                  "tec_TTG", "tec_JMR", "tec_CPV", "tec_BRL", "tec_RAP", "tec_AEL", "tec_BLO", "tec_MMB",
+                  "tec_IRE", "tec_JML", "tec_MCM", "tec_PLR", "tec_PRW", "tec_DPV", "tec_JDR",
+                  "tec_ELA", "tec_LAR", "tec_HMR", "apoyo_am", "apoyo_an", "observaciones", "fecha_ap",
+                  "visto_vb_cliente", "fecha_ar", "gestionado", "num_at", "mes_facturacion"
+                ];
+
+                const toNumProd = (str) => {
+                    if (!str) return '';
+                    let s = String(str).replace('€', '').replace('h', '').replace('%', '').trim();
+                    if (s === '∞' || s === '-') return '';
+                    s = s.replace(/\./g, '').replace(',', '.');
+                    const n = parseFloat(s);
+                    return isNaN(n) ? str : n;
+                };
+
                 const rows = [];
                 table.querySelectorAll('tbody tr').forEach(tr => {
-                    if (tr.style.display === 'none') return;
-                    const cells = tr.querySelectorAll('td');
-                    const row = colIndices.map(i => {
-                        const cell = cells[i];
+                    if (tr.style.display === 'none') return; // Solo filas visibles (filtradas)
+                    const row = dataFields.map(field => {
+                        if (!field) return '';
+                        if (field === 'CALC_RESTANTES') {
+                            const hpNode = tr.querySelector('td[data-field="horas_disponibles"]');
+                            const hTotNode = tr.querySelector('td[data-field="total_horas_calc"]');
+                            const hp = hpNode ? toNumProd(hpNode.textContent) : 0;
+                            const hTot = hTotNode ? toNumProd(hTotNode.textContent) : 0;
+                            if (typeof hp === 'number' && typeof hTot === 'number' && hp > 0) return hp - hTot;
+                            return '';
+                        }
+                        const cell = tr.querySelector(`td[data-field="${field}"]`);
                         if (!cell) return '';
-                        if (cell.dataset.valor !== undefined) return cell.dataset.valor;
-                        return cell.textContent.trim();
+                        let val = cell.dataset.valor !== undefined ? cell.dataset.valor : cell.textContent.trim();
+                        
+                        // Parsear números
+                        const numFields = ["presupuesto_m", "gastos_n", "horas_disponibles", "total_horas_historico", "total_horas_calc", "pct_uso"];
+                        if (numFields.includes(field) || field.startsWith('tec_')) {
+                            val = toNumProd(val);
+                        }
+                        return val;
                     });
                     rows.push(row);
                 });
-                const wsData = [headers, ...rows];
+                
+                const wsData = [excelHeaders, ...rows];
                 const wb = XLSX.utils.book_new();
                 const ws = XLSX.utils.aoa_to_sheet(wsData);
-                ws['!cols'] = headers.map((h, i) => {
+                ws['!cols'] = excelHeaders.map((h, i) => {
                     let maxLen = h.length;
-                    rows.forEach(r => { if (r[i] && r[i].length > maxLen) maxLen = r[i].length; });
+                    rows.forEach(r => { if (r[i] && String(r[i]).length > maxLen) maxLen = String(r[i]).length; });
                     return { wch: Math.min(maxLen + 2, 40) };
                 });
                 XLSX.utils.book_append_sheet(wb, ws, 'Producción');
