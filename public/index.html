@@ -3339,6 +3339,11 @@
         // --- Drag & Drop Column Reordering Logic ---
         let draggedColIndex = null;
 
+        // Stores the original TH display-text order (captured once at startup, after
+        // inyectarColumnasDinamicas + setupTableHeaders). Used by applyColumnOrder to
+        // reset THs before reordering so they stay in sync with freshly-rebuilt TDs.
+        let _origThOrder = {};
+
         // Returns a localStorage key scoped to the current user so that different
         // users sharing the same browser get independent column-order storage.
         function _colKey(tblId) {
@@ -3388,6 +3393,27 @@
 
                 const savedOrder = JSON.parse(savedStr);
                 const theadTr = table.querySelector('thead tr');
+
+                // TDs are always rebuilt in original order by cargarProduccion/cargarOfertas.
+                // THs may be in a previously-reordered state. Reset THs to original order
+                // so that TH index === TD index before we apply the saved order below.
+                const origOrder = _origThOrder[tblId];
+                if (origOrder && origOrder.length > 0) {
+                    const thMap = new Map();
+                    Array.from(theadTr.children).forEach(th => {
+                        const span = th.querySelector('span');
+                        const label = span ? span.textContent.trim() : th.textContent.trim();
+                        thMap.set(label, th);
+                    });
+                    origOrder.forEach((label, targetIdx) => {
+                        const th = thMap.get(label);
+                        if (!th) return;
+                        if (theadTr.children[targetIdx] !== th) {
+                            theadTr.insertBefore(th, theadTr.children[targetIdx] || null);
+                        }
+                    });
+                }
+
                 const ths = Array.from(theadTr.children);
 
                 // Respect pinned columns — don't reorder them
@@ -4034,6 +4060,15 @@
 
                 const tables = document.querySelectorAll('.data-table');
                 tables.forEach(t => {
+                    // Capture original TH order (display text) before any reordering.
+                    // Must run after inyectarColumnasDinamicas + setupTableHeaders.
+                    const tblId = t.id || t.dataset.tableId;
+                    if (tblId) {
+                        _origThOrder[tblId] = Array.from(t.querySelectorAll('thead th')).map(th => {
+                            const span = th.querySelector('span');
+                            return span ? span.textContent.trim() : th.textContent.trim();
+                        });
+                    }
                     setupDragAndDropColumns(t);
                     setTimeout(() => updateDynamicStickyColumns(t), 100);
                 });
