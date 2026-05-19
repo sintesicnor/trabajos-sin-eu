@@ -559,6 +559,8 @@
             // Mostrar u ocultar botones de la cabecera global
             const btnNuevoTrabajo = document.getElementById('btn-nuevo-trabajo');
             const btnNuevaOferta = document.getElementById('btn-nueva-oferta');
+            const btnNuevoSuministro = document.getElementById('btn-nuevo-suministro');
+            const btnSubirSuministro = document.getElementById('btn-subir-suministro');
             const btnSubirProd = document.getElementById('btn-subir-produccion');
             const btnSubirOfe = document.getElementById('btn-subir-ofertas');
             const btnExport = document.getElementById('btn-export');
@@ -571,33 +573,33 @@
             const canImport = currentUserRole === 'admin' || currentUserRole === 'edicion';
             const canExport = tienePermiso('exportar_excel');
 
+            const hideAll = () => {
+                [btnNuevoTrabajo, btnNuevaOferta, btnNuevoSuministro, btnSubirSuministro,
+                 btnDeshacer, btnSubirProd, btnSubirOfe, btnExport, btnSyncSpOfe, btnSyncSpProd]
+                    .forEach(b => { if (b) b.style.display = 'none'; });
+            };
+
             if (activeViewId === 'view-produccion') {
+                hideAll();
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = canCreate ? 'flex' : 'none';
-                if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
                 if (btnDeshacer) btnDeshacer.style.display = 'flex';
                 if (btnSubirProd) btnSubirProd.style.display = canImport ? 'inline-flex' : 'none';
-                if (btnSubirOfe) btnSubirOfe.style.display = 'none';
                 if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
-                if (btnSyncSpOfe) btnSyncSpOfe.style.display = 'none';
                 if (btnSyncSpProd) btnSyncSpProd.style.display = canImport ? 'inline-flex' : 'none';
             } else if (activeViewId === 'view-ofertas') {
-                if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
+                hideAll();
                 if (btnNuevaOferta) btnNuevaOferta.style.display = canEditOfe ? 'flex' : 'none';
                 if (btnDeshacer) btnDeshacer.style.display = 'flex';
-                if (btnSubirProd) btnSubirProd.style.display = 'none';
                 if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'inline-flex' : 'none';
                 if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
                 if (btnSyncSpOfe) btnSyncSpOfe.style.display = canImport ? 'inline-flex' : 'none';
-                if (btnSyncSpProd) btnSyncSpProd.style.display = 'none';
+            } else if (activeViewId === 'view-suministro') {
+                hideAll();
+                if (btnNuevoSuministro) btnNuevoSuministro.style.display = canCreate ? 'flex' : 'none';
+                if (btnSubirSuministro) btnSubirSuministro.style.display = canImport ? 'inline-flex' : 'none';
+                if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
             } else {
-                if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = 'none';
-                if (btnNuevaOferta) btnNuevaOferta.style.display = 'none';
-                if (btnDeshacer) btnDeshacer.style.display = 'none';
-                if (btnSubirProd) btnSubirProd.style.display = 'none';
-                if (btnSubirOfe) btnSubirOfe.style.display = 'none';
-                if (btnExport) btnExport.style.display = 'none';
-                if (btnSyncSpOfe) btnSyncSpOfe.style.display = 'none';
-                if (btnSyncSpProd) btnSyncSpProd.style.display = 'none';
+                hideAll();
             }
         }
 
@@ -620,6 +622,12 @@
             e.preventDefault();
             switchView('tab-ofertas', 'view-ofertas');
             cargarOfertas();
+        });
+
+        document.getElementById('tab-suministro')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchView('tab-suministro', 'view-suministro');
+            cargarSuministro();
         });
 
         const tabDashboard = document.getElementById('tab-dashboard');
@@ -1762,6 +1770,385 @@
             });
         }
 
+        // ── SUMINISTRO ────────────────────────────────────────────────────────────
+        let datosSuministroMemoria = [];
+
+        function _formatSumCurrency(val) {
+            const n = typeof val === 'number' ? val : parseSpanishNum(val);
+            if (isNaN(n) || n === 0 || val === '' || val === undefined) return '';
+            return new Intl.NumberFormat('es-ES', { minimumFractionDigits: (n % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(n) + '€';
+        }
+
+        function _calcSumBeneficio(data) {
+            const p = parseSpanishNum(data.presupuesto) || 0;
+            const costs = ['coste_material','portes_proveedor','portes_cliente','devoluciones','otros','coste_horas_personal']
+                .reduce((acc, f) => acc + (parseSpanishNum(data[f]) || 0), 0);
+            return p - costs;
+        }
+
+        function _calcSumCosteHora(data) {
+            const p = parseSpanishNum(data.presupuesto) || 0;
+            return costeHoraActual > 0 ? p / costeHoraActual : 0;
+        }
+
+        async function cargarSuministro() {
+            const tbody = document.getElementById('table-body-suministro');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="32" style="text-align:center;padding:20px;">Cargando...</td></tr>';
+            try {
+                const [qSnap, partesSnap] = await Promise.all([
+                    getDocs(collection(db, "suministro")),
+                    _cachedPartesHoras ? Promise.resolve(null) : getDocs(collection(db, "partes_horas"))
+                ]);
+                if (partesSnap) {
+                    _cachedPartesHoras = [];
+                    partesSnap.forEach(d => _cachedPartesHoras.push(d.data()));
+                    _cachedPartesHorasTimestamp = Date.now();
+                }
+
+                // Aggregate hours from partes_horas by num_trabajo
+                const horasSum = {};
+                (_cachedPartesHoras || []).forEach(p => {
+                    const horas = parseFloat(p.horas) || 0;
+                    if (!horas) return;
+                    let idTrabajo = null;
+                    if (p.observaciones_crudas) {
+                        const m = String(p.observaciones_crudas).trim().match(/^(\d{3,6})(?:\D|$)/);
+                        if (m) idTrabajo = m[1];
+                    }
+                    if (!idTrabajo && p.observaciones) {
+                        const m = String(p.observaciones).trim().match(/^(\d{3,6})(?:\D|$)/);
+                        if (m) idTrabajo = m[1];
+                    }
+                    if (!idTrabajo) return;
+                    if (!horasSum[idTrabajo]) horasSum[idTrabajo] = { total: 0, tecnicos: {} };
+                    horasSum[idTrabajo].total += horas;
+                    const tec = resolverTecPorIdTec(p.trabajador);
+                    if (tec && tec.acronimo) {
+                        horasSum[idTrabajo].tecnicos[tec.acronimo] = (horasSum[idTrabajo].tecnicos[tec.acronimo] || 0) + horas;
+                    }
+                });
+
+                datosSuministroMemoria = [];
+                tbody.innerHTML = '';
+
+                if (qSnap.empty) {
+                    tbody.innerHTML = '<tr><td colspan="32" style="text-align:center;padding:40px;color:#64748b;">No hay suministros. Usa el botón Nuevo para añadir.</td></tr>';
+                    return;
+                }
+
+                const fmtHours = v => (v && v !== 0) ? new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v) : '';
+
+                qSnap.forEach(docSnap => {
+                    const data = { _docId: docSnap.id, ...docSnap.data() };
+                    if (data.visible === false || data.deleted === true) return;
+                    datosSuministroMemoria.push(data);
+
+                    const numT = String(data.num_trabajo || '');
+                    const horasData = horasSum[numT] || { total: 0, tecnicos: {} };
+                    const totalH = horasData.total;
+                    const beneficio = _calcSumBeneficio(data);
+                    const costeHoraPersonal = _calcSumCosteHora(data);
+                    const margen = parseSpanishNum(data.margen_aplicado);
+                    const margenDisplay = (!isNaN(margen) && margen !== 0) ? margen + '%' : '';
+
+                    const tr = document.createElement('tr');
+                    tr.dataset.id = docSnap.id;
+
+                    // Build tech columns for this row
+                    let techHtml = '';
+                    listaTecnicos.filter(t => t.prod !== false).forEach(t => {
+                        const h = horasData.tecnicos[t.acronimo] || '';
+                        const bg = t.color || '#ffffff';
+                        techHtml += `<td data-field="tec_${t.acronimo}" style="text-align:center;background:${bg};">${h ? fmtHours(h) : ''}</td>`;
+                    });
+
+                    tr.innerHTML = `
+                        <td data-field="num_trabajo" style="font-weight:600;">${escapeHTML(numT)}</td>
+                        <td data-field="tipo_suministro">${escapeHTML(data.tipo_suministro || '')}</td>
+                        <td data-field="servicio">${escapeHTML(data.servicio || '')}</td>
+                        <td data-field="cliente">${escapeHTML(data.cliente || '')}</td>
+                        <td data-field="nombre">${escapeHTML(data.nombre || '')}</td>
+                        <td data-field="email">${escapeHTML(data.email || '')}</td>
+                        <td data-field="ntel">${escapeHTML(data.ntel || '')}</td>
+                        <td data-field="gestiona">${escapeHTML(data.gestiona || '')}</td>
+                        <td data-field="expediente">${escapeHTML(data.expediente || '')}</td>
+                        <td data-field="fecha_inicio_servicio">${escapeHTML(data.fecha_inicio_servicio || '')}</td>
+                        <td data-field="fecha_pedido_proveedor">${escapeHTML(data.fecha_pedido_proveedor || '')}</td>
+                        <td data-field="fecha_recepcion_proveedor">${escapeHTML(data.fecha_recepcion_proveedor || '')}</td>
+                        <td data-field="fecha_envio_cliente">${escapeHTML(data.fecha_envio_cliente || '')}</td>
+                        <td data-field="fecha_prevista_entrega">${escapeHTML(data.fecha_prevista_entrega || '')}</td>
+                        <td data-field="presupuesto" style="text-align:right;">${_formatSumCurrency(data.presupuesto)}</td>
+                        <td data-field="margen_aplicado" style="text-align:right;">${margenDisplay}</td>
+                        <td data-field="coste_material" style="text-align:right;">${_formatSumCurrency(data.coste_material)}</td>
+                        <td data-field="portes_proveedor" style="text-align:right;">${_formatSumCurrency(data.portes_proveedor)}</td>
+                        <td data-field="portes_cliente" style="text-align:right;">${_formatSumCurrency(data.portes_cliente)}</td>
+                        <td data-field="devoluciones" style="text-align:right;">${_formatSumCurrency(data.devoluciones)}</td>
+                        <td data-field="otros" style="text-align:right;">${_formatSumCurrency(data.otros)}</td>
+                        <td data-field="coste_horas_personal" style="text-align:right;background:#f1f5f9;color:#475569;" title="Presupuesto / Coste hora">${_formatSumCurrency(costeHoraPersonal)}</td>
+                        <td data-field="beneficio" style="text-align:right;font-weight:600;background:${beneficio >= 0 ? '#f0fdf4' : '#fef2f2'};color:${beneficio >= 0 ? '#15803d' : '#dc2626'};">${_formatSumCurrency(beneficio)}</td>
+                        <td data-field="horas_presupuestadas" style="text-align:right;">${escapeHTML(String(data.horas_presupuestadas || ''))}</td>
+                        <td data-field="horas_restantes" style="text-align:right;">${escapeHTML(String(data.horas_restantes || ''))}</td>
+                        <td data-field="fecha_vb_interno">${escapeHTML(data.fecha_vb_interno || '')}</td>
+                        <td data-field="vb_cliente">${escapeHTML(data.vb_cliente || '')}</td>
+                        <td data-field="fecha_facturacion">${escapeHTML(data.fecha_facturacion || '')}</td>
+                        <td data-field="total_h" style="text-align:right;font-weight:600;">${totalH ? fmtHours(totalH) : ''}</td>
+                        ${techHtml}
+                        <td data-field="num_factura">${escapeHTML(data.num_factura || '')}</td>
+                        <td data-field="mes_factura">${escapeHTML(data.mes_factura || '')}</td>
+                        <td style="text-align:center;">
+                            <button class="btn-archivar-sum" data-id="${docSnap.id}" style="padding:4px 10px;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;font-size:12px;">Archivar</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                // Archive button handler
+                tbody.querySelectorAll('.btn-archivar-sum').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        if (!confirm('¿Archivar este suministro?')) return;
+                        try {
+                            await updateDoc(doc(db, 'suministro', btn.dataset.id), { visible: false });
+                            btn.closest('tr').remove();
+                        } catch (e) { alert('Error al archivar: ' + e.message); }
+                    });
+                });
+
+                // Inline cell editing for suministro table
+                _initSuministroEditing(tbody);
+
+            } catch (err) {
+                console.error("Error cargando suministro:", err);
+                tbody.innerHTML = '<tr><td colspan="32" style="text-align:center;padding:20px;color:#ef4444;">Error al cargar suministros.</td></tr>';
+            }
+        }
+
+        function _initSuministroEditing(tbody) {
+            const FIELDS_DATE = ['fecha_inicio_servicio','fecha_pedido_proveedor','fecha_recepcion_proveedor',
+                'fecha_envio_cliente','fecha_prevista_entrega','fecha_vb_interno','fecha_facturacion'];
+            const FIELDS_CURRENCY = ['presupuesto','coste_material','portes_proveedor','portes_cliente','devoluciones','otros'];
+            const FIELDS_NUMBER = ['horas_presupuestadas','horas_restantes','margen_aplicado'];
+            const FIELDS_READONLY = ['num_trabajo','coste_horas_personal','beneficio','total_h'];
+            const FIELDS_DROPDOWN = { tipo_suministro: ['LOTO','ARCO'], vb_cliente: ['','SI','NO'] };
+
+            tbody.addEventListener('click', async (e) => {
+                if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select')) return;
+                const td = e.target.closest('td');
+                if (!td) return;
+                const tr = td.closest('tr');
+                const docId = tr?.dataset.id;
+                const field = td.dataset.field;
+                if (!docId || !field) return;
+                if (FIELDS_READONLY.includes(field) || field.startsWith('tec_')) return;
+
+                if (td.querySelector('input') || td.querySelector('select')) return;
+                const currentValue = td.textContent.trim().replace(/€$/, '').trim();
+
+                let el;
+                if (FIELDS_DROPDOWN[field]) {
+                    el = document.createElement('select');
+                    el.style.cssText = 'width:100%;padding:2px;font-size:inherit;';
+                    FIELDS_DROPDOWN[field].forEach(opt => {
+                        const o = document.createElement('option');
+                        o.value = opt; o.textContent = opt || '—';
+                        if (currentValue === opt) o.selected = true;
+                        el.appendChild(o);
+                    });
+                } else if (FIELDS_DATE.includes(field)) {
+                    el = document.createElement('input');
+                    el.type = 'date';
+                    let dv = currentValue;
+                    if (dv && dv.includes('/')) {
+                        const parts = dv.split('/');
+                        if (parts.length === 3) dv = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    }
+                    el.value = dv || new Date().toISOString().slice(0,10);
+                    el.style.cssText = 'width:100%;padding:2px;';
+                } else {
+                    el = document.createElement('input');
+                    el.type = 'text';
+                    el.value = currentValue;
+                    el.style.cssText = 'width:100%;padding:2px;font-size:inherit;';
+                }
+
+                td.innerHTML = '';
+                td.appendChild(el);
+                el.focus();
+
+                const save = async () => {
+                    let newVal = el.value.trim();
+                    if (FIELDS_DATE.includes(field) && newVal && newVal.includes('-')) {
+                        const d = new Date(newVal);
+                        if (!isNaN(d)) newVal = d.toLocaleDateString('es-ES', {day:'2-digit',month:'2-digit',year:'numeric'});
+                    }
+                    try {
+                        await updateDoc(doc(db, 'suministro', docId), {
+                            [field]: newVal,
+                            _usuario_edicion: auth.currentUser?.email || ''
+                        });
+                        const memEntry = datosSuministroMemoria.find(x => x._docId === docId);
+                        if (memEntry) memEntry[field] = newVal;
+
+                        // Re-render cell with correct formatting
+                        if (FIELDS_CURRENCY.includes(field)) {
+                            td.textContent = _formatSumCurrency(newVal);
+                            td.style.textAlign = 'right';
+                            // Recalc beneficio
+                            const memEntry2 = datosSuministroMemoria.find(x => x._docId === docId);
+                            if (memEntry2) {
+                                const benTd = tr.querySelector('td[data-field="beneficio"]');
+                                const ben = _calcSumBeneficio(memEntry2);
+                                if (benTd) {
+                                    benTd.textContent = _formatSumCurrency(ben);
+                                    benTd.style.color = ben >= 0 ? '#15803d' : '#dc2626';
+                                    benTd.style.background = ben >= 0 ? '#f0fdf4' : '#fef2f2';
+                                }
+                                const chpTd = tr.querySelector('td[data-field="coste_horas_personal"]');
+                                if (chpTd && field === 'presupuesto') chpTd.textContent = _formatSumCurrency(_calcSumCosteHora(memEntry2));
+                            }
+                        } else if (field === 'margen_aplicado') {
+                            td.textContent = newVal ? newVal + '%' : '';
+                            td.style.textAlign = 'right';
+                        } else {
+                            td.textContent = newVal;
+                        }
+                    } catch (err) {
+                        console.error('Error guardando suministro:', err);
+                        td.textContent = currentValue;
+                    }
+                };
+
+                el.addEventListener('blur', save);
+                el.addEventListener('keydown', (ev) => {
+                    if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+                    if (ev.key === 'Escape') { td.textContent = currentValue; }
+                });
+            });
+        }
+
+        async function crearNuevoSuministro() {
+            const nombre = prompt('Tipo de Suministro (LOTO / ARCO):');
+            if (!nombre) return;
+            const tipo = nombre.trim().toUpperCase();
+            if (tipo !== 'LOTO' && tipo !== 'ARCO') { alert('Debe ser LOTO o ARCO.'); return; }
+            try {
+                const nuevoId = await getSiguienteIdSuministro();
+                const nuevoDoc = {
+                    num_trabajo: nuevoId.toString(),
+                    tipo_suministro: tipo,
+                    servicio: '', cliente: '', nombre: '', email: '', ntel: '',
+                    gestiona: '', expediente: '',
+                    fecha_inicio_servicio: '', fecha_pedido_proveedor: '',
+                    fecha_recepcion_proveedor: '', fecha_envio_cliente: '',
+                    fecha_prevista_entrega: '',
+                    presupuesto: '', margen_aplicado: '', coste_material: '',
+                    portes_proveedor: '', portes_cliente: '', devoluciones: '', otros: '',
+                    horas_presupuestadas: '', horas_restantes: '',
+                    fecha_vb_interno: '', vb_cliente: '', fecha_facturacion: '',
+                    num_factura: '', mes_factura: '',
+                    visible: true
+                };
+                await setDoc(doc(db, 'suministro', nuevoId.toString()), nuevoDoc);
+                cargarSuministro();
+            } catch (err) {
+                alert('Error creando suministro: ' + err.message);
+            }
+        }
+        window.crearNuevoSuministro = crearNuevoSuministro;
+
+        async function importarSuministroExcel(inputEl) {
+            const file = inputEl.files[0];
+            if (!file) return;
+            inputEl.value = '';
+            try {
+                const XLSX = window.XLSX;
+                if (!XLSX) { alert('Librería XLSX no cargada. Contacta con el administrador.'); return; }
+                const ab = await file.arrayBuffer();
+                const wb = XLSX.read(ab, { type: 'array' });
+                const ws = wb.Sheets[wb.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                if (rows.length < 2) { alert('El archivo está vacío.'); return; }
+
+                const headers = rows[0].map(h => String(h).trim());
+                const fmtDate = (v) => {
+                    if (!v && v !== 0) return '';
+                    // Excel serial date
+                    if (typeof v === 'number') {
+                        const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+                        return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                    }
+                    return String(v);
+                };
+                const colMap = {
+                    'Num. Trabajo': 'num_trabajo', 'Tipo Suministro': 'tipo_suministro',
+                    'TIPO EXP.': 'tipo_expediente', 'SERVICIO': 'servicio', 'CLIENTE': 'cliente',
+                    'NOMBRE': 'nombre', 'EMAIL': 'email', 'NºTEL': 'ntel',
+                    'OFERTA': 'gestiona', 'EXPEDIENTE': 'expediente',
+                    'FECHA INICIO SERVICIO': 'fecha_inicio_servicio',
+                    'FECHA PEDIDO A PROVEEDOR': 'fecha_pedido_proveedor',
+                    'FECHA RECEPCION PROVEEDOR': 'fecha_recepcion_proveedor',
+                    'FECHA ENVIO CLIENTE': 'fecha_envio_cliente',
+                    'FECHA PREVISTA ENTREGA': 'fecha_prevista_entrega',
+                    'PRESUPUESTO': 'presupuesto', 'MARGEN APLICADO': 'margen_aplicado',
+                    'COSTE MATERIAL': 'coste_material', 'PORTES PROVEEDOR': 'portes_proveedor',
+                    'PORTES CLIENTE': 'portes_cliente', 'DEVOLUCIONES': 'devoluciones',
+                    'OTROS': 'otros',
+                    'HORAS PRESUP (HP)': 'horas_presupuestadas', 'HORAS RESTANTES': 'horas_restantes',
+                    'FECHA VB INTERNO': 'fecha_vb_interno', 'VB CLIE. ': 'vb_cliente',
+                    'FECHA FACTURACION': 'fecha_facturacion',
+                    'Nº FACTURA': 'num_factura', 'MES FACTURA': 'mes_factura'
+                };
+                const dateFields = new Set(['fecha_inicio_servicio','fecha_pedido_proveedor','fecha_recepcion_proveedor',
+                    'fecha_envio_cliente','fecha_prevista_entrega','fecha_vb_interno','fecha_facturacion']);
+
+                let imported = 0;
+                const batch_size = 400;
+                let batchOps = [];
+
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i];
+                    const numT = String(row[0] || '').trim();
+                    if (!numT) continue;
+                    const docData = { visible: true };
+                    headers.forEach((h, ci) => {
+                        const field = colMap[h];
+                        if (!field) return;
+                        let val = row[ci];
+                        if (dateFields.has(field)) {
+                            val = fmtDate(val);
+                        } else if (val !== null && val !== undefined && val !== '') {
+                            val = String(val).trim();
+                        } else {
+                            val = '';
+                        }
+                        docData[field] = val;
+                    });
+                    batchOps.push({ id: numT, data: docData });
+                    imported++;
+                }
+
+                if (imported === 0) { alert('No se encontraron filas con datos.'); return; }
+                if (!confirm(`¿Importar ${imported} suministros? Los existentes con el mismo Nº serán actualizados.`)) return;
+
+                // Import in chunks (Firestore batch limit 500)
+                for (let start = 0; start < batchOps.length; start += batch_size) {
+                    const chunk = batchOps.slice(start, start + batch_size);
+                    const { writeBatch } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+                    const b = writeBatch(db);
+                    chunk.forEach(({ id, data }) => b.set(doc(db, 'suministro', id), data, { merge: true }));
+                    await b.commit();
+                }
+                alert(`${imported} suministros importados correctamente.`);
+                cargarSuministro();
+            } catch (err) {
+                console.error('Error importando suministro:', err);
+                alert('Error al importar: ' + err.message);
+            }
+        }
+        window.importarSuministroExcel = importarSuministroExcel;
+
+        // ── FIN SUMINISTRO ────────────────────────────────────────────────────────
+
         // Funciones auxiliares y de Ofertas
         async function getSiguienteIdTrabajo() {
             try {
@@ -1777,6 +2164,21 @@
             } catch (err) {
                 console.error("Error obteniendo correlativo:", err);
                 return Math.floor(Math.random() * 1000) + 1000;
+            }
+        }
+
+        async function getSiguienteIdSuministro() {
+            try {
+                const qSnap = await getDocs(collection(db, "suministro"));
+                let maxId = 7999;
+                qSnap.forEach(d => {
+                    const id = parseInt(d.data().num_trabajo, 10);
+                    if (!isNaN(id) && id > maxId) maxId = id;
+                });
+                return maxId + 1;
+            } catch (err) {
+                console.error("Error en getSiguienteIdSuministro:", err);
+                return 8000;
             }
         }
 
@@ -1859,10 +2261,11 @@
                     const t1 = inputT1.value.trim();
                     const tipoExpediente = selectTipoExp ? selectTipoExp.value : '';
                     if (!tipoExpediente) {
-                        alert("Selecciona el tipo de expediente (Anual o Puntual).");
+                        alert("Selecciona el tipo de expediente.");
                         return;
                     }
-                    if (!expediente || !t1) {
+                    const esSuministro = tipoExpediente === 'SUMINISTRO_LOTO' || tipoExpediente === 'SUMINISTRO_ARCO';
+                    if (!esSuministro && (!expediente || !t1)) {
                         alert("Expediente y T1 son obligatorios.");
                         return;
                     }
@@ -3084,11 +3487,25 @@
                 const item = document.createElement('div');
                 item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding: 6px 8px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;';
                 
+                const isActive = id === _activeViewId;
+                const isDefault = index === 0;
+
+                const nameBtnWrapper = document.createElement('div');
+                nameBtnWrapper.style.cssText = 'display:flex; align-items:center; gap:6px; flex:1; overflow:hidden;';
+
+                if (isActive) {
+                    const dot = document.createElement('span');
+                    dot.style.cssText = 'width:6px; height:6px; border-radius:50%; background:#38bdf8; flex-shrink:0;';
+                    nameBtnWrapper.appendChild(dot);
+                }
+
                 const nameBtn = document.createElement('button');
-                nameBtn.textContent = view.nombre + (index === 0 ? ' (Por defecto)' : '');
+                nameBtn.textContent = view.nombre + (isDefault ? ' (Por defecto)' : '');
                 nameBtn.title = 'Aplicar vista';
-                nameBtn.style.cssText = `background:none; border:none; color:#e2e8f0; font-size:12px; cursor:pointer; text-align:left; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0; outline: none; ${index === 0 ? 'font-weight: 600; color: #38bdf8;' : ''}`;
+                const activeBtnColor = isActive ? '#38bdf8' : (isDefault ? '#38bdf8' : '#e2e8f0');
+                nameBtn.style.cssText = `background:none; border:none; color:${activeBtnColor}; font-size:12px; cursor:pointer; text-align:left; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0; outline: none; ${(isActive || isDefault) ? 'font-weight: 600;' : ''}`;
                 nameBtn.onclick = () => aplicarVistaGuardada(id);
+                nameBtnWrapper.appendChild(nameBtn);
                 
                 const actions = document.createElement('div');
                 actions.style.cssText = 'display:flex; gap: 2px; margin-left: 4px; align-items:center;';
@@ -3143,7 +3560,7 @@
                 delBtn.onclick = () => eliminarVistaGuardada(id);
                 actions.appendChild(delBtn);
                 
-                item.appendChild(nameBtn);
+                item.appendChild(nameBtnWrapper);
                 item.appendChild(actions);
                 list.appendChild(item);
             });
@@ -3190,7 +3607,7 @@
         async function aplicarVistaGuardada(id) {
             const vista = savedViews[id];
             if (!vista) return;
-            
+
             if (vista.filtros) {
                 Object.keys(tableFilters).forEach(k => delete tableFilters[k]);
                 Object.assign(tableFilters, JSON.parse(JSON.stringify(vista.filtros)));
@@ -3202,10 +3619,13 @@
             }
             if (vista.pinned_cols_prod) pinnedColsProd = [...vista.pinned_cols_prod];
             if (vista.pinned_cols_ofer) pinnedColsOfer = [...vista.pinned_cols_ofer];
-            
+
+            _activeViewId = id;
+            renderViewsManager();
+
             guardarPreferenciasUsuario();
             guardarPinnedCols();
-            
+
             if (typeof cargarProduccion === 'function') cargarProduccion();
             if (typeof cargarOfertas === 'function') cargarOfertas();
         }
@@ -3343,6 +3763,9 @@
         // inyectarColumnasDinamicas + setupTableHeaders). Used by applyColumnOrder to
         // reset THs before reordering so they stay in sync with freshly-rebuilt TDs.
         let _origThOrder = {};
+
+        // ID of the currently applied saved view (for active-view highlighting).
+        let _activeViewId = null;
 
         // Returns a localStorage key scoped to the current user so that different
         // users sharing the same browser get independent column-order storage.
@@ -4275,35 +4698,72 @@
                                     ? Math.max(0, prespTotalCalc - sumaPrevCalc)
                                     : null;
 
-                                const datosExtra = await solicitarDatosModalAceptar(ofertaData?.tecnico_t1 || '', importeRestante);
+                                // Pre-populate T1 from agente_comercial for Suministro
+                                const defaultT1 = ofertaData?.tecnico_t1 || ofertaData?.agente_comercial || '';
+                                const datosExtra = await solicitarDatosModalAceptar(defaultT1, importeRestante);
                                 if (!datosExtra) { menuEstado.style.display = 'none'; return; }
 
-                                const _tipoMin = datosExtra.tipoExpediente === 'ANUAL' ? 3000 : 4000;
-                                const _tipoMax = datosExtra.tipoExpediente === 'ANUAL' ? 3999 : 4999;
-                                const nuevoId = await getSiguienteIdRango(_tipoMin, _tipoMax);
+                                const isSuministro = datosExtra.tipoExpediente === 'SUMINISTRO_LOTO' || datosExtra.tipoExpediente === 'SUMINISTRO_ARCO';
                                 const prespTotal = ofertaData ? (ofertaData.presupuesto_total ?? "") : "";
-
-                                // Determine presupuesto_m for new produccion record
-                                const presupM = isAceptarParcial && datosExtra.importeParcial
+                                const presupImporte = isAceptarParcial && datosExtra.importeParcial
                                     ? datosExtra.importeParcial.toString()
                                     : (importeRestante !== null ? importeRestante.toString() : prespTotal);
 
-                                const nuevoDoc = {
-                                    num_trabajo: nuevoId.toString(),
-                                    cliente: ofertaData ? (ofertaData.cliente || "") : "",
-                                    servicio: ofertaData ? (ofertaData.servicio || "") : "",
-                                    responsable_g: currentUserAcronym || "",
-                                    presupuesto_m: presupM,
-                                    visible: true,
-                                    fecha_inicio: datosExtra.fechaInicio || "", fecha_fin: datosExtra.fechaFin || "", gastos_n: ofertaData ? (ofertaData.gastos_estimados?.toString() || "") : "",
-                                    ejecutor_t1: datosExtra.t1, apoyo_am: "", apoyo_an: "",
-                                    total_horas_historico: "", visto_vb_cliente: "No",
-                                    fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "", gestionado: "No",
-                                    oferta_gestiona: docId, exp_gestiona: datosExtra.expediente,
-                                    tipo_expediente: datosExtra.tipoExpediente || "", observaciones: "", grupo: ofertaData ? (ofertaData.grupo || "") : "", tipo_servicio: ofertaData ? (ofertaData.servicio || "") : ""
-                                };
+                                let nuevoId;
 
-                                await setDoc(doc(db, "produccion", nuevoId.toString()), nuevoDoc);
+                                if (isSuministro) {
+                                    // ── Create record in Suministro collection ──
+                                    nuevoId = await getSiguienteIdSuministro();
+                                    const tipoSum = datosExtra.tipoExpediente === 'SUMINISTRO_LOTO' ? 'LOTO' : 'ARCO';
+                                    const sumDoc = {
+                                        num_trabajo: nuevoId.toString(),
+                                        tipo_suministro: tipoSum,
+                                        gestiona: ofertaData ? (ofertaData.num_gestiona || ofertaData.gestiona || docId || '') : '',
+                                        fecha_inicio_servicio: ofertaData ? (ofertaData.fecha_oferta || datosExtra.fechaInicio || '') : '',
+                                        cliente: ofertaData ? (ofertaData.cliente || '') : '',
+                                        servicio: ofertaData ? (ofertaData.objeto || ofertaData.servicio || '') : '',
+                                        presupuesto: presupImporte,
+                                        coste_material: ofertaData ? (ofertaData.gastos_estimados?.toString() || '') : '',
+                                        expediente: datosExtra.expediente || '',
+                                        nombre: '', email: '', ntel: '',
+                                        fecha_pedido_proveedor: '', fecha_recepcion_proveedor: '',
+                                        fecha_envio_cliente: '', fecha_prevista_entrega: '',
+                                        margen_aplicado: '', portes_proveedor: '', portes_cliente: '',
+                                        devoluciones: '', otros: '',
+                                        horas_presupuestadas: '', horas_restantes: '',
+                                        fecha_vb_interno: '', vb_cliente: '', fecha_facturacion: '',
+                                        num_factura: '', mes_factura: '',
+                                        oferta_gestiona: docId,
+                                        visible: true
+                                    };
+                                    // T1 overwrites agente_comercial if provided
+                                    if (datosExtra.t1) sumDoc.t1 = datosExtra.t1;
+                                    await setDoc(doc(db, 'suministro', nuevoId.toString()), sumDoc);
+                                } else {
+                                    // ── Existing flow: create record in Producción ──
+                                    const _tipoMin = datosExtra.tipoExpediente === 'ANUAL' ? 3000 : 4000;
+                                    const _tipoMax = datosExtra.tipoExpediente === 'ANUAL' ? 3999 : 4999;
+                                    nuevoId = await getSiguienteIdRango(_tipoMin, _tipoMax);
+
+                                    const nuevoDoc = {
+                                        num_trabajo: nuevoId.toString(),
+                                        cliente: ofertaData ? (ofertaData.cliente || "") : "",
+                                        servicio: ofertaData ? (ofertaData.servicio || "") : "",
+                                        responsable_g: currentUserAcronym || "",
+                                        presupuesto_m: presupImporte,
+                                        visible: true,
+                                        fecha_inicio: datosExtra.fechaInicio || "", fecha_fin: datosExtra.fechaFin || "",
+                                        gastos_n: ofertaData ? (ofertaData.gastos_estimados?.toString() || "") : "",
+                                        ejecutor_t1: datosExtra.t1, apoyo_am: "", apoyo_an: "",
+                                        total_horas_historico: "", visto_vb_cliente: "No",
+                                        fecha_ap: "", fecha_ar: "", num_at: "", mes_facturacion: "", gestionado: "No",
+                                        oferta_gestiona: docId, exp_gestiona: datosExtra.expediente,
+                                        tipo_expediente: datosExtra.tipoExpediente || "", observaciones: "",
+                                        grupo: ofertaData ? (ofertaData.grupo || "") : "",
+                                        tipo_servicio: ofertaData ? (ofertaData.servicio || "") : ""
+                                    };
+                                    await setDoc(doc(db, "produccion", nuevoId.toString()), nuevoDoc);
+                                }
 
                                 // Build updated aceptaciones array
                                 const prevAceptaciones = Array.isArray(ofertaData && ofertaData.aceptaciones) ? ofertaData.aceptaciones : [];
@@ -4318,7 +4778,7 @@
                                 };
                                 const todasAceptaciones = [...prevAceptaciones, nuevaAceptacion];
 
-                                // Determine final estado: if sum >= presupuesto_total → Aceptada
+                                // Determine final estado
                                 const sumAceptaciones = todasAceptaciones.reduce((s, a) => s + (parseFloat(a.importe) || 0), 0);
                                 const presupTotalNum = parseFloat(String(prespTotal).replace(',', '.')) || 0;
                                 let nuevoEstado;
@@ -4355,8 +4815,9 @@
                                     trRow.style.backgroundColor = nuevoEstado === 'Aceptada' ? '#dcfce7' : '#d1fae5';
                                 }
 
-                                alert(`Trabajo Nº ${nuevoId} creado en Producción. Estado oferta: ${nuevoEstado}.`);
-                                cargarProduccion();
+                                const destino = isSuministro ? 'Suministro' : 'Producción';
+                                alert(`Nº ${nuevoId} creado en ${destino}. Estado oferta: ${nuevoEstado}.`);
+                                if (!isSuministro) cargarProduccion();
 
                                 // Contadores
                                 const clienteOferta = sanitizeKey(ofertaData ? (ofertaData.cliente || "").trim() : "");
@@ -10342,7 +10803,14 @@
                 </svg>
                 <span>Ofertas</span>
             </a>
-            
+            <a href="#" class="nav-item" id="tab-suministro">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 10V7" />
+                </svg>
+                <span>Suministro</span>
+            </a>
+
             <!-- Gestor de Vistas -->
             <div id="views-manager-container" style="padding: 12px; margin: 4px 12px 12px 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
                 <div style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
@@ -10446,6 +10914,21 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                     </svg>
                     Oferta
+                </button>
+
+                <button id="btn-nuevo-suministro" class="btn-primary" style="display: none;" onclick="crearNuevoSuministro()">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="18" height="18">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Suministro
+                </button>
+
+                <button id="btn-subir-suministro" class="btn-secondary" style="display: none;" title="Importar Excel Suministro">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <input type="file" id="input-file-suministro" accept=".xlsx,.xls" style="display:none;" onchange="importarSuministroExcel(this)">
+                    <span onclick="document.getElementById('input-file-suministro').click()">Importar</span>
                 </button>
 
                 <button id="btn-toggle-summary" class="btn-secondary" title="Mostrar/ocultar resumen de facturación" style="display: none; padding: 8px 12px; font-size: 13px;">📊 Resumen</button>
@@ -10595,6 +11078,55 @@
                             <tbody id="table-body-ofertas">
                                 <tr>
                                     <td colspan="23" style="text-align: center; padding: 20px;">Cargando ofertas...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Vista: Suministro -->
+                <div id="view-suministro" class="app-view" style="display: none;">
+                    <div class="table-container" style="height: calc(100vh - 160px);">
+                        <table id="table-suministro" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th style="min-width:80px;">Nº</th>
+                                    <th>Tipo Suministro</th>
+                                    <th style="min-width:160px;">Servicio</th>
+                                    <th style="min-width:140px;">Cliente</th>
+                                    <th>Nombre</th>
+                                    <th>Email</th>
+                                    <th>Nº Tel</th>
+                                    <th>Gestiona</th>
+                                    <th>Expediente</th>
+                                    <th>Fecha Inicio Servicio</th>
+                                    <th>Fecha Pedido Proveedor</th>
+                                    <th>Fecha Recepción Proveedor</th>
+                                    <th>Fecha Envío Cliente</th>
+                                    <th>Fecha Prevista Entrega</th>
+                                    <th>Presupuesto</th>
+                                    <th>Margen %</th>
+                                    <th>Coste Material</th>
+                                    <th>Portes Proveedor</th>
+                                    <th>Portes Cliente</th>
+                                    <th>Devoluciones</th>
+                                    <th>Otros</th>
+                                    <th>Coste Hora Personal</th>
+                                    <th>Beneficio</th>
+                                    <th>Horas Presup.</th>
+                                    <th>Horas Restantes</th>
+                                    <th>Fecha VB Interno</th>
+                                    <th>VB Cliente</th>
+                                    <th>Fecha Facturación</th>
+                                    <th>Total H</th>
+                                    <th>Nº Factura</th>
+                                    <th>Mes Factura</th>
+                                    <th style="background:#e2e8f0;color:#475569;text-align:center;">Archivar</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body-suministro">
+                                <tr>
+                                    <td colspan="32" style="text-align:center;padding:20px;">Cargando suministros...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -11655,6 +12187,8 @@
                     <option value="">— Seleccionar —</option>
                     <option value="ANUAL">Anual (correlativo 3000)</option>
                     <option value="PUNTUAL">Puntual (correlativo 4000)</option>
+                    <option value="SUMINISTRO_LOTO">Suministro LOTO (correlativo 8000)</option>
+                    <option value="SUMINISTRO_ARCO">Suministro ARCO (correlativo 8000)</option>
                 </select>
             </div>
 
