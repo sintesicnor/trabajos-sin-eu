@@ -1,6 +1,10 @@
 {
+  "firestore": {
+    "rules": "firestore.rules"
+  },
   "functions": {
-    "source": "functions"
+    "source": "functions",
+    "codebase": "gestor-departamento"
   },
   "hosting": {
     "public": "public",
