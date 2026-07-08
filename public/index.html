@@ -260,15 +260,17 @@
                 console.log(`✅ Borrada: ${id}`);
             }
         };
-        window._debugOfertas = async function(n = 20) {
+        window._debugOfertas = async function(filtro = '') {
             const snap = await getDocs(collection(db, 'ofertas'));
             console.log(`Total ofertas en BD: ${snap.size}`);
-            let i = 0;
+            let n = 0;
             snap.forEach(d => {
-                if (i++ >= n) return;
                 const data = d.data();
-                console.log(d.id, '| fecha_oferta:', data.fecha_oferta, '| num_gestiona:', data.num_gestiona, '| año:', data.año || data.anyo || data.year || '-');
+                if (filtro && !d.id.includes(filtro) && !(data.fecha_oferta || '').includes(filtro)) return;
+                console.log(`ID: ${d.id} | fecha: ${data.fecha_oferta || '-'} | estado: ${data.estado || '(sin estado)'} | cliente: ${data.cliente || '-'}`);
+                n++;
             });
+            console.log(`Mostradas: ${n}`);
         };
 
         window._borrarTodasOfertas = async function() {
@@ -310,6 +312,64 @@
             }
             await b.commit();
             console.log(`✅ ${toDelete.length} ofertas de 2026 eliminadas.`);
+        };
+
+        // Muestra todos los docs de produccion (o los que no tienen num_trabajo)
+        window._debugProduccion = async function(soloSinNumero = false) {
+            const snap = await getDocs(collection(db, 'produccion'));
+            console.log(`Total docs en produccion: ${snap.size}`);
+            let n = 0;
+            snap.forEach(d => {
+                const data = d.data();
+                if (soloSinNumero && data.num_trabajo) return;
+                console.log(`ID: ${d.id} | num_trabajo: ${data.num_trabajo ?? '(vacío)'} | cliente: ${data.cliente || ''} | exp: ${data.exp_gestiona || ''}`);
+                n++;
+            });
+            console.log(`Mostrados: ${n}`);
+        };
+
+        // Borra todos los docs de produccion cuyo ID numérico >= desde
+        window._borrarProduccionDesde = async function(desde) {
+            if (!desde || isNaN(desde)) { console.log('Uso: _borrarProduccionDesde(4792)'); return; }
+            const snap = await getDocs(collection(db, 'produccion'));
+            const toDelete = [];
+            snap.forEach(d => {
+                const n = parseInt(d.id, 10);
+                if (!isNaN(n) && n >= parseInt(desde, 10)) toDelete.push(d.ref);
+            });
+            if (toDelete.length === 0) { console.log('No hay docs con ID >= ' + desde); return; }
+            console.log('Docs a eliminar:', toDelete.map(r => r.id));
+            const answer = prompt(`Se borrarán ${toDelete.length} doc(s) con ID >= ${desde}.\nEscribe CONFIRMAR para continuar:`);
+            if (answer !== 'CONFIRMAR') { console.log('Cancelado.'); return; }
+            let b = writeBatch(db); let cnt = 0;
+            for (const ref of toDelete) {
+                b.delete(ref); cnt++;
+                if (cnt % 499 === 0) { await b.commit(); b = writeBatch(db); }
+            }
+            await b.commit();
+            console.log(`✅ ${toDelete.length} doc(s) eliminados. Recarga la página para ver los cambios.`);
+            cargarProduccion();
+        };
+
+        // Añade num_trabajo desde el ID del documento a los docs que no lo tienen
+        window._fixNumTrabajoDesdeId = async function() {
+            const snap = await getDocs(collection(db, 'produccion'));
+            const toFix = [];
+            snap.forEach(d => {
+                if (!d.data().num_trabajo && !isNaN(parseInt(d.id, 10))) toFix.push({ ref: d.ref, id: d.id });
+            });
+            if (toFix.length === 0) { console.log('No hay docs sin num_trabajo con ID numérico.'); return; }
+            console.log('Docs a corregir:', toFix.map(x => x.id));
+            const answer = prompt(`Se añadirá num_trabajo a ${toFix.length} doc(s).\nEscribe CONFIRMAR:`);
+            if (answer !== 'CONFIRMAR') { console.log('Cancelado.'); return; }
+            let b = writeBatch(db); let cnt = 0;
+            for (const { ref, id } of toFix) {
+                b.update(ref, { num_trabajo: id }); cnt++;
+                if (cnt % 499 === 0) { await b.commit(); b = writeBatch(db); }
+            }
+            await b.commit();
+            console.log(`✅ ${toFix.length} doc(s) corregidos.`);
+            cargarProduccion();
         };
 
         // ── v0.093: Restaurar escritura de historial desde frontend ──
@@ -376,37 +436,41 @@
                         }
                     });
                 }
-                if (listasSnap.empty) {
-                    await Promise.all([
-                        setDoc(doc(db, "listas_config", "servicios"), { items: listaServicios }),
-                        setDoc(doc(db, "listas_config", "tipos_servicio"), { items: listaTiposServicio }),
-                        setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos }),
-                        setDoc(doc(db, "listas_config", "oficinas"), { items: listaOficinas }),
-                        setDoc(doc(db, "listas_config", "origenes"), { items: listaOrigenes }),
-                        setDoc(doc(db, "listas_config", "tipos_expediente"), { items: listaTiposExpediente }),
-                    ]);
-                } else {
-                    listasSnap.forEach(d => {
-                        if (d.id === "servicios") listaServicios = d.data().items || [];
-                        if (d.id === "tipos_servicio") {
-                            const itemsFirebase = d.data().items || [];
-                            // Si detecta datos cruzados de Expediente, fuerza el reseteo en la BD
-                            if (itemsFirebase.includes('MATRIZ') || itemsFirebase.includes('ANUAL')) {
-                                listaTiposServicio = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
-                                setDoc(doc(db, "listas_config", "tipos_servicio"), { items: listaTiposServicio });
-                            } else {
-                                listaTiposServicio = itemsFirebase;
-                            }
+                // Leer los documentos existentes individualmente
+                const existingDocs = new Set();
+                listasSnap.forEach(d => {
+                    existingDocs.add(d.id);
+                    if (d.id === "servicios") listaServicios = d.data().items || [];
+                    if (d.id === "tipos_servicio") {
+                        const itemsFirebase = d.data().items || [];
+                        // Si detecta datos cruzados de Expediente, fuerza el reseteo en la BD
+                        if (itemsFirebase.includes('MATRIZ') || itemsFirebase.includes('ANUAL')) {
+                            listaTiposServicio = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
+                            setDoc(doc(db, "listas_config", "tipos_servicio"), { items: listaTiposServicio });
+                        } else {
+                            listaTiposServicio = itemsFirebase;
                         }
-                        if (d.id === "tecnicos") listaTecnicos = d.data().items || [];
-                        if (d.id === "oficinas") listaOficinas = d.data().items || [];
-                        if (d.id === "origenes") {
-                            listaOrigenes = d.data().items || [];
-                            if (listaOrigenes.length === 0) listaOrigenes = ['CLIENTE NUEVO', 'CLIENTE ANTIGUO'];
-                        }
-                        if (d.id === "tipos_expediente") listaTiposExpediente = d.data().items || [];
-                    });
-                }
+                    }
+                    if (d.id === "tecnicos") listaTecnicos = d.data().items || [];
+                    if (d.id === "oficinas") listaOficinas = d.data().items || [];
+                    if (d.id === "origenes") {
+                        listaOrigenes = d.data().items || [];
+                        if (listaOrigenes.length === 0) listaOrigenes = ['CLIENTE NUEVO', 'CLIENTE ANTIGUO'];
+                    }
+                    if (d.id === "tipos_expediente") listaTiposExpediente = d.data().items || [];
+                });
+
+                // Crear individualmente solo los documentos que falten.
+                // tecnicos → siempre vacío si no existe: los defaults hardcoded del código
+                // nunca tienen email/rol/id_tec y sobreescribirlos causaría pérdida de datos.
+                const initMissing = [];
+                if (!existingDocs.has('servicios'))        initMissing.push(setDoc(doc(db, "listas_config", "servicios"),        { items: listaServicios }));
+                if (!existingDocs.has('tipos_servicio'))   initMissing.push(setDoc(doc(db, "listas_config", "tipos_servicio"),   { items: listaTiposServicio }));
+                if (!existingDocs.has('tecnicos'))         initMissing.push(setDoc(doc(db, "listas_config", "tecnicos"),         { items: [] }));
+                if (!existingDocs.has('oficinas'))         initMissing.push(setDoc(doc(db, "listas_config", "oficinas"),         { items: listaOficinas }));
+                if (!existingDocs.has('origenes'))         initMissing.push(setDoc(doc(db, "listas_config", "origenes"),         { items: listaOrigenes }));
+                if (!existingDocs.has('tipos_expediente')) initMissing.push(setDoc(doc(db, "listas_config", "tipos_expediente"), { items: listaTiposExpediente }));
+                if (initMissing.length > 0) await Promise.all(initMissing);
 
                 // Renderizar UI Configuración de Listas
                 renderizarListasConfig();
@@ -444,10 +508,23 @@
             if (!raw) return null;
             const s = String(raw).trim();
             if (!s) return null;
-            // Formato dd/mm/yyyy
+            // Formato dd/mm/yyyy o dd/mm/yy
             if (s.includes('/')) {
                 const p = s.split('/');
-                if (p.length === 3) return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
+                if (p.length === 3) {
+                    const y = parseInt(p[2]), m = parseInt(p[1]), d = parseInt(p[0]);
+                    const fullY = y < 100 ? 2000 + y : y;
+                    const dt = new Date(fullY, m - 1, d);
+                    if (!isNaN(dt.getTime())) return dt;
+                }
+            }
+            // Formato dd-mm-yyyy o dd-mm-yy (guiones)
+            if (/^\d{1,2}-\d{1,2}-\d{2,4}$/.test(s)) {
+                const p = s.split('-');
+                const y = parseInt(p[2]), m = parseInt(p[1]), d = parseInt(p[0]);
+                const fullY = y < 100 ? 2000 + y : y;
+                const dt = new Date(fullY, m - 1, d);
+                if (!isNaN(dt.getTime())) return dt;
             }
             // Número de serie Excel (ej: 46007)
             if (/^\d{4,5}$/.test(s)) {
@@ -881,6 +958,9 @@
                     'ppto total (sin iva)':      'presupuesto_m',
                     'gastos (est.)':             'gastos_n',
                     'gastos (est)':              'gastos_n',
+                    'gastos (gest.)':            '_gastos_gest',
+                    'gastos (gest)':             '_gastos_gest',
+                    'gastos n':                  'gastos_n',
                     'fecha finalizacion':        'fecha_ap',
                     'fecha de finalizacion':     'fecha_ap',
                     'vb clie.':                  'visto_vb_cliente',
@@ -933,7 +1013,7 @@
                 // ── Diagnóstico: muestra cabeceras clave no detectadas ──
                 const fieldsCols = {};
                 Object.entries(POS_MAP).forEach(([c, f]) => { fieldsCols[f] = (fieldsCols[f] || []).concat(Number(c)); });
-                const needed = { fecha_fin: 'FECHA ENTREGA', fecha_ap: 'FECHA FINALIZACIÓN', fecha_ar: 'FECHA FACTURACIÓN', visto_vb_cliente: 'VB CLIE.', num_at: 'Nº Fact' };
+                const needed = { presupuesto_m: 'PPTO. TOTAL', gastos_n: 'GASTOS (EST.)', fecha_fin: 'FECHA ENTREGA', fecha_ap: 'FECHA FINALIZACIÓN', fecha_ar: 'FECHA FACTURACIÓN', visto_vb_cliente: 'VB CLIE.', num_at: 'Nº Fact' };
                 const missing = Object.entries(needed).filter(([f]) => !fieldsCols[f]).map(([, n]) => n);
                 const diagMsg = '📋 Cabeceras detectadas:\n'
                     + Object.entries(needed).map(([f, n]) => `  ${fieldsCols[f] ? '✅' : '❌'} ${n} → col ${fieldsCols[f] || '(no encontrada)'}`).join('\n')
@@ -1263,30 +1343,65 @@
         });
 
         // ═══ SYNC DESDE SHAREPOINT ═══
-        async function syncDesdeSharePoint(coleccion, cargarFn) {
-            const btn = document.getElementById(coleccion === 'ofertas' ? 'btn-sync-sp-ofertas' : 'btn-sync-sp-produccion');
-            const textoOriginal = btn ? btn.innerHTML : '';
-            if (btn) btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg> Leyendo…';
-            if (btn) btn.disabled = true;
+        async function sincronizarDesdeSharePoint() {
+            const btnOfe  = document.getElementById('btn-sync-sp-ofertas');
+            const btnProd = document.getElementById('btn-sync-sp-produccion');
+            const spinner = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>';
+            const txtOfe  = btnOfe  ? btnOfe.innerHTML  : '';
+            const txtProd = btnProd ? btnProd.innerHTML : '';
+            const setBusy = (busy) => {
+                if (btnOfe)  { btnOfe.disabled  = busy; btnOfe.innerHTML  = busy ? spinner + ' Leyendo…' : txtOfe;  }
+                if (btnProd) { btnProd.disabled = busy; btnProd.innerHTML = busy ? spinner + ' Leyendo…' : txtProd; }
+            };
+            setBusy(true);
             try {
-                if (typeof XLSX === 'undefined') throw new Error('Librería XLSX no cargada.');
                 const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js');
-                const fns = getFunctions(app, 'us-central1');
+                const fns      = getFunctions(app, 'us-central1');
                 const callable = httpsCallable(fns, 'syncFromSharePoint');
-                const result = await callable({ coleccion });
-                const { filas } = result.data;
-                if (!filas || filas.length === 0) { alert('No se encontraron filas en SharePoint.'); return; }
+                const result   = await callable({ coleccion: 'ambos' });
+                const { ofertas: filasOfe = [], produccion: filesProd = [] } = result.data;
 
-                if (!confirm(`SharePoint tiene ${filas.length} registros.\n¿Actualizar/crear en Firestore? (Los registros no incluidos no se tocarán.)`)) return;
+                // ── DIAGNÓSTICO: resumen de lo que devuelve la Cloud Function ──
+                const fechasOfe = filasOfe.map(f => f['FECHA OFERTA'] || f['fecha oferta'] || f['Fecha Oferta'] || '(sin fecha)');
+                const idOfe     = filasOfe.map(f => f['N° GESTIONA'] || f['N GESTIONA'] || f['Nº GESTIONA'] || '(sin id)');
+                console.log(`📥 Ofertas recibidas del Excel: ${filasOfe.length}`);
+                console.log('📅 Última oferta recibida:', idOfe[filasOfe.length-1], '—', fechasOfe[filasOfe.length-1]);
+                console.log('📅 Ofertas con fecha (últimas 5):', idOfe.slice(-5).map((id,i) => `${id}=${fechasOfe[filasOfe.length-5+i]}`).join(' | '));
+                const oferJunio = filasOfe.filter(f => {
+                    const fd = f['FECHA OFERTA'] || f['fecha oferta'] || f['Fecha Oferta'] || '';
+                    return String(fd).includes('06/2026') || String(fd).includes('/06/') || (typeof fd === 'number' && fd >= 46023 && fd <= 46053);
+                });
+                console.log(`📅 Ofertas de junio recibidas: ${oferJunio.length}`, oferJunio.map(f => f['N° GESTIONA'] || f['N GESTIONA'] || '?'));
+                const primerFila = filasOfe[0] || {};
+                console.log('🔑 Claves del primer objeto recibido:', Object.keys(primerFila).join(' | '));
+                // ── FIN DIAGNÓSTICO ──
 
-                // Reutilizar normCol del import existente
+                if (filasOfe.length + filesProd.length === 0) {
+                    alert('No se encontraron filas en SharePoint.');
+                    return;
+                }
+                if (!confirm(
+                    `SharePoint contiene:\n  • ${filasOfe.length} ofertas\n  • ${filesProd.length} líneas de producción\n\n` +
+                    `¿Actualizar/crear en Firestore?\n(Los registros no incluidos no se tocarán.)`
+                )) return;
+
                 const normCol = s => String(s || '').replace(/^﻿/, '').trim()
                     .normalize('NFD').replace(/[̀-ͯ]/g, '')
                     .replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
 
-                // Mapeo de cabeceras SharePoint → campos Firestore (mismo colMap del import)
+                const NUM_FIELDS = new Set([
+                    'presupuesto_total', 'gastos_estimados', 'presupuesto_m', 'gastos_n',
+                    'ingresos_2026', 'ingresos_2027', 'ingresos_2028', 'ingresos_2029', 'ingresos_2030',
+                ]);
+
+                const APROBACION_NORM = {
+                    'aceptado': 'Aceptada', 'aceptada': 'Aceptada',
+                    'rechazado': 'Rechazada', 'rechazada': 'Rechazada',
+                    'en curso': 'En curso',
+                };
                 const colMapOfe = {
-                    'estado': 'estado', 'n gestiona': 'num_gestiona', 'num gestiona': 'num_gestiona',
+                    'estado': 'estado', 'aprobacion': 'estado', 'aprobado': 'estado',
+                    'n gestiona': 'num_gestiona', 'no gestiona': 'num_gestiona',
                     'pertenece a licitacion': 'pertenece_a_licitacion', 'es una licitacion': 'es_licitacion',
                     'fecha oferta': 'fecha_oferta', 'agente comercial': 'agente_comercial',
                     'oficina': 'oficina', 'cliente': 'cliente', 'grupo': 'grupo',
@@ -1299,6 +1414,7 @@
                     'ingresos 2030': 'ingresos_2030',
                 };
                 const colMapProd = {
+                    // Cabeceras que escribe nuestra sync (Firestore→Excel)
                     'n trabajo': 'num_trabajo', 'no trabajo': 'num_trabajo',
                     'tipo expediente': 'tipo_expediente', 'exp gestiona': 'exp_gestiona',
                     'oferta gestiona': 'oferta_gestiona', 'fecha inicio': 'fecha_inicio',
@@ -1311,51 +1427,113 @@
                     'fecha ap': 'fecha_ap', 'fecha ar': 'fecha_ar',
                     'n at': 'num_at', 'mes facturacion': 'mes_facturacion',
                     'observaciones': 'observaciones',
+                    // Cabeceras originales del Excel (nombres distintos)
+                    'tipo exp': 'tipo_expediente',
+                    'fecha entrega': 'fecha_fin',
+                    'tecnico rble': 'responsable_g',
+                    't1': 'ejecutor_t1',
+                    't2': 'apoyo_am',
+                    't3': 'apoyo_an',
+                    'ica': 'cliente',
+                    'ppto total sin iva': 'presupuesto_m',
+                    'gastos est': 'gastos_n',
+                    'gastos gest': '_gastos_gest',
+                    'vb clie': 'visto_vb_cliente',          // cabecera real: "VB CLIE."
+                    'fecha finalizacion': 'fecha_ap',       // cabecera real: "FECHA FINALIZACIÓN"
+                    'fecha facturacion': 'fecha_ar',        // cabecera real: "FECHA FACTURACION"
+                    'n fact': 'num_at',                     // cabecera real: "Nº Fact"
                 };
-                const colMap = coleccion === 'ofertas' ? colMapOfe : colMapProd;
-                const idField = coleccion === 'ofertas' ? 'num_gestiona' : 'num_trabajo';
 
-                const batch = writeBatch(db);
-                let count = 0, skipped = 0;
-                filas.forEach(fila => {
-                    const docData = {};
-                    Object.keys(fila).forEach(col => {
-                        const field = colMap[normCol(col)];
-                        if (!field) return;
-                        const raw = fila[col];
-                        let val = (raw === null || raw === undefined) ? '' : String(raw).trim();
-                        if ((field === 'presupuesto_total' || field === 'gastos_estimados' ||
-                             field === 'presupuesto_m' || field === 'gastos_n') && typeof raw === 'number') {
-                            val = String(raw);
+                // Convierte acrónimo de técnico (ej. "JMR") → nombre_pila (ej. "Jokin")
+                const resolverNombre = (val) => {
+                    if (!val) return null;
+                    const upper = String(val).trim().toUpperCase();
+                    const tec = listaTecnicos.find(t => (t.acronimo || '').toUpperCase() === upper);
+                    return (tec && (tec.nombre_pila || tec.nombre)) || null;
+                };
+                const TEC_FIELDS = new Set(['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an']);
+
+                const buildOps = (filas, colMap, idField, coleccion) => {
+                    const ops = [];
+                    filas.forEach(fila => {
+                        const docData = {};
+                        Object.keys(fila).forEach(col => {
+                            const field = colMap[normCol(col)];
+                            if (!field) return;
+                            const raw = fila[col];
+                            let val = (raw === null || raw === undefined) ? '' : String(raw).trim();
+                            if (typeof raw === 'number' && NUM_FIELDS.has(field)) val = String(raw);
+                            if (val !== '') docData[field] = val;
+                        });
+                        // Normalizar estado de oferta (ACEPTADO→Aceptada, etc.)
+                        if (coleccion === 'ofertas' && docData.estado) {
+                            docData.estado = APROBACION_NORM[docData.estado.toLowerCase()] || docData.estado;
                         }
-                        if (val !== '') docData[field] = val;
+                        // Convertir acrónimos de técnicos a nombre_pila
+                        if (coleccion === 'produccion') {
+                            TEC_FIELDS.forEach(f => {
+                                if (docData[f]) {
+                                    const nombre = resolverNombre(docData[f]);
+                                    if (nombre) docData[f] = nombre;
+                                }
+                            });
+                        }
+                        const docId = docData[idField];
+                        if (!docId) return;
+                        if (Object.keys(docData).filter(k => k !== idField).length === 0) return;
+                        ops.push({ coleccion, docId, docData });
                     });
-                    const docId = docData[idField];
-                    if (!docId) { skipped++; return; }
-                    delete docData[idField];
-                    batch.set(doc(db, coleccion === 'ofertas' ? 'ofertas' : 'produccion', docId), docData, { merge: true });
-                    count++;
+                    return ops;
+                };
+
+                // Ofertas primero, luego producción
+                const opsOfe  = buildOps(filasOfe,  colMapOfe,  'num_gestiona', 'ofertas');
+                const opsProd = buildOps(filesProd, colMapProd, 'num_trabajo',  'produccion');
+
+                // Campos gestionados en la web: la web tiene prioridad, pero si está vacía se acepta el valor del Excel
+                const PROD_WEB_ONLY = new Set(['fecha_ar', 'observaciones', 'num_at']);
+                opsProd.forEach(op => {
+                    const existing = datosProduccionMemoria.find(p => String(p.num_trabajo || '').trim() === String(op.docId));
+                    PROD_WEB_ONLY.forEach(f => {
+                        if (!(f in op.docData)) return;
+                        const webVal = existing ? existing[f] : undefined;
+                        if (webVal !== undefined && webVal !== null && String(webVal).trim() !== '') {
+                            delete op.docData[f]; // web tiene valor → no sobreescribir
+                        }
+                        // web vacío → dejar pasar el valor del Excel
+                    });
                 });
-                if (count === 0) { alert('No se encontraron filas válidas.'); return; }
-                await batch.commit();
-                if (btn) btn.innerHTML = textoOriginal;
-                if (btn) btn.disabled = false;
-                alert(`✅ ${count} registro(s) actualizados/creados desde SharePoint.${skipped ? '\n' + skipped + ' fila(s) sin ID omitidas.' : ''}`);
-                await cargarFn();
+
+                const allOps  = [...opsOfe, ...opsProd];
+
+                if (allOps.length === 0) { alert('No se encontraron filas válidas.'); return; }
+
+                for (let i = 0; i < allOps.length; i += 499) {
+                    const batch = writeBatch(db);
+                    allOps.slice(i, i + 499).forEach(({ coleccion, docId, docData }) =>
+                        batch.set(doc(db, coleccion, docId), docData, { merge: true })
+                    );
+                    await batch.commit();
+                }
+
+                const skipped = (filasOfe.length - opsOfe.length) + (filesProd.length - opsProd.length);
+                let msg = `✅ Sincronización completada:\n  • ${opsOfe.length} oferta(s) actualizadas/creadas\n  • ${opsProd.length} producción(es) actualizadas/creadas`;
+                if (skipped > 0) msg += `\n\n(${skipped} fila(s) sin ID omitidas)`;
+                alert(msg);
+
+                // Recargar ambas colecciones (el sync actualiza Firestore en ambas)
+                await Promise.all([cargarProduccion(), cargarOfertas()]);
+
             } catch (err) {
                 console.error('Error sync SharePoint:', err);
                 alert('❌ Error al sincronizar desde SharePoint: ' + (err.message || err));
             } finally {
-                if (btn) btn.innerHTML = textoOriginal;
-                if (btn) btn.disabled = false;
+                setBusy(false);
             }
         }
 
-        document.getElementById('btn-sync-sp-ofertas')?.addEventListener('click', () =>
-            syncDesdeSharePoint('ofertas', cargarOfertas));
-
-        document.getElementById('btn-sync-sp-produccion')?.addEventListener('click', () =>
-            syncDesdeSharePoint('produccion', cargarProduccion));
+        document.getElementById('btn-sync-sp-ofertas')?.addEventListener('click', sincronizarDesdeSharePoint);
+        document.getElementById('btn-sync-sp-produccion')?.addEventListener('click', sincronizarDesdeSharePoint);
 
         // Función para cargar datos de Firestore
         let isVistaHistorico = false;
@@ -1457,6 +1635,9 @@
                 querySnapshot.forEach((docSnap) => {
                     const data = docSnap.data();
                     if (data.visible === false || data.deleted === true) return;
+                    // Ocultar filas sin datos reales (reservadas para fórmulas en el Excel)
+                    if (!data.exp_gestiona && !data.servicio && !data.cliente &&
+                        !data.oferta_gestiona && !data.tipo_expediente) return;
                     datosProduccionMemoria.push(data);
 
                     const numTrabajoId = String(data['num_trabajo'] || '').trim();
@@ -1604,9 +1785,9 @@
                         <td data-field="tipo_servicio">${escapeHTML(data['tipo_servicio'] || '')}</td>
                         <td data-field="grupo">${escapeHTML(data['grupo'] || '')}</td>
                         <td data-field="cliente">${escapeHTML(data['cliente'] || '')}</td>
-                        <td data-field="presupuesto_m">${formatCurrency(data['presupuesto_m'])}</td>
-                        <td data-field="gastos_n">${formatCurrency(data['gastos_n'])}</td>
-                        <td data-field="horas_disponibles">${horasDisponibles}</td>
+                        <td data-field="presupuesto_m" data-raw="${presp}">${formatCurrency(data['presupuesto_m'])}</td>
+                        <td data-field="gastos_n" data-raw="${gastos}">${formatCurrency(data['gastos_n'])}</td>
+                        <td data-field="horas_disponibles" data-raw="${horasDispNum}">${horasDisponibles}</td>
                         <td data-field="total_horas_historico">${historicalHours > 0 ? formatHours(historicalHours) : ''}</td>
                         <td data-field="total_horas_calc" 
                             style="font-weight: 600; text-align: center; cursor: help; position: relative;"
@@ -1779,22 +1960,23 @@
             return new Intl.NumberFormat('es-ES', { minimumFractionDigits: (n % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(n) + '€';
         }
 
-        function _calcSumBeneficio(data) {
+        function _calcSumBeneficio(data, costeHoraPersonal) {
             const p = parseSpanishNum(data.presupuesto) || 0;
-            const costs = ['coste_material','portes_proveedor','portes_cliente','devoluciones','otros','coste_horas_personal']
+            const costs = ['coste_material','portes_proveedor','portes_cliente','devoluciones','otros']
                 .reduce((acc, f) => acc + (parseSpanishNum(data[f]) || 0), 0);
-            return p - costs;
+            return p - costs - (costeHoraPersonal || 0);
         }
 
-        function _calcSumCosteHora(data) {
-            const p = parseSpanishNum(data.presupuesto) || 0;
-            return costeHoraActual > 0 ? p / costeHoraActual : 0;
+        function _calcSumCosteHora(totalH) {
+            return (totalH || 0) * costeHoraActual;
         }
 
         async function cargarSuministro() {
             const tbody = document.getElementById('table-body-suministro');
             if (!tbody) return;
-            tbody.innerHTML = '<tr><td colspan="32" style="text-align:center;padding:20px;">Cargando...</td></tr>';
+            const numTecs = listaTecnicos.filter(t => t.prod !== false).length;
+            const colSpan = 32 + numTecs;
+            tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;padding:20px;">Cargando...</td></tr>`;
             try {
                 const [qSnap, partesSnap] = await Promise.all([
                     getDocs(collection(db, "suministro")),
@@ -1806,8 +1988,8 @@
                     _cachedPartesHorasTimestamp = Date.now();
                 }
 
-                // Aggregate hours from partes_horas by num_trabajo
-                const horasSum = {};
+                // Aggregate hours from partes_horas by num_trabajo (keyed by work number string)
+                const horasPartes = {};
                 (_cachedPartesHoras || []).forEach(p => {
                     const horas = parseFloat(p.horas) || 0;
                     if (!horas) return;
@@ -1821,11 +2003,10 @@
                         if (m) idTrabajo = m[1];
                     }
                     if (!idTrabajo) return;
-                    if (!horasSum[idTrabajo]) horasSum[idTrabajo] = { total: 0, tecnicos: {} };
-                    horasSum[idTrabajo].total += horas;
+                    if (!horasPartes[idTrabajo]) horasPartes[idTrabajo] = {};
                     const tec = resolverTecPorIdTec(p.trabajador);
                     if (tec && tec.acronimo) {
-                        horasSum[idTrabajo].tecnicos[tec.acronimo] = (horasSum[idTrabajo].tecnicos[tec.acronimo] || 0) + horas;
+                        horasPartes[idTrabajo][tec.acronimo] = (horasPartes[idTrabajo][tec.acronimo] || 0) + horas;
                     }
                 });
 
@@ -1833,32 +2014,59 @@
                 tbody.innerHTML = '';
 
                 if (qSnap.empty) {
-                    tbody.innerHTML = '<tr><td colspan="32" style="text-align:center;padding:40px;color:#64748b;">No hay suministros. Usa el botón Nuevo para añadir.</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;padding:40px;color:#64748b;">No hay suministros. Usa el botón Nuevo para añadir.</td></tr>`;
                     return;
                 }
 
                 const fmtHours = v => (v && v !== 0) ? new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v) : '';
+                const activeTecs = listaTecnicos.filter(t => t.prod !== false);
 
+                // Collect and sort docs by num_trabajo descending
+                const allDocs = [];
                 qSnap.forEach(docSnap => {
                     const data = { _docId: docSnap.id, ...docSnap.data() };
                     if (data.visible === false || data.deleted === true) return;
-                    datosSuministroMemoria.push(data);
+                    allDocs.push(data);
+                });
+                allDocs.sort((a, b) => (parseInt(b.num_trabajo) || 0) - (parseInt(a.num_trabajo) || 0));
+                datosSuministroMemoria = allDocs;
+
+                // Track which tech columns have any hours (to hide empty ones later)
+                const tecWithHours = new Set();
+
+                allDocs.forEach(data => {
 
                     const numT = String(data.num_trabajo || '');
-                    const horasData = horasSum[numT] || { total: 0, tecnicos: {} };
-                    const totalH = horasData.total;
-                    const beneficio = _calcSumBeneficio(data);
-                    const costeHoraPersonal = _calcSumCosteHora(data);
+                    const partesRow = horasPartes[numT] || {};
+
+                    // Combine imported tec_ fields with partes_horas hours per technician
+                    const techHoursMap = {};
+                    activeTecs.forEach(t => {
+                        const imported = parseFloat(data[`tec_${t.acronimo}`]) || 0;
+                        const partes = partesRow[t.acronimo] || 0;
+                        const total = imported + partes;
+                        if (total > 0) {
+                            techHoursMap[t.acronimo] = total;
+                            tecWithHours.add(t.acronimo);
+                        }
+                    });
+
+                    // Total H = sum of all tech hours
+                    const totalH = Object.values(techHoursMap).reduce((a, b) => a + b, 0);
+
+                    const costeHoraPersonal = _calcSumCosteHora(totalH);
+                    const beneficio = _calcSumBeneficio(data, costeHoraPersonal);
+                    const horasRestantes = costeHoraActual > 0 ? Math.round((beneficio / costeHoraActual) * 100) / 100 : 0;
                     const margen = parseSpanishNum(data.margen_aplicado);
                     const margenDisplay = (!isNaN(margen) && margen !== 0) ? margen + '%' : '';
 
                     const tr = document.createElement('tr');
-                    tr.dataset.id = docSnap.id;
+                    tr.dataset.id = data._docId;
 
-                    // Build tech columns for this row
+                    // Build tech column TDs
                     let techHtml = '';
-                    listaTecnicos.filter(t => t.prod !== false).forEach(t => {
-                        const h = horasData.tecnicos[t.acronimo] || '';
+                    activeTecs.forEach(t => {
+                        const h = techHoursMap[t.acronimo];
                         const bg = t.color || '#ffffff';
                         techHtml += `<td data-field="tec_${t.acronimo}" style="text-align:center;background:${bg};">${h ? fmtHours(h) : ''}</td>`;
                     });
@@ -1885,10 +2093,10 @@
                         <td data-field="portes_cliente" style="text-align:right;">${_formatSumCurrency(data.portes_cliente)}</td>
                         <td data-field="devoluciones" style="text-align:right;">${_formatSumCurrency(data.devoluciones)}</td>
                         <td data-field="otros" style="text-align:right;">${_formatSumCurrency(data.otros)}</td>
-                        <td data-field="coste_horas_personal" style="text-align:right;background:#f1f5f9;color:#475569;" title="Presupuesto / Coste hora">${_formatSumCurrency(costeHoraPersonal)}</td>
+                        <td data-field="coste_horas_personal" style="text-align:right;background:#f1f5f9;color:#475569;" title="Total H × Coste hora">${_formatSumCurrency(costeHoraPersonal)}</td>
                         <td data-field="beneficio" style="text-align:right;font-weight:600;background:${beneficio >= 0 ? '#f0fdf4' : '#fef2f2'};color:${beneficio >= 0 ? '#15803d' : '#dc2626'};">${_formatSumCurrency(beneficio)}</td>
                         <td data-field="horas_presupuestadas" style="text-align:right;">${escapeHTML(String(data.horas_presupuestadas || ''))}</td>
-                        <td data-field="horas_restantes" style="text-align:right;">${escapeHTML(String(data.horas_restantes || ''))}</td>
+                        <td data-field="horas_restantes" style="text-align:right;background:#f1f5f9;color:#475569;" title="Beneficio / Coste hora">${horasRestantes ? fmtHours(horasRestantes) : ''}</td>
                         <td data-field="fecha_vb_interno">${escapeHTML(data.fecha_vb_interno || '')}</td>
                         <td data-field="vb_cliente">${escapeHTML(data.vb_cliente || '')}</td>
                         <td data-field="fecha_facturacion">${escapeHTML(data.fecha_facturacion || '')}</td>
@@ -1897,11 +2105,29 @@
                         <td data-field="num_factura">${escapeHTML(data.num_factura || '')}</td>
                         <td data-field="mes_factura">${escapeHTML(data.mes_factura || '')}</td>
                         <td style="text-align:center;">
-                            <button class="btn-archivar-sum" data-id="${docSnap.id}" style="padding:4px 10px;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;font-size:12px;">Archivar</button>
+                            <button class="btn-archivar-sum" data-id="${data._docId}" style="padding:4px 10px;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;font-size:12px;">Archivar</button>
                         </td>
                     `;
                     tbody.appendChild(tr);
                 });
+
+                // Hide tech columns (TH + all TDs) that have no hours across all rows
+                const table = tbody.closest('table');
+                if (table) {
+                    const theadTr = table.querySelector('thead tr');
+                    if (theadTr) {
+                        Array.from(theadTr.children).forEach((th, idx) => {
+                            const acronimo = th.dataset.tecAcronimo;
+                            if (!acronimo) return;
+                            const hasData = tecWithHours.has(acronimo);
+                            th.style.display = hasData ? '' : 'none';
+                            tbody.querySelectorAll('tr').forEach(tr => {
+                                const td = tr.querySelector(`td[data-field="tec_${acronimo}"]`);
+                                if (td) td.style.display = hasData ? '' : 'none';
+                            });
+                        });
+                    }
+                }
 
                 // Archive button handler
                 tbody.querySelectorAll('.btn-archivar-sum').forEach(btn => {
@@ -1919,7 +2145,7 @@
 
             } catch (err) {
                 console.error("Error cargando suministro:", err);
-                tbody.innerHTML = '<tr><td colspan="32" style="text-align:center;padding:20px;color:#ef4444;">Error al cargar suministros.</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;padding:20px;color:#ef4444;">Error al cargar suministros.</td></tr>`;
             }
         }
 
@@ -1993,18 +2219,25 @@
                         if (FIELDS_CURRENCY.includes(field)) {
                             td.textContent = _formatSumCurrency(newVal);
                             td.style.textAlign = 'right';
-                            // Recalc beneficio
+                            // Recalc coste hora, beneficio, horas restantes from DOM
                             const memEntry2 = datosSuministroMemoria.find(x => x._docId === docId);
                             if (memEntry2) {
+                                const totalHTd = tr.querySelector('td[data-field="total_h"]');
+                                const totalHVal = parseSpanishNum(totalHTd ? totalHTd.textContent : '') || 0;
+                                const chp = _calcSumCosteHora(totalHVal);
+                                const ben = _calcSumBeneficio(memEntry2, chp);
+                                const horasRest = costeHoraActual > 0 ? Math.round((ben / costeHoraActual) * 100) / 100 : 0;
+                                const chpTd = tr.querySelector('td[data-field="coste_horas_personal"]');
+                                if (chpTd) chpTd.textContent = _formatSumCurrency(chp);
                                 const benTd = tr.querySelector('td[data-field="beneficio"]');
-                                const ben = _calcSumBeneficio(memEntry2);
                                 if (benTd) {
                                     benTd.textContent = _formatSumCurrency(ben);
                                     benTd.style.color = ben >= 0 ? '#15803d' : '#dc2626';
                                     benTd.style.background = ben >= 0 ? '#f0fdf4' : '#fef2f2';
                                 }
-                                const chpTd = tr.querySelector('td[data-field="coste_horas_personal"]');
-                                if (chpTd && field === 'presupuesto') chpTd.textContent = _formatSumCurrency(_calcSumCosteHora(memEntry2));
+                                const hrTd = tr.querySelector('td[data-field="horas_restantes"]');
+                                const fmtH = v => v ? new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(v) : '';
+                                if (hrTd) hrTd.textContent = horasRest ? fmtH(horasRest) : '';
                             }
                         } else if (field === 'margen_aplicado') {
                             td.textContent = newVal ? newVal + '%' : '';
@@ -2079,41 +2312,103 @@
                     }
                     return String(v);
                 };
-                const colMap = {
-                    'Num. Trabajo': 'num_trabajo', 'Tipo Suministro': 'tipo_suministro',
-                    'TIPO EXP.': 'tipo_expediente', 'SERVICIO': 'servicio', 'CLIENTE': 'cliente',
-                    'NOMBRE': 'nombre', 'EMAIL': 'email', 'NºTEL': 'ntel',
-                    'OFERTA': 'gestiona', 'EXPEDIENTE': 'expediente',
-                    'FECHA INICIO SERVICIO': 'fecha_inicio_servicio',
-                    'FECHA PEDIDO A PROVEEDOR': 'fecha_pedido_proveedor',
-                    'FECHA RECEPCION PROVEEDOR': 'fecha_recepcion_proveedor',
-                    'FECHA ENVIO CLIENTE': 'fecha_envio_cliente',
-                    'FECHA PREVISTA ENTREGA': 'fecha_prevista_entrega',
-                    'PRESUPUESTO': 'presupuesto', 'MARGEN APLICADO': 'margen_aplicado',
-                    'COSTE MATERIAL': 'coste_material', 'PORTES PROVEEDOR': 'portes_proveedor',
-                    'PORTES CLIENTE': 'portes_cliente', 'DEVOLUCIONES': 'devoluciones',
-                    'OTROS': 'otros',
-                    'HORAS PRESUP (HP)': 'horas_presupuestadas', 'HORAS RESTANTES': 'horas_restantes',
-                    'FECHA VB INTERNO': 'fecha_vb_interno', 'VB CLIE. ': 'vb_cliente',
-                    'FECHA FACTURACION': 'fecha_facturacion',
-                    'Nº FACTURA': 'num_factura', 'MES FACTURA': 'mes_factura'
+                // Strip ALL non-alphanumeric characters for maximally tolerant matching.
+                // This handles NºTEL / N°TEL / NTEL, accented chars, trailing dots, etc.
+                const normKey = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                const colMapRaw = {
+                    // Keys are normKey() of the expected Excel header
+                    'numtrabajo': 'num_trabajo',
+                    'tiposuministro': 'tipo_suministro',
+                    'tipoexp': 'tipo_expediente',
+                    'servicio': 'servicio',
+                    'cliente': 'cliente',
+                    'nombre': 'nombre',
+                    'email': 'email',
+                    'ntel': 'ntel',           // NºTEL → ntel (non-alphanum stripped)
+                    'oferta': 'gestiona',
+                    'expediente': 'expediente',
+                    'fechainicioservicio': 'fecha_inicio_servicio',
+                    'fechapedidoaproveedor': 'fecha_pedido_proveedor',
+                    'fechapedidoproveedor': 'fecha_pedido_proveedor',
+                    'fecharecepcionproveedor': 'fecha_recepcion_proveedor',
+                    'fechaenviocliente': 'fecha_envio_cliente',
+                    'fechaprevistaentrega': 'fecha_prevista_entrega',
+                    'presupuesto': 'presupuesto',
+                    'margenaplicado': 'margen_aplicado',
+                    'costematerial': 'coste_material',
+                    'portesproveedor': 'portes_proveedor',
+                    'portescliente': 'portes_cliente',
+                    'devoluciones': 'devoluciones',
+                    'otros': 'otros',
+                    'horaspresup': 'horas_presupuestadas',
+                    'horaspresuphp': 'horas_presupuestadas',
+                    'totalh': 'total_h_excel',
+                    'fechavbinterno': 'fecha_vb_interno',
+                    'vbclie': 'vb_cliente',
+                    'fechafacturacion': 'fecha_facturacion',
+                    'nfactura': 'num_factura',
+                    'mesfactura': 'mes_factura'
                 };
+
+                // Build case-insensitive tech acronym lookup
+                const tecByAcronimo = {};
+                listaTecnicos.forEach(t => { if (t.acronimo) tecByAcronimo[t.acronimo.toUpperCase()] = t; });
+
                 const dateFields = new Set(['fecha_inicio_servicio','fecha_pedido_proveedor','fecha_recepcion_proveedor',
                     'fecha_envio_cliente','fecha_prevista_entrega','fecha_vb_interno','fecha_facturacion']);
+
+                // Log unmapped headers to console for debugging
+                console.log('[SUM Import] Headers found:', headers);
 
                 let imported = 0;
                 const batch_size = 400;
                 let batchOps = [];
+
+                // Calculated fields in Excel — skip on import, we compute them live
+                const skipFields = new Set(['costehoraspersonal', 'beneficio', 'horasrestantes']);
+
+                // Pre-compute per-column mapping (field name or tech acronimo)
+                const colMapping = headers.map(h => {
+                    const k = normKey(h);
+                    if (!k) return null;
+                    if (skipFields.has(k)) return null;
+                    if (colMapRaw[k]) return { type: 'field', field: colMapRaw[k] };
+                    // Check if header matches a known tech acronym
+                    const tecMatch = tecByAcronimo[h.trim().toUpperCase()];
+                    if (tecMatch) return { type: 'tec', acronimo: tecMatch.acronimo };
+                    // Fallback: any 2-5 char uppercase/alphanumeric header is treated as a tech column
+                    // (handles Excel tech columns not yet in listaTecnicos, e.g. MEL, MAP, MS, IM, T1)
+                    if (/^[A-Z0-9]{2,5}$/.test(h.trim())) {
+                        return { type: 'tec', acronimo: h.trim().toUpperCase() };
+                    }
+                    console.log('[SUM Import] Unmapped header:', JSON.stringify(h), '→ normKey:', k);
+                    return null;
+                });
 
                 for (let i = 1; i < rows.length; i++) {
                     const row = rows[i];
                     const numT = String(row[0] || '').trim();
                     if (!numT) continue;
                     const docData = { visible: true };
-                    headers.forEach((h, ci) => {
-                        const field = colMap[h];
-                        if (!field) return;
+                    let techSum = 0;
+
+                    colMapping.forEach((mapping, ci) => {
+                        if (!mapping) return;
                         let val = row[ci];
+
+                        if (mapping.type === 'tec') {
+                            const h = parseFloat(val) || 0;
+                            if (h > 0) {
+                                docData[`tec_${mapping.acronimo}`] = h;
+                                techSum += h;
+                            }
+                            return;
+                        }
+
+                        const field = mapping.field;
+                        if (field === 'total_h_excel') return; // computed from tech cols
+
                         if (dateFields.has(field)) {
                             val = fmtDate(val);
                         } else if (val !== null && val !== undefined && val !== '') {
@@ -2123,6 +2418,8 @@
                         }
                         docData[field] = val;
                     });
+
+                    if (techSum > 0) docData.total_h_imported = techSum;
                     batchOps.push({ id: numT, data: docData });
                     imported++;
                 }
@@ -2133,7 +2430,6 @@
                 // Import in chunks (Firestore batch limit 500)
                 for (let start = 0; start < batchOps.length; start += batch_size) {
                     const chunk = batchOps.slice(start, start + batch_size);
-                    const { writeBatch } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
                     const b = writeBatch(db);
                     chunk.forEach(({ id, data }) => b.set(doc(db, 'suministro', id), data, { merge: true }));
                     await b.commit();
@@ -2308,6 +2604,28 @@
             const tbody = table.querySelector('tbody');
             if (!tbody) return;
 
+            // Auto-expand date-yearmonth filters: if a month exists in the data but not
+            // in the saved filter, add it automatically so new months are always visible.
+            // This prevents a filter saved in month X from hiding data from month X+1.
+            let filterUpdated = false;
+            Object.keys(tableFilters[tblId]).forEach(cIdx => {
+                const filterVal = tableFilters[tblId][cIdx];
+                if (!Array.isArray(filterVal) || filterVal.length === 0) return;
+                const thEl = table.querySelector(`thead tr th:nth-child(${parseInt(cIdx) + 1})`);
+                if (!thEl || thEl.dataset.filterType !== 'date-yearmonth') return;
+                Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+                    const cell = tr.children[cIdx];
+                    if (!cell) return;
+                    const v = (cell.dataset.valor || cell.textContent).trim();
+                    const p = v.split('/');
+                    if (p.length === 3 && p[2].length === 4) {
+                        const ym = `${p[2]}-${p[1].padStart(2, '0')}`;
+                        if (!filterVal.includes(ym)) { filterVal.push(ym); filterUpdated = true; }
+                    }
+                });
+            });
+            if (filterUpdated) guardarPreferenciasUsuario();
+
             Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
                 let show = true;
                 Object.keys(tableFilters[tblId]).forEach(cIdx => {
@@ -2325,13 +2643,14 @@
                                         const ym = `${parts[2]}-${parts[1].padStart(2, '0')}`;
                                         if (!filterVal.includes(ym)) show = false;
                                     } else {
-                                        // Empty or unparseable date: hide when a date filter is active
-                                        show = false;
+                                        // Celda vacía: mostrar solo si '__empty__' está en el filtro
+                                        if (!filterVal.includes('__empty__')) show = false;
                                     }
                                 } else {
                                 // Comparación case-insensitive + resolución de acrónimos de técnicos
                                 const rawUpper = rawText.toUpperCase();
                                 const match = filterVal.some(fv => {
+                                    if (fv === '__empty__') return !rawText;
                                     if (fv.toUpperCase() === rawUpper) return true;
                                     // Buscar si el filtro es nombre_pila y la celda tiene acrónimo (o viceversa)
                                     const tec = listaTecnicos.find(t =>
@@ -2385,6 +2704,7 @@
             const tbody = table.querySelector('tbody');
             if (tbody) tbody.querySelectorAll('tr').forEach(tr => { tr.style.display = ''; });
             guardarPreferenciasUsuario();
+            actualizarSumarioAdmin();
         }
 
         function actualizarSumarioAdmin() {
@@ -2392,25 +2712,42 @@
             if (!bar || bar.style.display === 'none') return;
             const tbody = document.getElementById('table-body');
             if (!tbody) return;
-            let pendiente = 0, realizada = 0, horasDisp = 0, horasUsadas = 0;
+            let presupuesto = 0, realizada = 0, gastos = 0, horasDisp = 0;
+            const t1Set = new Set();
             Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
                 if (tr.style.display === 'none') return;
-                const presup   = parseSpanishNum(tr.querySelector('td[data-field="presupuesto_m"]')?.textContent.trim() || '');
-                const numAt    = (tr.querySelector('td[data-field="num_at"]')?.textContent.trim() || '');
-                const hDisp    = parseSpanishNum(tr.querySelector('td[data-field="horas_disponibles"]')?.textContent.trim() || '');
-                const hCalc    = parseSpanishNum(tr.querySelector('td[data-field="total_horas_calc"]')?.textContent.trim() || '');
-                if (numAt) { realizada += presup; } else { pendiente += presup; }
-                horasDisp   += hDisp;
-                horasUsadas += hCalc;
+                const presup = parseFloat(tr.querySelector('td[data-field="presupuesto_m"]')?.dataset.raw || '0') || 0;
+                const gast   = parseFloat(tr.querySelector('td[data-field="gastos_n"]')?.dataset.raw || '0') || 0;
+                const hDisp  = parseFloat(tr.querySelector('td[data-field="horas_disponibles"]')?.dataset.raw || '0') || 0;
+                const fAr    = (tr.querySelector('td[data-field="fecha_ar"]')?.textContent.trim() || '');
+                const vb     = (tr.querySelector('td[data-field="visto_vb_cliente"]')?.textContent.trim().toLowerCase() || '');
+                const t1Text = (tr.querySelector('td[data-field="ejecutor_t1"]')?.textContent.trim() || '');
+                presupuesto += presup;
+                if (fAr) realizada += presup;
+                gastos += gast;
+                if (vb !== 'si') horasDisp += hDisp;
+                if (t1Text) {
+                    const tecObj = listaTecnicos.find(t =>
+                        t.acronimo === t1Text ||
+                        (t.nombre_pila && t.nombre_pila === t1Text)
+                    );
+                    if (tecObj && tecObj.prod !== false) t1Set.add(tecObj.acronimo);
+                }
             });
-            const fmt = v => v > 0 ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:0,maximumFractionDigits:0}).format(Math.round(v)) + '€' : '—';
-            const fmtH = v => v > 0 ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:0,maximumFractionDigits:1}).format(v) + 'h' : '—';
-            const elP = document.getElementById('sum-factura-pendiente');
-            const elR = document.getElementById('sum-factura-realizada');
-            const elH = document.getElementById('sum-horas-pendientes');
-            if (elP) elP.textContent = fmt(pendiente);
-            if (elR) elR.textContent = fmt(realizada);
-            if (elH) elH.textContent = fmtH(Math.max(0, horasDisp - horasUsadas));
+            const nT1 = t1Set.size;
+            const horasT1 = nT1 > 0 ? horasDisp / nT1 : 0;
+            const fmt  = v => v !== 0 ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:0,maximumFractionDigits:0}).format(Math.round(v)) + '€' : '—';
+            const fmtH = v => v !== 0 ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:0,maximumFractionDigits:1}).format(v) + 'h' : '—';
+            const elPres = document.getElementById('sum-presupuesto');
+            const elR    = document.getElementById('sum-factura-realizada');
+            const elG    = document.getElementById('sum-gastos');
+            const elH    = document.getElementById('sum-horas-disp');
+            const elT1   = document.getElementById('sum-horas-t1');
+            if (elPres) elPres.textContent = fmt(presupuesto);
+            if (elR)    elR.textContent    = fmt(realizada);
+            if (elG)    elG.textContent    = fmt(gastos);
+            if (elH)    elH.textContent    = fmtH(horasDisp);
+            if (elT1)   elT1.textContent   = nT1 > 0 ? fmtH(horasT1) + ' (' + nT1 + ' T1)' : '—';
         }
 
         async function mostrarPapelera() {
@@ -2522,7 +2859,7 @@
                     popup.className = 'filter-popup';
 
                     const multiSelectColsOfertas = ['Eº', 'Pertenece a Licitación', 'Es Licitación', 'Agente Comercial', 'Oficina', 'T1', 'Servicio', 'Origen'];
-                    const multiSelectColsProd = ['Tipo Exp.', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)', 'Tipo Servicio', 'VB Cliente'];
+                    const multiSelectColsProd = ['Tipo Exp.', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)', 'Tipo Servicio', 'VB Cliente', 'Tipo Suministro'];
 
                     const isOfertasTable = table.id === 'table-ofertas' || table.closest('#view-ofertas');
 
@@ -2536,7 +2873,7 @@
                             (t.acronimo && t.acronimo === originalText)
                         );
                     }
-                    const isFactCol = !isOfertasTable && originalText === 'Nº Fact';
+                    const isFactCol = !isOfertasTable && (originalText === 'Nº Fact' || originalText === 'Nº Factura' || originalText === 'Mes Factura');
                     const isArchivarCol = !isOfertasTable && originalText === 'Archivar';
                     const _colIdxDate = Array.from(th.parentNode.children).indexOf(th);
                     const isDateYearMonthFilter = originalText.toLowerCase().startsWith('fecha') || originalText.startsWith('F. Fin');
@@ -2705,6 +3042,8 @@
                         const actualizarFiltroFecha = () => {
                             const colIdxDate = Array.from(th.parentNode.children).indexOf(th);
                             const vals = Array.from(popup.querySelectorAll('input.cb-mes-ym:checked')).map(cb => cb.dataset.ym);
+                            const vacioCb = popup.querySelector('input.cb-mes-vacio');
+                            if (vacioCb && vacioCb.checked) vals.push('__empty__');
                             tableFilters[tblIdDate][colIdxDate] = vals;
                             if (vals.length > 0) {
                                 iconContainer.dataset.active = 'true';
@@ -2724,6 +3063,20 @@
                             const colIdxDate = Array.from(th.parentNode.children).indexOf(th);
                             const savedFilterDate = Array.isArray(tableFilters[tblIdDate][colIdxDate]) ? tableFilters[tblIdDate][colIdxDate] : [];
                             popup.innerHTML = '';
+
+                            // Casilla "Vacías"
+                            const vacioLbl = document.createElement('label');
+                            vacioLbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:3px 0;border-bottom:1px solid #e2e8f0;margin-bottom:4px;padding-bottom:5px;color:#64748b;';
+                            const vacioCb = document.createElement('input');
+                            vacioCb.type = 'checkbox';
+                            vacioCb.className = 'cb-mes-vacio';
+                            vacioCb.style.cssText = 'width:13px;height:13px;cursor:pointer;';
+                            vacioCb.checked = savedFilterDate.includes('__empty__');
+                            vacioCb.addEventListener('change', actualizarFiltroFecha);
+                            vacioLbl.appendChild(vacioCb);
+                            vacioLbl.appendChild(document.createTextNode('(Vacías)'));
+                            popup.appendChild(vacioLbl);
+
                             const ymMap = {};
                             table.querySelectorAll('tbody tr').forEach(tr => {
                                 const cell = tr.children[colIdxDate];
@@ -2805,7 +3158,8 @@
                         else if (originalText.includes('Oficina')) options = listaOficinas;
                         else if (['T1', 'Agente Comercial', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)'].some(t => originalText.includes(t))) {
                             options = listaTecnicos.filter(t => t.prod !== false).map(t => t.nombre_pila || t.acronimo);
-                        } else if (originalText.includes('VB Cliente')) options = ['Si', 'No'];
+                        } else if (originalText === 'Tipo Suministro') options = ['ARCO', 'LOTO'];
+                        else if (originalText.includes('VB Cliente')) options = ['SI', 'NO', '__empty__'];
                         else if (originalText.includes('Tipo Exp.')) options = listaTiposExpediente;
                         else if (originalText.includes('Tipo Servicio')) options = listaTiposServicio;
                         else if (['Pertenece a Licitación', 'Es Licitación'].some(t => originalText.includes(t))) options = ['SI', 'NO'];
@@ -2903,7 +3257,7 @@
                                 svgSpan.innerHTML = getEstadoIcon(opt);
                                 lbl.appendChild(svgSpan);
                             } else {
-                                lbl.appendChild(document.createTextNode(opt));
+                                lbl.appendChild(document.createTextNode(opt === '__empty__' ? '(Vacías)' : opt));
                             }
                             popup.appendChild(lbl);
                         });
@@ -3230,25 +3584,17 @@
                     datosOfertasMemoria.push(data);
                 });
 
-                // Parsea fechas en varios formatos: DD/MM/YYYY, YYYY-MM-DD, YYYY/MM/DD
-                const parseFechaEs = (fechaStr) => {
-                    if (!fechaStr) return 0;
-                    const s = String(fechaStr).trim();
-                    const sep = s.includes('/') ? '/' : s.includes('-') ? '-' : null;
-                    if (!sep) return 0;
-                    const p = s.split(sep);
-                    if (p.length !== 3) return 0;
-                    // Detect YYYY-first (ISO) vs DD-first (Spanish)
-                    if (p[0].length === 4) return new Date(+p[0], +p[1] - 1, +p[2]).getTime();
-                    return new Date(+p[2], +p[1] - 1, +p[0]).getTime();
-                };
-
                 // Ordenar de más reciente a más antigua.
-                // Primario: fecha_oferta. Secundario: doc ID descendente (contiene año/número).
+                // Primario: fecha_oferta. Fallback: año extraído del ID (ej. "2026/0015"). Secundario: ID desc.
+                const _ofertaSortKey = o => {
+                    const fd = parseFechaUniversal(o.fecha_oferta);
+                    if (fd) return fd.getTime();
+                    const m = (o._docId || o.num_gestiona || '').match(/(\d{4})/);
+                    return m ? parseInt(m[1]) * 10000 : 0;
+                };
                 datosOfertasMemoria.sort((a, b) => {
-                    const fa = parseFechaEs(a.fecha_oferta);
-                    const fb = parseFechaEs(b.fecha_oferta);
-                    if (fb !== fa) return fb - fa;
+                    const ka = _ofertaSortKey(a), kb = _ofertaSortKey(b);
+                    if (kb !== ka) return kb - ka;
                     return (b._docId || '').localeCompare(a._docId || '');
                 });
 
@@ -4285,16 +4631,15 @@
                         panelAuditoria.style.display = currentUserRole === 'admin' ? '' : 'none';
                     }
 
-                    // Barra resumen y controles exclusivos de admin
+                    // Barra resumen y controles exclusivos de admin (fija, sin toggle)
                     const isAdmin = currentUserRole === 'admin';
                     const adminBar = document.getElementById('admin-summary-bar');
-                    if (adminBar) adminBar.style.display = 'none';
+                    if (adminBar) adminBar.style.display = isAdmin ? 'flex' : 'none';
                     const prodTblCont = document.getElementById('prod-table-container');
-                    if (prodTblCont) prodTblCont.style.height = 'calc(100vh - 160px)';
+                    if (prodTblCont) prodTblCont.style.height = isAdmin ? 'calc(100vh - 188px)' : 'calc(100vh - 160px)';
                     const btnPap = document.getElementById('btn-papelera');
                     if (btnPap) btnPap.style.display = isAdmin ? 'inline-flex' : 'none';
-                    const btnToggleSummary = document.getElementById('btn-toggle-summary');
-                    if (btnToggleSummary) btnToggleSummary.style.display = isAdmin ? 'inline-flex' : 'none';
+                    if (isAdmin) actualizarSumarioAdmin();
                     const btnDetalleProd = document.getElementById('btn-detalle-productividad');
                     if (btnDetalleProd) btnDetalleProd.style.display = isAdmin ? 'inline-flex' : 'none';
                     const btnBF = document.getElementById('btn-borrar-filtros');
@@ -4415,6 +4760,46 @@
                 theadTr.dataset.injected = 'true';
             }
 
+            function inyectarColumnasDinamicasSuministro() {
+                const theadTr = document.querySelector('#view-suministro thead tr');
+                if (!theadTr || theadTr.dataset.sumInjected) return;
+
+                // Find the "Total H" th as anchor point
+                let totalHTh = Array.from(theadTr.children).find(th => th.textContent.trim() === 'Total H');
+                if (!totalHTh) return;
+
+                const crearTh = (texto, title, style) => {
+                    const th = document.createElement('th');
+                    th.textContent = texto;
+                    if (title) th.title = title;
+                    if (style) Object.assign(th.style, style);
+                    return th;
+                };
+
+                // Inject one TH per active technician after "Total H"
+                let lastTh = totalHTh;
+                listaTecnicos.filter(t => t.prod !== false).forEach(t => {
+                    const label = (preferenciaTecnicos === 'nombre_pila' && t.nombre_pila) ? t.nombre_pila : t.acronimo;
+                    const thTec = crearTh(label, `Horas de ${t.nombre || t.acronimo}`, { textAlign: 'center', background: t.color || '' });
+                    theadTr.insertBefore(thTec, lastTh.nextSibling);
+                    lastTh = thTec;
+                });
+
+                // Inject trailing columns: Nº Factura, Mes Factura, Archivar
+                const thFact = crearTh('Nº Factura', '');
+                theadTr.insertBefore(thFact, lastTh.nextSibling);
+                lastTh = thFact;
+
+                const thMes = crearTh('Mes Factura', '');
+                theadTr.insertBefore(thMes, lastTh.nextSibling);
+                lastTh = thMes;
+
+                const thArch = crearTh('Archivar', '', { background: '#e2e8f0', color: '#475569', textAlign: 'center' });
+                theadTr.insertBefore(thArch, lastTh.nextSibling);
+
+                theadTr.dataset.sumInjected = 'true';
+            }
+
             function reinjectarColumnasDinamicas() {
                 const theadTr = document.querySelector('#view-produccion thead tr');
                 if (!theadTr) return;
@@ -4479,6 +4864,7 @@
                 await Promise.all([cargarPreferenciasUsuario(), cargarSettings()]);
 
                 inyectarColumnasDinamicas();
+                inyectarColumnasDinamicasSuministro();
                 await setupTableHeaders();
 
                 const tables = document.querySelectorAll('.data-table');
@@ -4830,7 +5216,7 @@
                                 }
 
                             } else if (isRevertir) {
-                                const confirmRevert = confirm("¿Deseas cambiar el estado? Se ocultarán los trabajos relacionados en Producción.");
+                                const confirmRevert = confirm("¿Deseas cambiar el estado? Se ocultarán los registros relacionados en Producción y Suministros.");
                                 if (!confirmRevert) { menuEstado.style.display = 'none'; return; }
 
                                 await updateDoc(doc(db, "ofertas", docId), { estado: opt.label, timestamp_estado: new Date().toISOString(), _usuario_edicion: _usuario });
@@ -4843,16 +5229,25 @@
                                 const trRow = td.closest('tr');
                                 if (trRow) trRow.style.backgroundColor = opt.label === 'Rechazada' ? '#fee2e2' : '#ffedd5';
 
-                                const q = query(collection(db, "produccion"), where("oferta_gestiona", "==", docId));
-                                const snapshot = await getDocs(q);
-                                if (!snapshot.empty) {
-                                    const hideOps = [];
-                                    snapshot.forEach(docP => hideOps.push(updateDoc(docP.ref, { visible: false, _usuario_edicion: _usuario })));
+                                const [snapProd, snapSum] = await Promise.all([
+                                    getDocs(query(collection(db, "produccion"), where("oferta_gestiona", "==", docId))),
+                                    getDocs(query(collection(db, "suministro"), where("oferta_gestiona", "==", docId)))
+                                ]);
+                                const hideOps = [];
+                                snapProd.forEach(d => hideOps.push(updateDoc(d.ref, { visible: false, _usuario_edicion: _usuario })));
+                                snapSum.forEach(d => hideOps.push(updateDoc(d.ref, { visible: false, _usuario_edicion: _usuario })));
+                                if (hideOps.length > 0) {
                                     await Promise.all(hideOps);
-                                    alert(`Oferta cambiada a ${opt.label} y ${hideOps.length} trabajo(s) ocultado(s) en Producción.`);
-                                    cargarProduccion();
+                                    const prodCount = snapProd.size;
+                                    const sumCount = snapSum.size;
+                                    const parts = [];
+                                    if (prodCount > 0) parts.push(`${prodCount} trabajo(s) en Producción`);
+                                    if (sumCount > 0) parts.push(`${sumCount} entrada(s) en Suministros`);
+                                    alert(`Oferta cambiada a ${opt.label} y se ocultaron: ${parts.join(' y ')}.`);
+                                    if (prodCount > 0) cargarProduccion();
+                                    if (sumCount > 0) cargarSuministro();
                                 } else {
-                                    alert(`Oferta cambiada a ${opt.label}. No se encontraron trabajos en Producción para ocultar.`);
+                                    alert(`Oferta cambiada a ${opt.label}. No se encontraron registros relacionados para ocultar.`);
                                 }
 
                             } else {
@@ -5463,6 +5858,28 @@
                             } catch (_e) { console.warn('Sync presupuesto_m→oferta failed', _e); }
                         }
 
+                        // Sync fecha_inicio / fecha_fin → aceptaciones[i] de la oferta vinculada
+                        if (fieldName === 'fecha_inicio' || fieldName === 'fecha_fin') {
+                            try {
+                                const ofertaTd = tr.querySelector('td[data-field="oferta_gestiona"]');
+                                const ofertaId = ofertaTd ? ofertaTd.textContent.trim() : '';
+                                if (ofertaId) {
+                                    const ofertaDoc = await getDoc(doc(db, 'ofertas', ofertaId));
+                                    if (ofertaDoc.exists()) {
+                                        const ofData = ofertaDoc.data();
+                                        const prevAcepts = Array.isArray(ofData.aceptaciones) ? ofData.aceptaciones : [];
+                                        const idx = prevAcepts.findIndex(a => a.num_trabajo === docId);
+                                        if (idx !== -1) {
+                                            prevAcepts[idx][fieldName] = newValue;
+                                            await updateDoc(doc(db, 'ofertas', ofertaId), { aceptaciones: prevAcepts });
+                                            const memOf = datosOfertasMemoria.find(o => (o.num_gestiona || o._docId) === ofertaId);
+                                            if (memOf) memOf.aceptaciones = prevAcepts;
+                                        }
+                                    }
+                                }
+                            } catch (_e) { console.warn('Sync fecha→oferta aceptacion failed', _e); }
+                        }
+
                         // Actualización ligera de los contadores para cliente/grupo
                         if ((fieldName === 'cliente' || fieldName === 'grupo') && newValue !== currentValue) {
                             const campoBase = fieldName === 'cliente' ? 'clientes' : 'grupos';
@@ -5825,6 +6242,21 @@
                             } catch (_e) { console.warn('Sync presupuesto_total→produccion failed', _e); }
                         }
 
+                        // Sync cliente/grupo/servicio/tipo_servicio → producciones vinculadas
+                        if (fieldName === 'cliente' || fieldName === 'grupo' || fieldName === 'servicio' || fieldName === 'tipo_servicio') {
+                            try {
+                                const qProd = query(collection(db, 'produccion'), where('oferta_gestiona', '==', docId));
+                                const snapProd = await getDocs(qProd);
+                                if (snapProd.size > 0) {
+                                    await Promise.all(snapProd.docs.map(d => updateDoc(d.ref, { [fieldName]: parsedValue })));
+                                    snapProd.docs.forEach(d => {
+                                        const memProd = datosProduccionMemoria.find(p => p.num_trabajo === d.data().num_trabajo);
+                                        if (memProd) memProd[fieldName] = parsedValue;
+                                    });
+                                }
+                            } catch (_e) { console.warn(`Sync ${fieldName}→produccion failed`, _e); }
+                        }
+
                         if (camposMoneda.includes(fieldName) && parsedValue !== '' && parsedValue !== 0) {
                             finalValue = new Intl.NumberFormat('es-ES', { minimumFractionDigits: (parsedValue % 1 === 0 ? 0 : 2), maximumFractionDigits: 2 }).format(parsedValue) + '€';
                         }
@@ -5948,7 +6380,7 @@
             return true;
         }
 
-        function getMulti(id) { const el = document.getElementById(id); return el ? Array.from(el.selectedOptions).map(o => o.value) : []; }
+        function getMulti(id) { const el = document.getElementById(id); return el ? Array.from(el.selectedOptions).map(o => o.value).filter(v => v !== '') : []; }
         function checkDateMatch(dateStr, yearsArr, monthsArr) {
             if (yearsArr.length === 0 && monthsArr.length === 0) return true;
             const info = extractDateInfo(dateStr);
@@ -6000,20 +6432,17 @@
                 const cy = String(new Date().getFullYear());
                 Array.from(yOfe.options).forEach(o => { if (o.value === cy) o.selected = true; });
             }
-            if (yPro && yPro.children.length === 0) yPro.innerHTML = proYHtml;
+            if (yPro && yPro.children.length === 0) yPro.innerHTML = '<option value="">Todos</option>' + proYHtml;
 
-            // 2. Opciones de técnicos y T1 por defecto
-            const tecOpts = listaTecnicos.filter(t => t.prod !== false).map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
+            // 2. Opciones de técnicos y servicio
+            const tecOpts = '<option value="">Todos</option>' + listaTecnicos.filter(t => t.prod !== false).map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
             if (rble && rble.children.length === 0) rble.innerHTML = tecOpts;
-            if (t1 && t1.children.length === 0) {
-                t1.innerHTML = tecOpts;
-                Array.from(t1.options).forEach(opt => opt.selected = true); // Todos los T1 seleccionados por defecto
-            }
+            if (t1 && t1.children.length === 0) t1.innerHTML = tecOpts;
             if (t2 && t2.children.length === 0) t2.innerHTML = tecOpts;
             if (t3 && t3.children.length === 0) t3.innerHTML = tecOpts;
 
             const srvOpts = listaTiposServicio.map(s => `<option value="${s}">${s}</option>`).join('');
-            if (srv && srv.children.length === 0) srv.innerHTML = srvOpts;
+            if (srv && srv.children.length === 0) srv.innerHTML = '<option value="">Todos</option>' + srvOpts;
 
             // Agente comercial y Servicio del informe de ofertas — dinámicos desde datosOfertasMemoria
             const agenteOfe = document.getElementById('filt-ofe-agente');
@@ -6370,6 +6799,201 @@
             });
         }
 
+        function _renderProGantt(data, monthFilter) {
+            const { labels: ganttLabels, base: ganttBase, prog: ganttProg, meta: ganttMeta } = data;
+            const fmtE = window._proFmtE || new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+            const fmtN = window._proFmtN || new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 });
+
+            // Filter by fin month if set
+            let idxMap, fl, fb, fp, fm;
+            if (monthFilter) {
+                idxMap = ganttMeta.map((m, i) => m.finMonth === monthFilter ? i : -1).filter(i => i >= 0);
+                fl = idxMap.map(i => ganttLabels[i]);
+                fb = idxMap.map(i => ganttBase[i]);
+                fp = idxMap.map(i => ganttProg[i]);
+                fm = idxMap.map(i => ganttMeta[i]);
+            } else {
+                fl = ganttLabels; fb = ganttBase; fp = ganttProg; fm = ganttMeta;
+            }
+
+            // Compute min/max from filtered data
+            let minT = null, maxT = null;
+            fb.forEach(b => {
+                if (!b) return;
+                if (minT === null || b[0] < minT) minT = b[0];
+                if (maxT === null || b[1] > maxT) maxT = b[1];
+            });
+
+            const ganttContainer = document.getElementById('gantt-scroll-container');
+            if (ganttContainer) ganttContainer.style.height = Math.max(400, fl.length * 38 + 80) + 'px';
+
+            const ganttExcess = fm.map((m, i) => {
+                if (m.pctUso <= 100) return null;
+                const base = fb[i]; const prog = fp[i];
+                if (!base || !prog) return null;
+                const duration = base[1] - base[0];
+                const excessPct = (m.pctUso - 100) / 100;
+                const excessEnd = Math.min(prog[1] + duration * excessPct, base[0] + duration * 2);
+                return [prog[1], excessEnd];
+            });
+
+            const ganttPctPlugin = {
+                id: 'ganttPctLabels',
+                afterDatasetsDraw(chart) {
+                    const { ctx } = chart;
+                    const meta0 = chart.getDatasetMeta(0);
+                    meta0.data.forEach((bar, j) => {
+                        const m = fm[j];
+                        if (!m || m.pctUso === 0) return;
+                        const props = bar.getProps(['x','y','width','height','base'], true);
+                        const barW = Math.abs(props.x - props.base);
+                        if (barW < 30) return;
+                        ctx.save();
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = 'bold 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(m.pctUso + '%', props.base + barW / 2, props.y);
+                        ctx.restore();
+                    });
+                }
+            };
+
+            if (chartsObj.proGantt) chartsObj.proGantt.destroy();
+            chartsObj.proGantt = new Chart(document.getElementById('chart-pro-gantt'), {
+                type: 'bar',
+                plugins: [ganttPctPlugin],
+                data: {
+                    labels: fl,
+                    datasets: [
+                        { label: 'Completado', data: fp, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85, borderRadius: 6, borderSkipped: false },
+                        { label: 'Exceso >100%', data: ganttExcess, backgroundColor: '#ef4444', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false, borderRadius: 6, borderSkipped: false },
+                        { label: 'Duración Total', data: fb, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false, borderRadius: 6, borderSkipped: false }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            position: 'top',
+                            type: 'time',
+                            time: { unit: 'month', displayFormats: { month: 'MMM yy' }, tooltipFormat: 'dd/MM/yyyy' },
+                            ticks: { display: false },
+                            grid: { drawTicks: false },
+                            min: minT || undefined,
+                            max: maxT || undefined
+                        },
+                        y: {
+                            ticks: {
+                                callback: function(value, index) {
+                                    const label = this.getLabelForValue(value);
+                                    return label.length > 25 ? label.substring(0, 22) + '...' : label;
+                                },
+                                font: { size: 11 }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(items) { return fl[items[0].dataIndex] || ''; },
+                                label: function(ctx) {
+                                    const meta = fm[ctx.dataIndex];
+                                    if (!meta) return ctx.dataset.label;
+                                    if (ctx.datasetIndex === 0) return ['Progreso: ' + meta.horasUsadas + 'h / ' + meta.horas + 'h', 'Horas restantes: ' + meta.horasRestantes + 'h'];
+                                    return ['Horas totales: ' + fmtN.format(meta.horas) + 'h'];
+                                },
+                                afterBody: function(items) {
+                                    const meta = fm[items[0].dataIndex];
+                                    if (!meta) return [];
+                                    const lines = [];
+                                    if (meta.rble) lines.push('Rble: ' + meta.rble);
+                                    if (meta.t1) lines.push('T1: ' + meta.t1);
+                                    if (meta.t2) lines.push('T2: ' + meta.t2);
+                                    if (meta.t3) lines.push('T3: ' + meta.t3);
+                                    if (meta.grupo) lines.push('Grupo: ' + meta.grupo);
+                                    if (meta.cliente && meta.cliente !== meta.grupo) lines.push('Cliente: ' + meta.cliente);
+                                    if (meta.presupuesto != null) lines.push('Presupuesto: ' + fmtE.format(meta.presupuesto));
+                                    if (meta.gastos != null) lines.push('Gastos: ' + fmtE.format(meta.gastos));
+                                    return lines;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            setTimeout(() => {
+                const ganttChart = chartsObj.proGantt;
+                const stickyHeader = document.getElementById('gantt-sticky-header');
+                if (ganttChart && stickyHeader) {
+                    const xScale = ganttChart.scales.x;
+                    if (xScale && xScale.ticks) {
+                        let html = '<div style="position:relative;height:32px;font-size:11px;color:#64748b;font-weight:500;">';
+                        let lastX = -999;
+                        const minSpacing = 46;
+                        xScale.ticks.forEach((tick, i) => {
+                            const x = xScale.getPixelForTick(i);
+                            if (x - lastX < minSpacing) return;
+                            lastX = x;
+                            html += '<span style="position:absolute;left:' + x + 'px;top:8px;transform:translateX(-50%);white-space:nowrap;">' + (tick.label || '') + '</span>';
+                        });
+                        html += '</div>';
+                        stickyHeader.innerHTML = html;
+                        stickyHeader.style.minWidth = ganttChart.canvas.parentElement.style.minWidth || '1000px';
+                    }
+                }
+
+                // Y-axis label tooltip (full text on hover)
+                const ganttCanvas = chartsObj.proGantt?.canvas;
+                if (ganttCanvas) {
+                    let tip = document.getElementById('_gantt-y-tip');
+                    if (!tip) {
+                        tip = document.createElement('div');
+                        tip.id = '_gantt-y-tip';
+                        tip.style.cssText = 'position:fixed;background:#1e293b;color:#fff;padding:5px 9px;border-radius:5px;font-size:12px;pointer-events:none;z-index:9999;display:none;max-width:360px;white-space:normal;line-height:1.4;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+                        document.body.appendChild(tip);
+                    }
+                    // Remove old listener to avoid duplicates
+                    if (ganttCanvas._yTipHandler) ganttCanvas.removeEventListener('mousemove', ganttCanvas._yTipHandler);
+                    if (ganttCanvas._yTipLeave) ganttCanvas.removeEventListener('mouseleave', ganttCanvas._yTipLeave);
+
+                    ganttCanvas._yTipHandler = (e) => {
+                        const chart = chartsObj.proGantt;
+                        if (!chart) return;
+                        const rect = ganttCanvas.getBoundingClientRect();
+                        const mx = e.clientX - rect.left;
+                        const my = e.clientY - rect.top;
+                        const chartArea = chart.chartArea;
+                        if (mx >= 0 && mx < chartArea.left) {
+                            const yScale = chart.scales.y;
+                            const labels = chart.data.labels;
+                            let best = -1, bestDist = Infinity;
+                            labels.forEach((_, i) => {
+                                const ly = yScale.getPixelForValue(i);
+                                const d = Math.abs(my - ly);
+                                if (d < bestDist) { bestDist = d; best = i; }
+                            });
+                            if (best >= 0 && bestDist < 18 && labels[best]) {
+                                tip.textContent = labels[best];
+                                tip.style.display = 'block';
+                                tip.style.left = (e.clientX + 14) + 'px';
+                                tip.style.top = (e.clientY - 8) + 'px';
+                                return;
+                            }
+                        }
+                        tip.style.display = 'none';
+                    };
+                    ganttCanvas._yTipLeave = () => tip.style.display = 'none';
+                    ganttCanvas.addEventListener('mousemove', ganttCanvas._yTipHandler);
+                    ganttCanvas.addEventListener('mouseleave', ganttCanvas._yTipLeave);
+                }
+            }, 200);
+        }
+
         function cargarDashboardProduccion() {
             // Visibilidad por rol: lectura/ofertador solo ven Gantt con sus trabajos
             const esRolRestringido = (currentUserRole === 'lectura' || currentUserRole === 'ofertador');
@@ -6479,17 +7103,22 @@
                     }
                 }
 
-                let hrsDisp = 0;
-                if (ppto > 0 && costeHoraActual > 0) hrsDisp = (ppto - gast) / costeHoraActual;
-
-                // Leer horas csv desde la tabla (para ahorrar recálculo)
+                // Leer desde la tabla DOM (fuente de verdad: refleja ediciones inline y cálculos)
                 let idT = prod.num_trabajo;
                 let hHist = parseSpanishNum(prod.total_horas_historico) || 0;
                 let trDom = document.querySelector(`#table-body tr[data-id="${idT}"]`);
                 let hTotalCalc = hHist;
+                let hrsDisp = 0;
                 if (trDom) {
-                    let tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
+                    const tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
                     if (tdCalc) hTotalCalc = parseFloat(tdCalc.textContent) || hHist;
+                    const tdPpto = trDom.querySelector('td[data-field="presupuesto_m"]');
+                    const tdGast = trDom.querySelector('td[data-field="gastos_n"]');
+                    const domPpto = (tdPpto ? parseSpanishNum(tdPpto.textContent) : 0) || ppto;
+                    const domGast = tdGast ? parseSpanishNum(tdGast.textContent) : gast;
+                    if (domPpto > 0 && costeHoraActual > 0) hrsDisp = (domPpto - domGast) / costeHoraActual;
+                } else if (ppto > 0 && costeHoraActual > 0) {
+                    hrsDisp = (ppto - gast) / costeHoraActual;
                 }
 
                 let pdteFila = hrsDisp - hTotalCalc;
@@ -6542,7 +7171,8 @@
                                 grupo: prod.grupo || '',
                                 cliente: prod.cliente || '',
                                 presupuesto: ppto,
-                                gastos: gast
+                                gastos: gast,
+                                finMonth: dEnd.getMonth() + 1
                             });
 
                             if (!minGanttTime || dStart.getTime() < minGanttTime) minGanttTime = dStart.getTime();
@@ -6556,15 +7186,16 @@
                     }
                 }
 
-                // Gráfica Barras Meses (basado en Fecha Inicio)
-                if (prod.fecha_inicio) {
-                    let mm = extractDateInfo(prod.fecha_inicio).m;
+                // Gráfica Barras Meses (basado en Fecha Fin)
+                if (prod.fecha_fin) {
+                    let mm = extractDateInfo(prod.fecha_fin).m;
                     if (mm) hrsPorMes[parseInt(mm, 10)] += (hrsDisp > 0 ? hrsDisp : 0);
                 }
             });
 
             const fmtE = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
             const fmtN = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 });
+            window._proFmtE = fmtE; window._proFmtN = fmtN;
             document.getElementById('kpi-pro-fact').textContent = fmtE.format(factPdte);
             document.getElementById('kpi-pro-fact-realizada').textContent = fmtE.format(factRealizada);
             document.getElementById('kpi-pro-hrs').textContent = fmtN.format(Math.round(hrsPdte)) + ' h';
@@ -6605,161 +7236,41 @@
                     .map(k => `<div><strong>${k}:</strong> ${fmtN.format(Math.round(srvFactRealizada[k]))}€</div>`).join('');
             }
 
-            // Redimensionar contenedor Gantt para habilitar scroll vertical
-            const ganttContainer = document.getElementById('gantt-scroll-container');
-            if (ganttContainer) {
-                const heightCalc = Math.max(400, ganttLabels.length * 38 + 80);
-                ganttContainer.style.height = heightCalc + 'px';
-            }
+            // Store full Gantt data globally for month-click filtering
+            window._proGanttFull = { labels: ganttLabels, base: ganttBase, prog: ganttProg, meta: ganttMeta, minT: minGanttTime, maxT: maxGanttTime };
+            if (window._ganttMonthFilter === undefined) window._ganttMonthFilter = null;
+            _renderProGantt(window._proGanttFull, window._ganttMonthFilter);
 
-            // Build red excess bars for >100%
-            const ganttExcess = ganttMeta.map((m, i) => {
-                if (m.pctUso <= 100) return null;
-                const base = ganttBase[i];
-                const prog = ganttProg[i];
-                if (!base || !prog) return null;
-                const duration = base[1] - base[0];
-                const excessPct = (m.pctUso - 100) / 100;
-                const excessEnd = Math.min(prog[1] + duration * excessPct, base[0] + duration * 2);
-                return [prog[1], excessEnd];
+            const mesColors = Object.keys(hrsPorMes).map((_, i) => {
+                const m = i + 1;
+                if (!window._ganttMonthFilter) return '#F38E00';
+                return window._ganttMonthFilter === m ? '#F38E00' : '#F38E0044';
             });
-
-            // Plugin to show % uso centered on bars
-            const ganttPctPlugin = {
-                id: 'ganttPctLabels',
-                afterDatasetsDraw(chart) {
-                    const { ctx } = chart;
-                    const meta0 = chart.getDatasetMeta(0); // Completado
-                    meta0.data.forEach((bar, j) => {
-                        const m = ganttMeta[j];
-                        if (!m || m.pctUso === 0) return;
-                        const props = bar.getProps(['x','y','width','height','base'], true);
-                        const barW = Math.abs(props.x - props.base);
-                        if (barW < 30) return;
-                        ctx.save();
-                        ctx.fillStyle = '#ffffff';
-                        ctx.font = 'bold 11px sans-serif';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(m.pctUso + '%', props.base + barW / 2, props.y);
-                        ctx.restore();
-                    });
-                }
-            };
-
-            if (chartsObj.proGantt) chartsObj.proGantt.destroy();
-            chartsObj.proGantt = new Chart(document.getElementById('chart-pro-gantt'), {
-                type: 'bar',
-                plugins: [ganttPctPlugin],
-                data: {
-                    labels: ganttLabels,
-                    datasets: [
-                        { label: 'Completado', data: ganttProg, backgroundColor: '#2176AC', barPercentage: 0.75, categoryPercentage: 0.85, borderRadius: 6, borderSkipped: false },
-                        { label: 'Exceso >100%', data: ganttExcess, backgroundColor: '#ef4444', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false, borderRadius: 6, borderSkipped: false },
-                        { label: 'Duración Total', data: ganttBase, backgroundColor: '#e2e8f0', barPercentage: 0.75, categoryPercentage: 0.85, grouped: false, borderRadius: 6, borderSkipped: false }
-                    ]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            position: 'top',
-                            type: 'time',
-                            time: {
-                                unit: 'month',
-                                displayFormats: { month: 'MMM yy' },
-                                tooltipFormat: 'dd/MM/yyyy'
-                            },
-                            ticks: {
-                                display: false
-                            },
-                            grid: { drawTicks: false },
-                            min: minGanttTime || undefined,
-                            max: maxGanttTime || undefined
-                        },
-                        // ── Punto 3: Eje Y trunca visualmente pero labels completos accesibles ──
-                        y: {
-                            ticks: {
-                                callback: function(value, index) {
-                                    const label = this.getLabelForValue(value);
-                                    return label.length > 25 ? label.substring(0, 22) + '...' : label;
-                                },
-                                font: { size: 11 }
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                title: function(items) {
-                                    // ── Punto 4: Mostrar código + servicio completo sin truncar ──
-                                    return ganttLabels[items[0].dataIndex] || '';
-                                },
-                                label: function(ctx) {
-                                    const meta = ganttMeta[ctx.dataIndex];
-                                    if (!meta) return ctx.dataset.label;
-                                    const lines = [];
-                                    if (ctx.datasetIndex === 0) {
-                                        lines.push('Progreso: ' + meta.horasUsadas + 'h / ' + meta.horas + 'h');
-                                        // ── Punto 4: Añadir horas restantes ──
-                                        lines.push('Horas restantes: ' + meta.horasRestantes + 'h');
-                                    } else {
-                                        lines.push('Horas totales: ' + fmtN.format(meta.horas) + 'h');
-                                    }
-                                    return lines;
-                                },
-                                afterBody: function(items) {
-                                    const meta = ganttMeta[items[0].dataIndex];
-                                    if (!meta) return [];
-                                    const lines = [];
-                                    if (meta.rble) lines.push('Rble: ' + meta.rble);
-                                    if (meta.t1) lines.push('T1: ' + meta.t1);
-                                    if (meta.t2) lines.push('T2: ' + meta.t2);
-                                    if (meta.t3) lines.push('T3: ' + meta.t3);
-                                    if (meta.grupo) lines.push('Grupo: ' + meta.grupo);
-                                    if (meta.cliente && meta.cliente !== meta.grupo) lines.push('Cliente: ' + meta.cliente);
-                                    if (meta.presupuesto != null) lines.push('Presupuesto: ' + fmtE.format(meta.presupuesto));
-                                    if (meta.gastos != null) lines.push('Gastos: ' + fmtE.format(meta.gastos));
-                                    return lines;
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-
-            // Populate sticky date header from Gantt x-axis
-            setTimeout(() => {
-                const ganttChart = chartsObj.proGantt;
-                const stickyHeader = document.getElementById('gantt-sticky-header');
-                if (ganttChart && stickyHeader) {
-                    const xScale = ganttChart.scales.x;
-                    if (xScale && xScale.ticks) {
-                        const chartArea = ganttChart.chartArea;
-                        let html = '<div style="position:relative;height:32px;font-size:11px;color:#64748b;font-weight:500;">';
-                        xScale.ticks.forEach((tick, i) => {
-                            const x = xScale.getPixelForTick(i);
-                            const label = tick.label || '';
-                            html += '<span style="position:absolute;left:' + x + 'px;top:8px;transform:translateX(-50%);white-space:nowrap;">' + label + '</span>';
-                        });
-                        html += '</div>';
-                        stickyHeader.innerHTML = html;
-                        stickyHeader.style.minWidth = ganttChart.canvas.parentElement.style.minWidth || '1000px';
-                    }
-                }
-            }, 200);
-
             if (chartsObj.proMeses) chartsObj.proMeses.destroy();
             chartsObj.proMeses = new Chart(document.getElementById('chart-pro-bar-meses'), {
                 type: 'bar',
                 data: {
                     labels: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
-                    datasets: [{ label: 'Horas Asignadas', data: Object.values(hrsPorMes), backgroundColor: '#F38E00', borderRadius: 4 }]
+                    datasets: [{ label: 'Horas Asignadas', data: Object.values(hrsPorMes), backgroundColor: mesColors, borderRadius: 4 }]
                 },
-                options: { responsive: true, maintainAspectRatio: false }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    onClick: (evt, elements) => {
+                        if (!elements.length) return;
+                        const clickedMonth = elements[0].index + 1;
+                        window._ganttMonthFilter = window._ganttMonthFilter === clickedMonth ? null : clickedMonth;
+                        if (window._proGanttFull) _renderProGantt(window._proGanttFull, window._ganttMonthFilter);
+                        // Update bar colors
+                        const newColors = Array.from({ length: 12 }, (_, i) => {
+                            if (!window._ganttMonthFilter) return '#F38E00';
+                            return window._ganttMonthFilter === i + 1 ? '#F38E00' : '#F38E0044';
+                        });
+                        chartsObj.proMeses.data.datasets[0].backgroundColor = newColors;
+                        chartsObj.proMeses.update();
+                    },
+                    plugins: { tooltip: { callbacks: { footer: () => 'Clic para filtrar Gantt' } } }
+                }
             });
         }
 
@@ -7085,6 +7596,23 @@
                 });
             });
 
+            // Render horas × tipo_servicio table
+            renderPartesHorasTipoServicio();
+
+            // Wire filter buttons (once)
+            if (!document.getElementById('btn-update-pts')?._wired) {
+                const btnUpd = document.getElementById('btn-update-pts');
+                const btnClr = document.getElementById('btn-clear-pts');
+                if (btnUpd) { btnUpd._wired = true; btnUpd.addEventListener('click', renderPartesHorasTipoServicio); }
+                if (btnClr) { btnClr.addEventListener('click', () => {
+                    ['filt-pts-year','filt-pts-month','filt-pts-srv'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) [...el.options].forEach(o => o.selected = false);
+                    });
+                    renderPartesHorasTipoServicio();
+                }); }
+            }
+
             // Error table: admin sees all, lectura/edicion/financiero see only own
             if (errContainer) {
                 let fe = errores.filter(e => e.observaciones !== '');
@@ -7107,6 +7635,170 @@
             }
         }
 
+
+        // ═══ Horas por Técnico × Tipo Servicio (solo expedientes facturados) ═══
+        function renderPartesHorasTipoServicio() {
+            const container = document.getElementById('partes-tipo-srv-container');
+            if (!container) return;
+            const rawData = window._partesHorasData;
+            if (!rawData) return;
+
+            // If production memory is empty, load it first (cargarProduccion may not have run yet)
+            if (!datosProduccionMemoria.length && !window._prodFactCacheLoading) {
+                window._prodFactCacheLoading = true;
+                container.innerHTML = '<p style="color:#64748b;padding:14px;font-size:13px;">Cargando datos de producción...</p>';
+                getDocs(collection(db, 'produccion')).then(snap => {
+                    snap.forEach(d => {
+                        const data = d.data();
+                        data._docId = d.id;
+                        if (!datosProduccionMemoria.find(p => p.num_trabajo === data.num_trabajo))
+                            datosProduccionMemoria.push(data);
+                    });
+                    window._prodFactCacheLoading = false;
+                    renderPartesHorasTipoServicio();
+                }).catch(() => { window._prodFactCacheLoading = false; });
+                return;
+            }
+            if (window._prodFactCacheLoading) return;
+
+            const yearSel  = document.getElementById('filt-pts-year');
+            const monthSel = document.getElementById('filt-pts-month');
+            const srvSel   = document.getElementById('filt-pts-srv');
+            const mNames   = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+            // Build lookup: num_trabajo → tipo_servicio  (only for records with fecha_facturacion)
+            const prodFactLookup = {};
+            datosProduccionMemoria.forEach(prod => {
+                if ((prod.fecha_facturacion || '').trim()) {
+                    prodFactLookup[String(prod.num_trabajo || '')] = (prod.tipo_servicio || '').trim() || 'Sin tipo';
+                }
+            });
+
+            // First pass: collect available years, months, tipo_servicios (no filters yet)
+            const availYears  = new Set();
+            const availMonths = new Set();
+            const availSrvs   = new Set();
+            rawData.forEach(p => {
+                const fecha = parseFechaUniversal(p.fecha);
+                if (!fecha || !(parseFloat(p.horas) > 0)) return;
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const m = obs.match(/^(\d{3,6})/);
+                if (!m) return;
+                const tipoSrv = prodFactLookup[m[1]];
+                if (!tipoSrv) return;
+                availYears.add(fecha.getFullYear());
+                availMonths.add(fecha.getMonth() + 1);
+                availSrvs.add(tipoSrv);
+            });
+
+            // Populate selects (once)
+            if (yearSel && !yearSel.options.length) {
+                [...availYears].sort().reverse().forEach(y => {
+                    const o = document.createElement('option');
+                    o.value = y; o.textContent = y;
+                    if (y === new Date().getFullYear()) o.selected = true;
+                    yearSel.appendChild(o);
+                });
+            }
+            if (monthSel && !monthSel.options.length) {
+                [...availMonths].sort((a,b) => a-b).forEach(m => {
+                    const o = document.createElement('option');
+                    o.value = m; o.textContent = mNames[m];
+                    monthSel.appendChild(o);
+                });
+            }
+            if (srvSel && !srvSel.options.length) {
+                [...availSrvs].sort().forEach(s => {
+                    const o = document.createElement('option');
+                    o.value = s; o.textContent = s;
+                    srvSel.appendChild(o);
+                });
+            }
+
+            // Read active filters
+            const selYear   = parseInt(yearSel?.value || '0') || null;
+            const selMonths = monthSel ? [...monthSel.selectedOptions].map(o => parseInt(o.value)) : [];
+            const selSrvs   = srvSel   ? [...srvSel.selectedOptions].map(o => o.value)            : [];
+
+            const soloPropio = (currentUserRole === 'lectura' || currentUserRole === 'ofertador');
+
+            // Second pass: accumulate with filters
+            const tecData  = {};   // tecAcr → { label, byTipoSrv: {} }
+            const colSrvs  = new Set();
+
+            rawData.forEach(p => {
+                const fecha = parseFechaUniversal(p.fecha);
+                if (!fecha || !(parseFloat(p.horas) > 0)) return;
+                if (selYear  && fecha.getFullYear()  !== selYear)  return;
+                if (selMonths.length && !selMonths.includes(fecha.getMonth() + 1)) return;
+
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const m   = obs.match(/^(\d{3,6})/);
+                if (!m) return;
+                const tipoSrv = prodFactLookup[m[1]];
+                if (!tipoSrv) return;
+                if (selSrvs.length && !selSrvs.includes(tipoSrv)) return;
+
+                const tec = resolverTecPorIdTec((p.trabajador || '').trim());
+                if (!tec) return;
+                const tecInfo = listaTecnicos.find(t => t.acronimo === tec.acronimo);
+                if (tecInfo && tecInfo.rol === 'financiero') return;
+                if (soloPropio && currentUserAcronym && tec.acronimo !== currentUserAcronym) return;
+
+                const horas = parseFloat(p.horas);
+                colSrvs.add(tipoSrv);
+                if (!tecData[tec.acronimo]) tecData[tec.acronimo] = { label: tec.nombre_pila || tec.acronimo, byTipoSrv: {} };
+                tecData[tec.acronimo].byTipoSrv[tipoSrv] = (tecData[tec.acronimo].byTipoSrv[tipoSrv] || 0) + horas;
+            });
+
+            const srvList = [...colSrvs].sort();
+            const tecKeys = Object.keys(tecData)
+                .filter(k => Object.values(tecData[k].byTipoSrv).reduce((s,v) => s+v, 0) > 0)
+                .sort((a,b) => tecData[a].label.localeCompare(tecData[b].label));
+
+            if (!srvList.length) {
+                container.innerHTML = '<p style="color:#64748b;padding:14px;font-size:13px;">No hay datos de expedientes facturados para el período seleccionado.</p>';
+                return;
+            }
+
+            const fmtH = v => !v ? '—' : (v % 1 === 0 ? String(v) : v.toFixed(1));
+            const thStyle  = (extra='') => `padding:8px 12px;background:#1e40af;color:white;font-weight:600;font-size:13px;white-space:nowrap;${extra}`;
+            const thStickyL = `padding:8px 14px;background:#1e40af;color:white;font-weight:700;font-size:13px;text-align:left;min-width:150px;position:sticky;left:0;z-index:4;`;
+
+            let html = `<table style="width:max-content;border-collapse:collapse;">
+              <thead style="position:sticky;top:0;z-index:3;"><tr>
+                <th style="${thStickyL}">Técnico</th>`;
+            srvList.forEach(s => {
+                html += `<th style="${thStyle('text-align:center;min-width:90px;')}">${escapeHTML(s)}</th>`;
+            });
+            html += `<th style="${thStyle('text-align:center;min-width:70px;background:#1e3a8a;')}">Total</th></tr></thead><tbody>`;
+
+            tecKeys.forEach((k, i) => {
+                const td = tecData[k];
+                const rowTotal = Object.values(td.byTipoSrv).reduce((s,v) => s+v, 0);
+                const bg = i % 2 === 0 ? '#f8fafc' : 'white';
+                html += `<tr style="background:${bg};border-bottom:1px solid #e2e8f0;">
+                  <td style="padding:7px 14px;font-weight:600;color:#1e293b;white-space:nowrap;position:sticky;left:0;background:${bg};z-index:1;">${escapeHTML(td.label)}</td>`;
+                srvList.forEach(s => {
+                    const h = td.byTipoSrv[s] || 0;
+                    html += `<td style="padding:6px 12px;text-align:center;font-weight:${h?'600':'400'};color:${h?'#0f172a':'#cbd5e1'};">${fmtH(h)}</td>`;
+                });
+                html += `<td style="padding:6px 12px;text-align:center;font-weight:700;color:#0f172a;background:#e2e8f0;">${fmtH(rowTotal)}</td></tr>`;
+            });
+
+            // Totals row
+            html += `<tr style="border-top:2px solid #3b82f6;background:#dbeafe;">
+              <td style="padding:7px 14px;font-weight:700;color:#1e293b;position:sticky;left:0;background:#dbeafe;z-index:1;">Total</td>`;
+            let grandTotal = 0;
+            srvList.forEach(s => {
+                const colTotal = tecKeys.reduce((sum,k) => sum + (tecData[k].byTipoSrv[s] || 0), 0);
+                grandTotal += colTotal;
+                html += `<td style="padding:6px 12px;text-align:center;font-weight:700;color:#1e3a8a;">${fmtH(colTotal)}</td>`;
+            });
+            html += `<td style="padding:6px 12px;text-align:center;font-weight:700;color:#1e3a8a;background:#bfdbfe;">${fmtH(grandTotal)}</td></tr>`;
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
 
         // ═══ Dashboard Productividad ═══
         function cargarDashboardRendimiento() {
@@ -7272,10 +7964,10 @@
                 tecCarga[tec.acronimo].porFacturar += horas * costeHoraActual;
             });
 
-            // Sort by totalAsignado descending
+            // Sort by facturado descending
             const cargaKeys = Object.keys(tecCarga)
                 .filter(k => tecCarga[k].totalAsignado > 0 || tecCarga[k].porFacturar > 0 || tecCarga[k].facturado > 0)
-                .sort((a, b) => tecCarga[b].totalAsignado - tecCarga[a].totalAsignado);
+                .sort((a, b) => tecCarga[b].facturado - tecCarga[a].facturado);
 
             const container1 = document.getElementById('container-carga-rendimiento');
             if (container1) {
@@ -7889,13 +8581,14 @@
                 porFacturarMes[fecha.getMonth()] += horas * costeHoraActual;
             });
 
-            // Plugin to show total on top of stacked bars
+            // Plugin to show total on top of stacked bars, and the amount inside each segment
             const stackedTotalPlugin = {
                 id: 'stackedTotal',
                 afterDatasetsDraw(chart) {
                     const { ctx } = chart;
                     const meta0 = chart.getDatasetMeta(0);
                     const meta1 = chart.getDatasetMeta(1);
+                    const fmtSeg = v => v >= 1000 ? Math.round(v / 1000) + 'k' : String(Math.round(v));
                     meta0.data.forEach((bar, j) => {
                         const v0 = chart.data.datasets[0].data[j] || 0;
                         const v1 = chart.data.datasets[1].data[j] || 0;
@@ -7908,8 +8601,30 @@
                         ctx.font = '500 11px sans-serif';
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'bottom';
-                        const label = total >= 1000 ? Math.round(total/1000) + 'k' : String(total);
+                        const label = fmtSeg(total);
                         ctx.fillText(label, bar.x, yPos);
+                        ctx.restore();
+
+                        // Importe dentro de cada zona de color (negrita, blanco)
+                        ctx.save();
+                        ctx.font = 'bold 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillStyle = '#ffffff';
+
+                        // Zona verde — Facturado
+                        const greenTop = bar.y, greenBottom = bar.base;
+                        if (v0 > 0 && (greenBottom - greenTop) >= 14) {
+                            ctx.fillText(fmtSeg(v0), bar.x, (greenTop + greenBottom) / 2);
+                        }
+
+                        // Zona azul — Por facturar
+                        if (topBar !== bar) {
+                            const blueTop = topBar.y, blueBottom = topBar.base;
+                            if (v1 > 0 && (blueBottom - blueTop) >= 14) {
+                                ctx.fillText(fmtSeg(v1), bar.x, (blueTop + blueBottom) / 2);
+                            }
+                        }
                         ctx.restore();
                     });
                 }
@@ -8233,7 +8948,7 @@
 
 
         document.getElementById('btn-update-dash-ofe')?.addEventListener('click', cargarDashboard);
-        document.getElementById('btn-update-dash-pro')?.addEventListener('click', cargarDashboard);
+        document.getElementById('btn-update-dash-pro')?.addEventListener('click', () => { window._ganttMonthFilter = null; cargarDashboard(); });
         // ── Punto 7: Listener botón Aplicar del informe Financiero ──
         document.getElementById('btn-update-dash-financiero')?.addEventListener('click', () => cargarDashboardFinanciero());
 
@@ -8245,13 +8960,10 @@
         });
 
         document.getElementById('btn-clear-dash-pro')?.addEventListener('click', () => {
-            ['filt-pro-year', 'filt-pro-month', 'filt-pro-rble', 'filt-pro-t2', 'filt-pro-t3', 'filt-pro-srv'].forEach(id => {
-                const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
+            ['filt-pro-year', 'filt-pro-month', 'filt-pro-rble', 'filt-pro-t1', 'filt-pro-t2', 'filt-pro-t3', 'filt-pro-srv', 'filt-pro-vb'].forEach(id => {
+                const el = document.getElementById(id); if (el) el.selectedIndex = 0;
             });
-            const vbSel = document.getElementById('filt-pro-vb');
-            if (vbSel) vbSel.value = '';
-            const t1 = document.getElementById('filt-pro-t1');
-            if (t1) Array.from(t1.options).forEach(o => o.selected = true);
+            window._ganttMonthFilter = null;
             cargarDashboard();
         });
 
@@ -9531,6 +10243,10 @@
 
                                 progressText.textContent = 'Procesando nuevas horas...';
 
+                                // Contador por clave natural para manejar el caso excepcional
+                                // de un mismo trabajador con dos registros el mismo día y misma referencia
+                                const keyCounter = {};
+
                                 for (let i = 1; i < data.length; i++) {
                                     const row = data[i];
                                     if (!row || row.length < 13) continue;
@@ -9551,8 +10267,16 @@
                                     const idTrabajoSaneado = limpiarParaID(idTrabajoVinculado);
                                     const trabajadorSaneado = limpiarParaID(trabajadorLimpio);
 
-                                    // Generar ID único usando el pattern: `hora_{num_trabajo}_timestamp_{worker}_index`
-                                    const docBase = `hora_${idTrabajoSaneado}_${new Date().getTime()}_${trabajadorSaneado}_${i}`;
+                                    // ID determinista basado en clave natural: trabajador + fecha + referencia
+                                    // Permite que al reimportar, los registros modificados se
+                                    // sobreescriban en vez de duplicarse.
+                                    const fechaSaneada = limpiarParaID(row[4] ? row[4].trim() : 'sin_fecha');
+                                    const referenciaSaneada = limpiarParaID(row[3] ? row[3].trim() : 'sin_ref');
+                                    const naturalKey = `hora_${trabajadorSaneado}_${fechaSaneada}_${referenciaSaneada}`;
+                                    // Añadir contador secuencial para el caso raro de claves duplicadas
+                                    keyCounter[naturalKey] = (keyCounter[naturalKey] || 0) + 1;
+                                    const seq = keyCounter[naturalKey] - 1;
+                                    const docBase = seq === 0 ? naturalKey : `${naturalKey}_${seq}`;
                                     const docId = limpiarParaID(docBase);
 
                                     const firestoreDoc = {
@@ -9750,21 +10474,6 @@
                     alert(`Cuentas creadas: ${ok} nuevas, ${skip} ya existían, ${err} errores.\nTotal técnicos con email: ${tecnicosConEmail.length}`);
                     btnCrearCuentas.disabled = false;
                     btnCrearCuentas.textContent = '🔑 Crear cuentas';
-                });
-            }
-
-            // Botón "Resumen" — toggle barra de resumen inferior (admin)
-            const btnToggleSummaryEl = document.getElementById('btn-toggle-summary');
-            if (btnToggleSummaryEl) {
-                let summaryVisible = false;
-                btnToggleSummaryEl.style.opacity = '0.5';
-                btnToggleSummaryEl.addEventListener('click', () => {
-                    summaryVisible = !summaryVisible;
-                    const bar = document.getElementById('admin-summary-bar');
-                    const cont = document.getElementById('prod-table-container');
-                    if (bar) bar.style.display = summaryVisible ? 'flex' : 'none';
-                    if (cont) cont.style.height = summaryVisible ? 'calc(100vh - 224px)' : 'calc(100vh - 160px)';
-                    btnToggleSummaryEl.style.opacity = summaryVisible ? '1' : '0.5';
                 });
             }
 
@@ -10451,27 +11160,30 @@
             background-color: rgba(0, 0, 0, 0.018);
         }
 
-        /* ── Barra resumen admin ── */
+        /* ── Barra resumen admin (fija, una línea, texto 12px) ── */
         #admin-summary-bar {
-            display: flex; gap: 12px; padding: 8px 14px;
+            display: flex; gap: 8px; padding: 3px 14px;
             background: #f1f5f9; border-top: 1px solid #e2e8f0;
-            flex-shrink: 0; flex-wrap: wrap;
+            flex-shrink: 0; flex-wrap: nowrap; align-items: center;
         }
         .admin-summary-card {
-            flex: 1; min-width: 160px; background: white;
-            border: 1px solid #e2e8f0; border-radius: 8px;
-            padding: 8px 14px; display: flex; flex-direction: column; gap: 1px;
+            flex: 1; min-width: 0; background: white;
+            border: 1px solid #e2e8f0; border-radius: 6px;
+            padding: 2px 10px; display: flex; align-items: baseline; gap: 5px;
+            white-space: nowrap; overflow: hidden; line-height: 1.1;
         }
         .admin-summary-card .sc-label {
             font-size: 10px; color: #64748b; font-weight: 600;
-            text-transform: uppercase; letter-spacing: 0.05em;
+            text-transform: uppercase; letter-spacing: 0.03em;
         }
         .admin-summary-card .sc-value {
-            font-size: 17px; font-weight: 700; color: #1e293b;
+            font-size: 12px; font-weight: 700; color: #1e293b;
         }
-        .admin-summary-card.sc-pendiente { border-left: 3px solid #f59e0b; }
-        .admin-summary-card.sc-realizada { border-left: 3px solid #22c55e; }
-        .admin-summary-card.sc-horas     { border-left: 3px solid #3b82f6; }
+        .admin-summary-card.sc-presupuesto { border-left: 3px solid #f59e0b; }
+        .admin-summary-card.sc-realizada   { border-left: 3px solid #22c55e; }
+        .admin-summary-card.sc-gastos      { border-left: 3px solid #ef4444; }
+        .admin-summary-card.sc-horas       { border-left: 3px solid #3b82f6; }
+        .admin-summary-card.sc-t1          { border-left: 3px solid #8b5cf6; }
 
         /* ── Progress Bar ── */
         .progress-container {
@@ -10535,9 +11247,21 @@
         .dash-tabs {
             display: flex;
             gap: 4px;
-            margin-bottom: 24px;
+            margin-bottom: 12px;
             border-bottom: 2px solid var(--border-light);
             padding-bottom: 0;
+        }
+
+        #dash-pro-filtros .filter-group {
+            flex: 0 0 auto;
+            min-width: 0;
+        }
+        #dash-pro-filtros .filter-group > .multi-select,
+        #dash-pro-filtros .filter-group > select {
+            min-width: 0;
+            width: auto;
+            max-width: 130px;
+            border-radius: var(--radius);
         }
 
         .dash-tab {
@@ -10931,20 +11655,15 @@
                     <span onclick="document.getElementById('input-file-suministro').click()">Importar</span>
                 </button>
 
-                <button id="btn-toggle-summary" class="btn-secondary" title="Mostrar/ocultar resumen de facturación" style="display: none; padding: 8px 12px; font-size: 13px;">📊 Resumen</button>
-                <button id="btn-papelera" class="btn-secondary" title="Papelera — filas borradas (recuperables)" style="display: none; padding: 8px 12px; font-size: 13px;">🗑️ Papelera</button>
+                <button id="btn-papelera" class="btn-secondary" title="Papelera — filas borradas (recuperables)" style="display: none; padding: 8px 12px; font-size: 13px;">🗑️</button>
                 <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="display: none; padding: 10px;">
                     <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                     </svg>
                 </button>
 
-                <!-- Importar Producción -->
-                <label id="btn-subir-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer; align-items: center; gap: 6px;" title="Importar Excel de Producción">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#217346" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-                    Importar
-                    <input type="file" id="csv-import-produccion" accept=".csv,.xlsx,.xls" style="display:none;" />
-                </label>
+                <!-- Importar Producción — eliminado; la sync se hace via SharePoint -->
+                <input type="file" id="csv-import-produccion" accept=".csv,.xlsx,.xls" style="display:none;" />
 
                 <!-- Importar Ofertas -->
                 <label id="btn-subir-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; cursor: pointer; align-items: center; gap: 6px;" title="Importar ofertas desde CSV/Excel">
@@ -10956,19 +11675,19 @@
                 <!-- Sync desde SharePoint — Ofertas -->
                 <button id="btn-sync-sp-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;" title="Leer Ofertas desde Excel de SharePoint y actualizar Firestore">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>
-                    SharePoint →
+                    Sincronizar
                 </button>
 
                 <!-- Sync desde SharePoint — Producción -->
                 <button id="btn-sync-sp-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;" title="Leer Producción desde Excel de SharePoint y actualizar Firestore">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>
-                    SharePoint →
+                    Sincronizar
                 </button>
 
                 <!-- Exportar -->
                 <button id="btn-export" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#217346" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-                    Exportar
+                    Export
                 </button>
             </div>
 
@@ -11027,19 +11746,27 @@
                             </tbody>
                         </table>
                     </div>
-                    <!-- Barra resumen admin (visible solo para rol admin) -->
+                    <!-- Barra resumen admin (visible y fija solo para rol admin) -->
                     <div id="admin-summary-bar" style="display: none;">
-                        <div class="admin-summary-card sc-pendiente">
-                            <span class="sc-label">Facturación pendiente</span>
-                            <span class="sc-value" id="sum-factura-pendiente">—</span>
+                        <div class="admin-summary-card sc-presupuesto">
+                            <span class="sc-label">Presupuesto</span>
+                            <span class="sc-value" id="sum-presupuesto">—</span>
                         </div>
                         <div class="admin-summary-card sc-realizada">
                             <span class="sc-label">Facturación realizada</span>
                             <span class="sc-value" id="sum-factura-realizada">—</span>
                         </div>
+                        <div class="admin-summary-card sc-gastos">
+                            <span class="sc-label">Gastos</span>
+                            <span class="sc-value" id="sum-gastos">—</span>
+                        </div>
                         <div class="admin-summary-card sc-horas">
-                            <span class="sc-label">Horas pendientes</span>
-                            <span class="sc-value" id="sum-horas-pendientes">—</span>
+                            <span class="sc-label">Horas disp. (sin VB)</span>
+                            <span class="sc-value" id="sum-horas-disp">—</span>
+                        </div>
+                        <div class="admin-summary-card sc-t1">
+                            <span class="sc-label">Horas disp./T1</span>
+                            <span class="sc-value" id="sum-horas-t1">—</span>
                         </div>
                     </div>
                 </div>
@@ -11054,6 +11781,7 @@
                                     <th>Pertenece a Licitación</th>
                                     <th>Es Licitación</th>
                                     <th style="cursor: pointer;" id="th-sort-fecha-oferta"
+                                        data-sort-dir="desc"
                                         title="Ordenar por Fecha Oferta">Fecha Oferta <span class="sort-icon"
                                             style="font-size: 10px; color: #94a3b8; margin-left: 4px;">▼</span></th>
                                     <th>Agente Comercial</th>
@@ -11119,9 +11847,6 @@
                                     <th>VB Cliente</th>
                                     <th>Fecha Facturación</th>
                                     <th>Total H</th>
-                                    <th>Nº Factura</th>
-                                    <th>Mes Factura</th>
-                                    <th style="background:#e2e8f0;color:#475569;text-align:center;">Archivar</th>
                                 </tr>
                             </thead>
                             <tbody id="table-body-suministro">
@@ -11135,12 +11860,7 @@
 
                 <!-- Vista: Dashboard -->
                 <div id="view-dashboard" class="app-view"
-                    style="display: none; height: calc(100vh - 60px); overflow-y: auto; padding: 24px; box-sizing: border-box; background-color: #f8fafc;">
-
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
-                        <h1 style="margin: 0; color: #1e293b; font-size: 24px;">Informes</h1>
-                    </div>
+                    style="display: none; height: calc(100vh - 60px); overflow-y: auto; padding: 8px 24px 24px; box-sizing: border-box; background-color: #f8fafc;">
 
                     <div class="dash-tabs">
                         <button class="dash-tab active" id="tab-dash-produccion">Producción</button>
@@ -11227,27 +11947,39 @@
 
                     <div id="panel-dash-produccion" style="display: block;">
                         <div id="dash-pro-filtros"
-                            style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-pro-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-year').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>Mes</label><div class="filter-wrap">
-                                <select id="filt-pro-month" class="multi-select" multiple>
-                                    <option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option>
-                                </select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-month').selectedIndex=-1;">✕</button></div>
+                            style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: nowrap; align-items: flex-end;">
+                            <div class="filter-group"><label>Año</label><select id="filt-pro-year" class="multi-select"></select></div>
+                            <div class="filter-group"><label>Mes</label><select id="filt-pro-month" class="multi-select"><option value="">Todos</option><option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option></select></div>
+                            <div class="filter-group"><label>Téc. Rble.</label><select id="filt-pro-rble" class="multi-select"></select></div>
+                            <div class="filter-group"><label>Ejecutor (T1)</label><select id="filt-pro-t1" class="multi-select"></select></div>
+                            <div class="filter-group"><label>T2 (Apoyo AM)</label><select id="filt-pro-t2" class="multi-select"></select></div>
+                            <div class="filter-group"><label>T3 (Apoyo AN)</label><select id="filt-pro-t3" class="multi-select"></select></div>
+                            <div class="filter-group"><label>Servicio</label><select id="filt-pro-srv" class="multi-select"></select></div>
+                            <div class="filter-group"><label>VB Cliente</label><select id="filt-pro-vb" class="multi-select"><option value="">Todos</option><option value="si">Si (Terminados)</option><option value="no" selected>No</option></select></div>
+                            <div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">
+                                <button id="btn-update-dash-pro" class="btn-primary" style="height: 38px;">Aplicar</button>
+                                <button id="btn-clear-dash-pro" class="btn-secondary" style="height: 38px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
                             </div>
-                            <div class="filter-group"><label>Téc. Rble.</label><div class="filter-wrap"><select id="filt-pro-rble" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-rble').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>Ejecutor (T1)</label><div class="filter-wrap"><select id="filt-pro-t1" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t1').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>T2 (Apoyo AM)</label><div class="filter-wrap"><select id="filt-pro-t2" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t2').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>T3 (Apoyo AN)</label><div class="filter-wrap"><select id="filt-pro-t3" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t3').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>Servicio</label><div class="filter-wrap"><select id="filt-pro-srv" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-srv').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>VB Cliente</label><div class="filter-wrap"><select id="filt-pro-vb" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:80px;">
-                                <option value="">Todos</option><option value="si">Si (Terminados)</option><option value="no">No</option>
-                            </select></div></div>
-                            <div style="display: flex; gap: 8px; margin-bottom: 2px;">
-                                <button id="btn-update-dash-pro" class="btn-primary"
-                                    style="height: 38px;">Aplicar</button>
-                                <button id="btn-clear-dash-pro" class="btn-secondary"
-                                    style="height: 38px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
+                        </div>
+
+                        <!-- Gantt + Horas: flex-column, altura total de pantalla disponible -->
+                        <div style="display: flex; flex-direction: column; height: calc(100vh - 200px); gap: 8px; margin-bottom: 24px;">
+
+                            <div class="chart-box" style="flex: 1; min-height: 150px; overflow: hidden; display: flex; flex-direction: column; padding: 8px;">
+                                <div id="gantt-wrapper" style="flex: 1; border: 1px solid #f1f5f9; border-radius: 4px; position: relative; overflow: hidden;">
+                                    <div id="gantt-sticky-header" style="position: sticky; top: 0; z-index: 3; background: #fff; min-width: 1000px; height: 32px; border-bottom: 1px solid #e2e8f0;"></div>
+                                    <div style="overflow: auto; height: calc(100% - 32px); width: 100%;">
+                                        <div id="gantt-scroll-container" style="min-width: 1000px; position: relative;">
+                                            <canvas id="chart-pro-gantt"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
+
+                            <div id="dash-pro-horas-mes" class="chart-box" style="flex: 0 0 auto; overflow: hidden; padding: 8px 12px;">
+                                <div style="width: 100%; height: 150px; position: relative;"><canvas id="chart-pro-bar-meses"></canvas></div>
+                            </div>
+
                         </div>
 
                         <div id="dash-pro-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
@@ -11275,32 +12007,14 @@
                                 <div class="kpi-title">Fact. Pdte. por Servicio</div>
                                 <div id="kpi-pro-fact-srv" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
                             </div>
-                             <div class="kpi-card" style="padding: 12px 16px;">
-                                 <div class="kpi-title">Fact. Realizada por Técnico</div>
-                                 <div id="kpi-pro-fact-tec-real" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
-                             </div>
-                             <div class="kpi-card" style="padding: 12px 16px;">
-                                 <div class="kpi-title">Fact. Realizada por Servicio</div>
-                                 <div id="kpi-pro-fact-srv-real" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
-                             </div>
-                        </div>
-
-                        <div class="chart-box" style="margin-bottom: 24px;">
-                            <h3 class="chart-title">Diagrama de Gantt (Progreso Real)</h3>
-                            <div id="gantt-wrapper" style="width: 100%; height: 500px; border: 1px solid #f1f5f9; border-radius: 4px; position: relative; overflow: hidden;">
-                                <div id="gantt-sticky-header" style="position: sticky; top: 0; z-index: 3; background: #fff; min-width: 1000px; height: 32px; border-bottom: 1px solid #e2e8f0;"></div>
-                                <div style="overflow: auto; height: calc(100% - 32px); width: 100%;">
-                                    <div id="gantt-scroll-container" style="min-width: 1000px; position: relative;">
-                                        <canvas id="chart-pro-gantt"></canvas>
-                                    </div>
-                                </div>
+                            <div class="kpi-card" style="padding: 12px 16px;">
+                                <div class="kpi-title">Fact. Realizada por Técnico</div>
+                                <div id="kpi-pro-fact-tec-real" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
                             </div>
-                        </div>
-
-                        <div id="dash-pro-horas-mes" class="chart-box">
-                            <h3 class="chart-title">Horas Asignadas en Trabajos (Por Mes de Inicio)</h3>
-                            <div style="width: 100%; height: 300px; position: relative;"><canvas
-                                    id="chart-pro-bar-meses"></canvas></div>
+                            <div class="kpi-card" style="padding: 12px 16px;">
+                                <div class="kpi-title">Fact. Realizada por Servicio</div>
+                                <div id="kpi-pro-fact-srv-real" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
+                            </div>
                         </div>
                     </div>
 
@@ -11369,6 +12083,26 @@
                             <button id="btn-update-dash-partes" class="btn-primary" style="height: 38px;">Aplicar</button>
                         </div>
                         <div id="partes-tabla-container" style="overflow-x: auto; max-height: calc(100vh - 300px); overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;"></div>
+
+                        <!-- ── Horas por Técnico y Tipo de Servicio (Facturado) ── -->
+                        <div id="partes-tipo-srv-section" style="margin-top: 36px;">
+                            <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 4px;">Horas por Técnico y Tipo de Servicio</h3>
+                            <p style="color: #64748b; font-size: 13px; margin-bottom: 14px;">Solo expedientes con fecha de facturación registrada.</p>
+                            <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;">
+                                <div class="filter-group"><label>Tipo Servicio</label>
+                                    <select id="filt-pts-srv" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
+                                </div>
+                                <div class="filter-group"><label>Año</label>
+                                    <select id="filt-pts-year" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:90px;height:36px;"></select>
+                                </div>
+                                <div class="filter-group"><label>Mes</label>
+                                    <select id="filt-pts-month" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:110px;min-height:36px;"></select>
+                                </div>
+                                <button id="btn-update-pts" class="btn-primary" style="height:36px;">Aplicar</button>
+                                <button id="btn-clear-pts" class="btn-secondary" style="height:36px;background:white;color:#475569;border-color:#cbd5e1;">Borrar filtros</button>
+                            </div>
+                            <div id="partes-tipo-srv-container" style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;"></div>
+                        </div>
 
                         <div id="partes-errores-container" style="margin-top: 32px;">
                             <h3 style="font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">Registros sin código de trabajo</h3>
@@ -12070,7 +12804,7 @@
                             <li><strong>Orden de columnas</strong>: se puede reordenar arrastrando las cabeceras. El orden queda guardado por usuario en Firestore y se restaura al recargar.</li>
                             <li><strong>Tecla Tab</strong>: al editar una celda inline, Tab guarda el valor actual y salta a la siguiente celda editable de la misma fila.</li>
                             <li><strong>Tecla Enter / Escape</strong>: Enter guarda el valor; Escape cancela la edición sin guardar.</li>
-                            <li><strong>Barra de Resumen</strong> (admin): el botón 📊 Resumen en la barra de herramientas muestra u oculta las tarjetas de facturación en la parte inferior de la vista de Producción. Empieza oculta por defecto.</li>
+                            <li><strong>Barra de Resumen</strong> (admin): tarjetas fijas de Presupuesto, Facturación realizada, Gastos y Horas disponibles en la parte inferior de la vista de Producción.</li>
                             <li><strong>Renombrar columnas</strong>: doble clic en la cabecera de una columna (solo admin). El nuevo nombre se guarda y se aplica a todos los usuarios.</li>
                         </ul>
                     </div>
