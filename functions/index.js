@@ -363,6 +363,9 @@ async function runSyncToFirestore() {
 }
 
 // ─── SYNC FIRESTORE → SHAREPOINT (triggers por cambio en Firestore) ───────────
+// Regla: el Excel tiene prioridad. Las celdas con contenido en el Excel NO se
+// sobreescriben. Solo se rellena lo que está vacío en el Excel o se añaden filas
+// nuevas (creadas en la web) que aún no existen en el Excel.
 
 async function runSyncToSharePoint(coleccion, sheetName, headers, buildRow) {
     const lockRef  = db.doc(`metadata/sharepoint_sync_${coleccion}`);
@@ -376,13 +379,79 @@ async function runSyncToSharePoint(coleccion, sheetName, headers, buildRow) {
     }
     await lockRef.set({ last_sync_ms: Date.now(), pending: false }, { merge: true });
 
-    const snap = await db.collection(coleccion).get();
-    const rows = [];
-    snap.forEach((d) => rows.push(buildRow(d.id, d.data())));
-
     const token = await getMsToken();
     const { siteId, driveId, itemId } = await getSpIds(token);
-    await writeSheet(token, siteId, driveId, itemId, sheetName, headers, rows);
+
+    // 1. Leer el estado actual del Excel (fuente de verdad)
+    const excelValues = await readSheet(token, siteId, driveId, itemId, sheetName, headers.length + 8);
+
+    // Identificar la columna ID en el Excel por nombre normalizado
+    const idFieldNorm = coleccion === 'ofertas' ? 'n gestiona' : 'n trabajo';
+    let idColIdx = -1;
+    const excelHeaderNorms = [];
+    if (excelValues.length > 0) {
+        excelValues[0].forEach((h, i) => {
+            const n = normCol(String(h || ''));
+            excelHeaderNorms.push(n);
+            if (n === idFieldNorm && idColIdx < 0) idColIdx = i;
+        });
+    }
+
+    // Mapear cabeceras de salida → índice de columna en el Excel
+    const outToExcelIdx = headers.map(h => {
+        const n = normCol(h);
+        const i = excelHeaderNorms.indexOf(n);
+        return i >= 0 ? i : -1;
+    });
+
+    // Construir mapa docId → fila Excel raw
+    const excelMap = {};
+    if (idColIdx >= 0 && excelValues.length > 1) {
+        excelValues.slice(1).forEach(row => {
+            if (!row.some(c => c !== '' && c !== null)) return;
+            const id = String(row[idColIdx] || '').trim();
+            if (id) excelMap[id] = row;
+        });
+    }
+
+    // 2. Leer Firestore
+    const snap = await db.collection(coleccion).get();
+    const fsMap = {};
+    snap.forEach(d => { fsMap[d.id] = d.data(); });
+
+    // 3. Construir filas fusionadas (Excel tiene prioridad)
+    const processedIds = new Set();
+    const mergedRows   = [];
+
+    // Procesar filas Excel existentes (en su orden original)
+    if (excelValues.length > 1) {
+        excelValues.slice(1).forEach(excelRow => {
+            if (!excelRow.some(c => c !== '' && c !== null)) return;
+            const docId = idColIdx >= 0 ? String(excelRow[idColIdx] || '').trim() : '';
+            const fsData = docId ? fsMap[docId] : null;
+            const fsRow  = fsData ? buildRow(docId, fsData) : null;
+
+            const outRow = headers.map((_, hi) => {
+                const exIdx   = outToExcelIdx[hi];
+                const excelVal = exIdx >= 0 ? (excelRow[exIdx] ?? '') : '';
+                // El Excel gana si tiene contenido; si está vacío, usar Firestore
+                if (excelVal !== '' && excelVal !== null && excelVal !== undefined) return excelVal;
+                return fsRow ? (fsRow[hi] ?? '') : '';
+            });
+            mergedRows.push(outRow);
+            if (docId) processedIds.add(docId);
+        });
+    }
+
+    // Añadir filas nuevas de Firestore que no existen en el Excel
+    snap.forEach(d => {
+        if (!processedIds.has(d.id)) {
+            mergedRows.push(buildRow(d.id, d.data()));
+        }
+    });
+
+    await writeSheet(token, siteId, driveId, itemId, sheetName, headers, mergedRows);
+    logger.info(`✅ runSyncToSharePoint "${coleccion}": ${mergedRows.length} filas (${mergedRows.length - processedIds.size} nuevas de Firestore)`);
 
     const after = await lockRef.get();
     if (after.data()?.pending) {
