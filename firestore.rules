@@ -1,0 +1,291 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // HELPERS COMUNES
+    // =========================================================================
+
+    function estaAutenticado() {
+      return request.auth != null;
+    }
+
+
+    // =========================================================================
+    // APP 1: PROYECTOS SIN
+    // =========================================================================
+
+    // El rol de cada usuario se guarda en usuarios/{email}.rol
+    function getRolSIN() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.token.email)).data.rol;
+    }
+
+    function isAdminSIN() {
+      return estaAutenticado()
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.token.email))
+        && getRolSIN() == 'admin';
+    }
+
+    match /produccion/{trabajoId} {
+      allow read, write: if estaAutenticado();
+    }
+
+    match /ofertas/{ofertaId} {
+      allow read, write: if estaAutenticado();
+    }
+
+    match /suministro/{suministroId} {
+      allow read, write: if estaAutenticado();
+    }
+
+    match /historico_produccion/{trabajoId} {
+      allow read, write: if estaAutenticado();
+    }
+
+    match /partes_horas/{parteId} {
+      allow read, write: if estaAutenticado();
+    }
+
+    match /historial/{registroId} {
+      allow read, write: if estaAutenticado();
+    }
+
+    match /settings/{settingId} {
+      allow read, write: if estaAutenticado();
+    }
+
+    match /metadata/{metaId} {
+      allow read, write: if estaAutenticado();
+    }
+
+    // Solo admin puede modificar la matriz de permisos por rol (configuracion/permisos_roles)
+    match /configuracion/{configId} {
+      allow read: if estaAutenticado();
+      allow write: if isAdminSIN();
+    }
+
+    // Solo admin puede modificar la lista de técnicos (incluye el rol de cada uno);
+    // el resto de listas (servicios, oficinas, etc.) siguen abiertas para autoinicializarse
+    match /listas_config/{listaId} {
+      allow read: if estaAutenticado();
+      allow write: if estaAutenticado() && (listaId != 'tecnicos' || isAdminSIN());
+    }
+
+    // Solo admin puede modificar el documento de un usuario (incluye su rol);
+    // cada usuario solo puede leer/escribir sus propias preferencias
+    match /usuarios/{userId} {
+      allow read: if estaAutenticado();
+      allow write: if isAdminSIN();
+      match /preferencias/{prefId} {
+        allow read, write: if estaAutenticado() && (request.auth.uid == userId || isAdminSIN());
+      }
+    }
+
+    match /usuarios_activos/{emailId} {
+      allow read, write: if estaAutenticado();
+    }
+
+
+    // =========================================================================
+    // APP 2: TESIC LEX
+    // =========================================================================
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return estaAutenticado() && getUserRole() == 'admin';
+    }
+
+    function isResponsable() {
+      return estaAutenticado() && getUserRole() in ['admin', 'responsable'];
+    }
+
+    function isTecnico() {
+      return estaAutenticado() && getUserRole() in ['admin', 'responsable', 'tecnico'];
+    }
+
+    match /users/{userId} {
+      allow read: if estaAutenticado() && (request.auth.uid == userId || isAdmin());
+      allow create: if estaAutenticado() && request.auth.uid == userId;
+      allow update: if isAdmin()
+        || (estaAutenticado()
+          && request.auth.uid == userId
+          && !('role' in request.resource.data.diff(resource.data).affectedKeys()));
+      allow delete: if isAdmin();
+    }
+
+    match /sections/{sectionId} {
+      allow read: if isTecnico();
+      allow create, update, delete: if isResponsable();
+    }
+
+    match /laws/{lawId} {
+      allow read: if isTecnico();
+      allow create, update: if isResponsable();
+      allow delete: if isAdmin();
+    }
+
+    match /alerts/{alertId} {
+      allow read: if isTecnico();
+      allow create, update: if isResponsable();
+      allow delete: if isAdmin();
+    }
+
+    match /rssSources/{sourceId} {
+      allow read, write: if isResponsable();
+    }
+
+    match /keywords/{keywordId} {
+      allow read: if isTecnico();
+      allow write: if isResponsable();
+    }
+
+    match /chatSessions/{sessionId} {
+      allow read: if estaAutenticado() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+      allow create: if estaAutenticado()
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if estaAutenticado()
+        && resource.data.userId == request.auth.uid;
+      allow delete: if estaAutenticado()
+        && (resource.data.userId == request.auth.uid || isAdmin());
+
+      match /messages/{messageId} {
+        allow read: if estaAutenticado() && (
+          get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId
+            == request.auth.uid || isAdmin()
+        );
+        allow create: if estaAutenticado()
+          && get(/databases/$(database)/documents/chatSessions/$(sessionId)).data.userId
+            == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    match /plans/{planId} {
+      allow read: if isTecnico();
+      allow create, update: if isResponsable();
+      allow delete: if isAdmin();
+
+      match /months/{monthId} {
+        allow read: if isTecnico();
+        allow write: if isResponsable();
+      }
+    }
+
+    match /metering/{meterId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /clients/{clientId} {
+      allow read, write: if isAdmin();
+
+      match /months/{monthId} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+    }
+
+    match /auditLogs/{entryId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /normasCatalog/{normaId} {
+      allow read: if isTecnico();
+      allow write: if false;
+    }
+
+    match /evaClients/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /evaApiKeys/{keyId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /evaRateLimits/{clientId} {
+      allow read: if isAdmin();
+      allow write: if false;
+
+      match /minute/{minuteKey} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+    }
+
+    match /evaChatSessions/{sessionId} {
+      allow read: if isAdmin();
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+    }
+
+    match /selfProtectionPlans/{planId} {
+      allow read: if isTecnico();
+      allow create, update: if isResponsable();
+      allow delete: if isAdmin();
+    }
+
+
+    // =========================================================================
+    // APP 3: CONTROL HORARIO (prefijo ch_)
+    // =========================================================================
+
+    function isChAdmin() {
+      let adminsDoc = get(/databases/$(database)/documents/ch_config/admins);
+      return estaAutenticado()
+        && adminsDoc.data != null
+        && request.auth.token.email in adminsDoc.data.emails;
+    }
+
+    match /ch_config/{configId} {
+      allow read: if estaAutenticado();
+      allow write: if isChAdmin();
+    }
+
+    match /ch_trabajadores/{trabajadorId} {
+      allow read: if isChAdmin()
+               || (estaAutenticado()
+                   && resource.data.email == request.auth.token.email)
+               || (estaAutenticado()
+                   && resource.data.responsable_email == request.auth.token.email);
+      allow write: if isChAdmin();
+    }
+
+    match /ch_calendarios/{calId} {
+      allow read: if estaAutenticado();
+      allow write: if isChAdmin();
+    }
+
+    match /ch_envios_log/{logId} {
+      allow read: if isChAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /ch_auditoria/{auditId} {
+      allow read: if isChAdmin();
+      allow create: if estaAutenticado();
+      allow update, delete: if false;
+    }
+
+
+    // =========================================================================
+    // CATCH-ALL — Denegar todo lo no explicitado
+    // =========================================================================
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+  }
+}

@@ -2,5 +2,8 @@
   "dependencies": {
     "firebase-admin": "^13.10.0",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1"
   }
 }
