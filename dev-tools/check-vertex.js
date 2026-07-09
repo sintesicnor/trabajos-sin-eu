@@ -5,7 +5,7 @@ require('dotenv').config();
 async function verificarConexion() {
     console.log("🔍 Iniciando verificación profunda...");
 
-    const jsonPath = path.join(__dirname, 'trabajos-sin-eu-f7a420fe52fc.json');
+    const jsonPath = path.join(__dirname, '..', 'keys', 'trabajos-sin-eu-f7a420fe52fc.json');
     console.log("📂 Buscando llave en:", jsonPath);
 
     try {

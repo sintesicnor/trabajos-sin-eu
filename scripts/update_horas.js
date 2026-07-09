@@ -5,7 +5,7 @@ const fs = require('fs');
 
 // 1. Inicializar Firebase Admin
 // Usamos la credencial que encontramos en el proyecto
-const serviceAccount = require('../public/trabajos-sin-eu-f7a420fe52fc.json');
+const serviceAccount = require('../keys/trabajos-sin-eu-f7a420fe52fc.json');
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
