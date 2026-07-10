@@ -383,6 +383,16 @@ async function runSyncToFirestore() {
         await batch.commit();
     }
 
+    // Aviso si una hoja parece devolver muchas menos filas de las esperadas
+    // (posible lectura incompleta) — no es destructivo (merge, nunca borra),
+    // pero antes quedaba enmascarado como un "✅" normal.
+    if (filasOfe.length > 0 && opsOfe.length === 0) {
+        logger.warn(`⚠️ runSyncToFirestore: "Ofertas" devolvió ${filasOfe.length} filas leídas pero 0 válidas tras el mapeo de columnas — revisar cabeceras/lectura.`);
+    }
+    if (filasProd.length > 0 && opsProd.length === 0) {
+        logger.warn(`⚠️ runSyncToFirestore: "Producción" devolvió ${filasProd.length} filas leídas pero 0 válidas tras el mapeo de columnas — revisar cabeceras/lectura.`);
+    }
+
     logger.info(`✅ runSyncToFirestore: ${opsOfe.length} ofertas, ${opsProd.length} producciones escritas`);
     return { ofertas: opsOfe.length, produccion: opsProd.length };
 }
@@ -443,6 +453,24 @@ async function runSyncToSharePoint(coleccion, sheetName, headers, buildRow) {
     const snap = await db.collection(coleccion).get();
     const fsMap = {};
     snap.forEach(d => { fsMap[d.id] = d.data(); });
+
+    // Freno de seguridad: si Firestore tiene muchos documentos pero el Excel
+    // parece tener muchas menos filas con datos de las esperadas, lo más probable
+    // es que la lectura del Excel haya fallado o quedado incompleta (p.ej. colisión
+    // con una edición manual simultánea, o un fallo parcial de la API) — NO tratar
+    // esas filas como "nuevas" y reescribir la hoja entera, abortar y dejar el
+    // Excel intacto para investigar.
+    const nonEmptyExcelRows = excelValues.slice(1)
+        .filter(row => row.some(c => c !== '' && c !== null)).length;
+    if (snap.size > 10 && nonEmptyExcelRows < snap.size * 0.5) {
+        logger.error(
+            `❌ runSyncToSharePoint "${coleccion}": Firestore tiene ${snap.size} documentos pero ` +
+            `la lectura de "${sheetName}" solo devolvió ${nonEmptyExcelRows} filas con datos ` +
+            `(<50% de lo esperado). Abortando sin escribir para evitar sobrescribir el Excel ` +
+            `con una lectura posiblemente incompleta.`
+        );
+        return;
+    }
 
     // 3. Construir filas fusionadas (Excel tiene prioridad)
     const processedIds = new Set();
