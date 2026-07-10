@@ -10283,11 +10283,19 @@
                 btnPapelera.addEventListener('click', mostrarPapelera);
             }
 
+            // Genera una contraseña aleatoria segura (no la conoce nadie; el técnico
+            // establece la suya propia vía el correo de restablecimiento)
+            function generarPasswordAleatoria() {
+                const bytes = new Uint8Array(24);
+                crypto.getRandomValues(bytes);
+                return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, '');
+            }
+
             // Botón "Crear cuentas" — crea cuentas Firebase Auth para cada técnico (admin)
             const btnCrearCuentas = document.getElementById('btn-crear-cuentas');
             if (btnCrearCuentas) {
                 btnCrearCuentas.addEventListener('click', async () => {
-                    if (!confirm('Se crearán cuentas de acceso para todos los técnicos con email registrado. La contraseña será el prefijo del email (antes del @). ¿Continuar?')) return;
+                    if (!confirm('Se crearán cuentas de acceso para todos los técnicos con email registrado. Cada técnico recibirá un correo para establecer su propia contraseña. ¿Continuar?')) return;
                     btnCrearCuentas.disabled = true;
                     btnCrearCuentas.textContent = '⏳ Creando...';
                     const tecnicosConEmail = listaTecnicos.filter(t => t.email && t.email.includes('@'));
@@ -10298,9 +10306,11 @@
                         const secondaryAuth = getAuth(secondaryApp);
                         for (const tec of tecnicosConEmail) {
                             const email = tec.email.trim().toLowerCase();
-                            const password = email.split('@')[0];
+                            const password = generarPasswordAleatoria();
                             try {
                                 await createUserWithEmailAndPassword(secondaryAuth, email, password);
+                                try { await sendPasswordResetEmail(secondaryAuth, email); }
+                                catch (resetErr) { console.warn('No se pudo enviar correo de restablecimiento a', email, resetErr); }
                                 ok++;
                             } catch (e) {
                                 if (e.code === 'auth/email-already-in-use') { skip++; }
@@ -10313,7 +10323,7 @@
                     if (secondaryApp) {
                         try { await deleteApp(secondaryApp); } catch (_) {}
                     }
-                    alert(`Cuentas creadas: ${ok} nuevas, ${skip} ya existían, ${err} errores.\nTotal técnicos con email: ${tecnicosConEmail.length}`);
+                    alert(`Cuentas creadas: ${ok} nuevas (correo de restablecimiento enviado), ${skip} ya existían, ${err} errores.\nTotal técnicos con email: ${tecnicosConEmail.length}`);
                     btnCrearCuentas.disabled = false;
                     btnCrearCuentas.textContent = '🔑 Crear cuentas';
                 });
@@ -12305,7 +12315,7 @@
                                     <button id="btn-add-tecnico" class="btn-primary"
                                         style="padding: 6px 12px; font-size: 13px;">Añadir</button>
                                     <button id="btn-crear-cuentas" class="btn-secondary"
-                                        style="padding: 6px 12px; font-size: 13px; white-space: nowrap;" title="Crear cuentas Firebase Auth para cada técnico (contraseña = prefijo email)">🔑 Crear cuentas</button>
+                                        style="padding: 6px 12px; font-size: 13px; white-space: nowrap;" title="Crear cuentas Firebase Auth para cada técnico (contraseña aleatoria + correo de restablecimiento)">🔑 Crear cuentas</button>
                                 </div>
                                 <div
                                     style="overflow-y: auto; background: white; border: 1px solid #e2e8f0; border-radius: 4px;">
@@ -12656,7 +12666,7 @@
                         <ul style="font-size:13px;color:#475569;line-height:1.9;margin:0 0 0 16px;">
                             <li>Acceso principal mediante cuenta <strong>Microsoft</strong> (@tesicnor.com).</li>
                             <li>También disponible acceso con <strong>email y contraseña</strong> de Firebase (para cuentas manuales).</li>
-                            <li>El botón <strong>🔑 Crear cuentas</strong> en el panel de Técnicos crea automáticamente una cuenta Firebase Auth para cada técnico con email registrado. La contraseña inicial es el prefijo del email (antes del @). Ejemplo: <code>plopez@tesicnor.com</code> → contraseña <code>plopez</code>.</li>
+                            <li>El botón <strong>🔑 Crear cuentas</strong> en el panel de Técnicos crea automáticamente una cuenta Firebase Auth para cada técnico con email registrado, con una contraseña aleatoria que nadie conoce. Cada técnico recibe automáticamente un correo para establecer su propia contraseña antes de poder iniciar sesión con email y contraseña.</li>
                             <li>La operación usa una app Firebase secundaria para no cerrar la sesión del administrador.</li>
                             <li>Si la cuenta ya existe, se omite sin error.</li>
                         </ul>
