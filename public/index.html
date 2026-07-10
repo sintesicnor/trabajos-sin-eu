@@ -35,7 +35,7 @@
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, collection, getDocs, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, collection, getDocs, getDocsFromServer, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
@@ -1343,192 +1343,33 @@
         });
 
         // ═══ SYNC DESDE SHAREPOINT ═══
+        // La escritura se delega al servidor (syncSharePointToFirestore, admin SDK)
+        // para evitar errores de WebChannel 400 al escribir desde el navegador.
         async function sincronizarDesdeSharePoint() {
             const btnOfe  = document.getElementById('btn-sync-sp-ofertas');
             const btnProd = document.getElementById('btn-sync-sp-produccion');
             const spinner = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>';
             const txtOfe  = btnOfe  ? btnOfe.innerHTML  : '';
             const txtProd = btnProd ? btnProd.innerHTML : '';
-            const setBusy = (busy) => {
-                if (btnOfe)  { btnOfe.disabled  = busy; btnOfe.innerHTML  = busy ? spinner + ' Leyendo…' : txtOfe;  }
-                if (btnProd) { btnProd.disabled = busy; btnProd.innerHTML = busy ? spinner + ' Leyendo…' : txtProd; }
+            const setBusy = (busy, label) => {
+                if (btnOfe)  { btnOfe.disabled  = busy; btnOfe.innerHTML  = busy ? spinner + ' ' + label : txtOfe;  }
+                if (btnProd) { btnProd.disabled = busy; btnProd.innerHTML = busy ? spinner + ' ' + label : txtProd; }
             };
-            setBusy(true);
+            if (!confirm('¿Sincronizar datos de SharePoint a Firestore?\n(El Excel tiene prioridad. Los registros no incluidos no se tocarán.)')) return;
+            setBusy(true, 'Sincronizando…');
             try {
                 const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js');
                 const fns      = getFunctions(app, 'us-central1');
-                const callable = httpsCallable(fns, 'syncFromSharePoint');
-                const result   = await callable({ coleccion: 'ambos' });
-                const { ofertas: filasOfe = [], produccion: filesProd = [] } = result.data;
-
-                // ── DIAGNÓSTICO: resumen de lo que devuelve la Cloud Function ──
-                const fechasOfe = filasOfe.map(f => f['FECHA OFERTA'] || f['fecha oferta'] || f['Fecha Oferta'] || '(sin fecha)');
-                const idOfe     = filasOfe.map(f => f['N° GESTIONA'] || f['N GESTIONA'] || f['Nº GESTIONA'] || '(sin id)');
-                console.log(`📥 Ofertas recibidas del Excel: ${filasOfe.length}`);
-                console.log('📅 Última oferta recibida:', idOfe[filasOfe.length-1], '—', fechasOfe[filasOfe.length-1]);
-                console.log('📅 Ofertas con fecha (últimas 5):', idOfe.slice(-5).map((id,i) => `${id}=${fechasOfe[filasOfe.length-5+i]}`).join(' | '));
-                const oferJunio = filasOfe.filter(f => {
-                    const fd = f['FECHA OFERTA'] || f['fecha oferta'] || f['Fecha Oferta'] || '';
-                    return String(fd).includes('06/2026') || String(fd).includes('/06/') || (typeof fd === 'number' && fd >= 46023 && fd <= 46053);
-                });
-                console.log(`📅 Ofertas de junio recibidas: ${oferJunio.length}`, oferJunio.map(f => f['N° GESTIONA'] || f['N GESTIONA'] || '?'));
-                const primerFila = filasOfe[0] || {};
-                console.log('🔑 Claves del primer objeto recibido:', Object.keys(primerFila).join(' | '));
-                // ── FIN DIAGNÓSTICO ──
-
-                if (filasOfe.length + filesProd.length === 0) {
-                    alert('No se encontraron filas en SharePoint.');
-                    return;
-                }
-                if (!confirm(
-                    `SharePoint contiene:\n  • ${filasOfe.length} ofertas\n  • ${filesProd.length} líneas de producción\n\n` +
-                    `¿Actualizar/crear en Firestore?\n(Los registros no incluidos no se tocarán.)`
-                )) return;
-
-                const normCol = s => String(s || '').replace(/^﻿/, '').trim()
-                    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-                    .replace(/[^a-z0-9 ]/gi, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
-
-                const NUM_FIELDS = new Set([
-                    'presupuesto_total', 'gastos_estimados', 'presupuesto_m', 'gastos_n',
-                    'ingresos_2026', 'ingresos_2027', 'ingresos_2028', 'ingresos_2029', 'ingresos_2030',
-                ]);
-
-                const APROBACION_NORM = {
-                    'aceptado': 'Aceptada', 'aceptada': 'Aceptada',
-                    'rechazado': 'Rechazada', 'rechazada': 'Rechazada',
-                    'en curso': 'En curso',
-                };
-                const colMapOfe = {
-                    'estado': 'estado', 'aprobacion': 'estado', 'aprobado': 'estado',
-                    'n gestiona': 'num_gestiona', 'no gestiona': 'num_gestiona',
-                    'pertenece a licitacion': 'pertenece_a_licitacion', 'es una licitacion': 'es_licitacion',
-                    'fecha oferta': 'fecha_oferta', 'agente comercial': 'agente_comercial',
-                    'oficina': 'oficina', 'cliente': 'cliente', 'grupo': 'grupo',
-                    'objeto de la oferta': 'objeto', 'tipo servicio': 'servicio',
-                    'origen': 'origen', 'comentarios': 'comentarios',
-                    'presupuesto': 'presupuesto_total', 'gastos': 'gastos_estimados',
-                    't1': 'tecnico_t1', 'fin licitacion': 'fin_licitacion',
-                    'ingresos 2026': 'ingresos_2026', 'ingresos 2027': 'ingresos_2027',
-                    'ingresos 2028': 'ingresos_2028', 'ingresos 2029': 'ingresos_2029',
-                    'ingresos 2030': 'ingresos_2030',
-                };
-                const colMapProd = {
-                    // Cabeceras que escribe nuestra sync (Firestore→Excel)
-                    'n trabajo': 'num_trabajo', 'no trabajo': 'num_trabajo',
-                    'tipo expediente': 'tipo_expediente', 'exp gestiona': 'exp_gestiona',
-                    'oferta gestiona': 'oferta_gestiona', 'fecha inicio': 'fecha_inicio',
-                    'fecha fin': 'fecha_fin', 'cliente': 'cliente', 'servicio': 'servicio',
-                    'tipo servicio': 'tipo_servicio', 'grupo': 'grupo',
-                    'responsable': 'responsable_g', 'ejecutor t1': 'ejecutor_t1',
-                    'apoyo am': 'apoyo_am', 'apoyo an': 'apoyo_an',
-                    'presupuesto': 'presupuesto_m', 'gastos': 'gastos_n',
-                    'gestionado': 'gestionado', 'vb cliente': 'visto_vb_cliente',
-                    'fecha ap': 'fecha_ap', 'fecha ar': 'fecha_ar',
-                    'n at': 'num_at', 'mes facturacion': 'mes_facturacion',
-                    'observaciones': 'observaciones',
-                    // Cabeceras originales del Excel (nombres distintos)
-                    'tipo exp': 'tipo_expediente',
-                    'fecha entrega': 'fecha_fin',
-                    'tecnico rble': 'responsable_g',
-                    't1': 'ejecutor_t1',
-                    't2': 'apoyo_am',
-                    't3': 'apoyo_an',
-                    'ica': 'cliente',
-                    'ppto total sin iva': 'presupuesto_m',
-                    'gastos est': 'gastos_n',
-                    'gastos gest': '_gastos_gest',
-                    'vb clie': 'visto_vb_cliente',          // cabecera real: "VB CLIE."
-                    'fecha finalizacion': 'fecha_ap',       // cabecera real: "FECHA FINALIZACIÓN"
-                    'fecha facturacion': 'fecha_ar',        // cabecera real: "FECHA FACTURACION"
-                    'n fact': 'num_at',                     // cabecera real: "Nº Fact"
-                };
-
-                // Convierte acrónimo de técnico (ej. "JMR") → nombre_pila (ej. "Jokin")
-                const resolverNombre = (val) => {
-                    if (!val) return null;
-                    const upper = String(val).trim().toUpperCase();
-                    const tec = listaTecnicos.find(t => (t.acronimo || '').toUpperCase() === upper);
-                    return (tec && (tec.nombre_pila || tec.nombre)) || null;
-                };
-                const TEC_FIELDS = new Set(['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an']);
-
-                const buildOps = (filas, colMap, idField, coleccion) => {
-                    const ops = [];
-                    filas.forEach(fila => {
-                        const docData = {};
-                        Object.keys(fila).forEach(col => {
-                            const field = colMap[normCol(col)];
-                            if (!field) return;
-                            const raw = fila[col];
-                            let val = (raw === null || raw === undefined) ? '' : String(raw).trim();
-                            if (typeof raw === 'number' && NUM_FIELDS.has(field)) val = String(raw);
-                            if (val !== '') docData[field] = val;
-                        });
-                        // Normalizar estado de oferta (ACEPTADO→Aceptada, etc.)
-                        if (coleccion === 'ofertas' && docData.estado) {
-                            docData.estado = APROBACION_NORM[docData.estado.toLowerCase()] || docData.estado;
-                        }
-                        // Convertir acrónimos de técnicos a nombre_pila
-                        if (coleccion === 'produccion') {
-                            TEC_FIELDS.forEach(f => {
-                                if (docData[f]) {
-                                    const nombre = resolverNombre(docData[f]);
-                                    if (nombre) docData[f] = nombre;
-                                }
-                            });
-                        }
-                        const docId = docData[idField];
-                        if (!docId) return;
-                        if (Object.keys(docData).filter(k => k !== idField).length === 0) return;
-                        ops.push({ coleccion, docId, docData });
-                    });
-                    return ops;
-                };
-
-                // Ofertas primero, luego producción
-                const opsOfe  = buildOps(filasOfe,  colMapOfe,  'num_gestiona', 'ofertas');
-                const opsProd = buildOps(filesProd, colMapProd, 'num_trabajo',  'produccion');
-
-                // Campos gestionados en la web: la web tiene prioridad, pero si está vacía se acepta el valor del Excel
-                const PROD_WEB_ONLY = new Set(['fecha_ar', 'observaciones', 'num_at']);
-                opsProd.forEach(op => {
-                    const existing = datosProduccionMemoria.find(p => String(p.num_trabajo || '').trim() === String(op.docId));
-                    PROD_WEB_ONLY.forEach(f => {
-                        if (!(f in op.docData)) return;
-                        const webVal = existing ? existing[f] : undefined;
-                        if (webVal !== undefined && webVal !== null && String(webVal).trim() !== '') {
-                            delete op.docData[f]; // web tiene valor → no sobreescribir
-                        }
-                        // web vacío → dejar pasar el valor del Excel
-                    });
-                });
-
-                const allOps  = [...opsOfe, ...opsProd];
-
-                if (allOps.length === 0) { alert('No se encontraron filas válidas.'); return; }
-
-                for (let i = 0; i < allOps.length; i += 499) {
-                    const batch = writeBatch(db);
-                    allOps.slice(i, i + 499).forEach(({ coleccion, docId, docData }) =>
-                        batch.set(doc(db, coleccion, docId), docData, { merge: true })
-                    );
-                    await batch.commit();
-                }
-
-                const skipped = (filasOfe.length - opsOfe.length) + (filesProd.length - opsProd.length);
-                let msg = `✅ Sincronización completada:\n  • ${opsOfe.length} oferta(s) actualizadas/creadas\n  • ${opsProd.length} producción(es) actualizadas/creadas`;
-                if (skipped > 0) msg += `\n\n(${skipped} fila(s) sin ID omitidas)`;
-                alert(msg);
-
-                // Recargar ambas colecciones (el sync actualiza Firestore en ambas)
-                await Promise.all([cargarProduccion(), cargarOfertas()]);
-
+                const callable = httpsCallable(fns, 'syncSharePointToFirestore', { timeout: 300000 });
+                const result   = await callable({});
+                const { ofertas: countOfe = 0, produccion: countProd = 0 } = result.data;
+                alert(`✅ Sincronización completada:\n  • ${countOfe} oferta(s) actualizadas/creadas\n  • ${countProd} producción(es) actualizadas/creadas`);
+                await Promise.all([cargarProduccion(), cargarOfertas({ fromServer: true })]);
             } catch (err) {
                 console.error('Error sync SharePoint:', err);
                 alert('❌ Error al sincronizar desde SharePoint: ' + (err.message || err));
             } finally {
-                setBusy(false);
+                setBusy(false, '');
             }
         }
 
@@ -3563,10 +3404,11 @@
 
         const tbodyOfertas = document.getElementById('table-body-ofertas');
 
-        async function cargarOfertas() {
+        async function cargarOfertas({ fromServer = false } = {}) {
             if (!tbodyOfertas) return;
             try {
-                const querySnapshot = await getDocs(collection(db, "ofertas"));
+                const q = collection(db, "ofertas");
+                const querySnapshot = fromServer ? await getDocsFromServer(q) : await getDocs(q);
                 tbodyOfertas.innerHTML = '';
                 datosOfertasMemoria.length = 0; // Vaciamos memoria
 

@@ -77,14 +77,18 @@ const COL_MAP_OFE = {
     'pertenece a licitacion': 'pertenece_a_licitacion',
     'es una licitacion': 'es_licitacion',
     'fecha oferta': 'fecha_oferta', 'agente comercial': 'agente_comercial',
+    'come': 'agente_comercial',  // alias: cabecera "COME." abreviada en el Excel real
     'oficina': 'oficina', 'cliente': 'cliente', 'grupo': 'grupo',
-    'objeto de la oferta': 'objeto', 'tipo servicio': 'servicio',
+    'objeto de la oferta': 'objeto', 'tipo servicio': 'servicio', 'servicio': 'servicio',
     'origen': 'origen', 'comentarios': 'comentarios',
     'presupuesto': 'presupuesto_total', 'gastos': 'gastos_estimados',
     't1': 'tecnico_t1', 'fin licitacion': 'fin_licitacion',
-    'ingresos 2026': 'ingresos_2026', 'ingresos 2027': 'ingresos_2027',
-    'ingresos 2028': 'ingresos_2028', 'ingresos 2029': 'ingresos_2029',
-    'ingresos 2030': 'ingresos_2030',
+    // Columnas de ingresos: el Excel real las llama sólo "2026", "2027"...
+    'ingresos 2026': 'ingresos_2026', '2026': 'ingresos_2026',
+    'ingresos 2027': 'ingresos_2027', '2027': 'ingresos_2027',
+    'ingresos 2028': 'ingresos_2028', '2028': 'ingresos_2028',
+    'ingresos 2029': 'ingresos_2029', '2029': 'ingresos_2029',
+    'ingresos 2030': 'ingresos_2030', '2030': 'ingresos_2030',
 };
 
 const COL_MAP_PROD = {
@@ -120,6 +124,7 @@ const COL_MAP_PROD = {
 
 const NUM_FIELDS     = new Set(['presupuesto_total', 'gastos_estimados', 'presupuesto_m', 'gastos_n',
                                  'ingresos_2026', 'ingresos_2027', 'ingresos_2028', 'ingresos_2029', 'ingresos_2030']);
+const DATE_FIELDS    = new Set(['fecha_oferta', 'fin_licitacion', 'fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar']);
 const TEC_FIELDS     = new Set(['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an']);
 // Campos que gestiona la web: el Excel nunca debe sobreescribirlos en Firestore
 const PROD_WEB_ONLY  = new Set(['fecha_ar', 'observaciones', 'num_at']);
@@ -139,16 +144,30 @@ const toNum = (v) => {
 };
 
 // Convierte array de arrays (valores Excel) a array de objetos {header: value}
-function parseRows(values) {
+// text: array paralelo con los valores formateados (para convertir fechas seriales a "DD/MM/YYYY")
+function parseRows(values, text) {
     if (!values || values.length < 2) return [];
     const headers = values[0].map((h) => String(h || "").trim());
-    return values.slice(1)
-        .filter((row) => row.some((c) => c !== "" && c !== null))
-        .map((row) => {
-            const obj = {};
-            headers.forEach((h, i) => { obj[h] = row[i] ?? ""; });
-            return obj;
+    const result = [];
+    for (let ri = 1; ri < values.length; ri++) {
+        const row = values[ri];
+        if (!row.some((c) => c !== "" && c !== null)) continue;
+        const textRow = text ? text[ri] : null; // mismo índice ri: text[0]=cabecera, text[ri]=fila ri
+        const obj = {};
+        headers.forEach((h, i) => {
+            const rawVal = row[i] ?? "";
+            // Los seriales de fecha Excel (años ~2000-2099) caen entre 36526 y 55000.
+            // Usamos el texto formateado en vez del número para obtener "DD/MM/YYYY".
+            if (textRow && typeof rawVal === 'number' && rawVal > 36526 && rawVal < 55000) {
+                const t = textRow[i];
+                obj[h] = (t !== null && t !== undefined && String(t).trim() !== '') ? String(t).trim() : String(rawVal);
+            } else {
+                obj[h] = rawVal;
+            }
         });
+        result.push(obj);
+    }
+    return result;
 }
 
 // Transforma filas Excel en operaciones Firestore ({ coleccion, docId, docData })
@@ -162,6 +181,11 @@ function buildFirestoreOps(filas, colMap, idField, coleccion, resolverNombre) {
             const raw = fila[col];
             let val = (raw === null || raw === undefined) ? '' : String(raw).trim();
             if (typeof raw === 'number' && NUM_FIELDS.has(field)) val = String(raw);
+            // Fechas seriales de Excel (e.g. 46831) → "DD/MM/YYYY" (fallback cuando text no viene de la API)
+            if (typeof raw === 'number' && DATE_FIELDS.has(field) && raw > 36526 && raw < 55000) {
+                const d = new Date((raw - 25569) * 86400 * 1000);
+                val = `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()}`;
+            }
             if (val !== '') docData[field] = val;
         });
         if (coleccion === 'ofertas' && docData.estado) {
@@ -253,7 +277,7 @@ async function readSheet(token, siteId, driveId, itemId, sheetName, nCols) {
     // OJO: el número de FILA de usedRange no es fiable (a veces infrarrepresenta los
     // datos reales tras borrados/formatos), así que las filas se leen con un tope fijo.
     let endCol = colLetter(nCols || 60);
-    const endRow = 5000;
+    const endRow = 10000;
     try {
         const addrResp = await axios.get(`${base}/usedRange?$select=address`,
             { headers: { Authorization: `Bearer ${token}` } }
@@ -266,13 +290,14 @@ async function readSheet(token, siteId, driveId, itemId, sheetName, nCols) {
         logger.warn(`⚠️ usedRange address falló para "${sheetName}": ${e.message} — usando col ${endCol}`);
     }
 
-    // Paso 2: leer values solo con las columnas y filas necesarias
+    // Paso 2: leer values y text (texto formateado) con las columnas y filas necesarias
     const resp = await axios.get(`${base}/range(address='A1:${endCol}${endRow}')`,
         { headers: { Authorization: `Bearer ${token}` } }
     );
     const values = resp.data.values || [];
+    const text   = resp.data.text   || null;  // texto formateado (e.g. "08/04/2026" en vez de 46114)
     logger.info(`📊 readSheet "${sheetName}": ${values.length} filas × col ${endCol}`);
-    return values;
+    return { values, text };
 }
 
 async function writeSheet(token, siteId, driveId, itemId, sheetName, headers, rows) {
@@ -302,11 +327,11 @@ async function runSyncToFirestore() {
     const { siteId, driveId, itemId } = await getSpIds(token);
 
     // Secuencial: la API de Excel Online no admite peticiones paralelas sobre el mismo libro
-    const vOfe  = await readSheet(token, siteId, driveId, itemId, SP_SHEET_OFERTAS,    OFERTAS_HEADERS.length    + 8);
-    const vProd = await readSheet(token, siteId, driveId, itemId, SP_SHEET_PRODUCCION, PRODUCCION_HEADERS.length + 8);
+    const { values: vOfe,  text: tOfe  } = await readSheet(token, siteId, driveId, itemId, SP_SHEET_OFERTAS,    OFERTAS_HEADERS.length    + 8);
+    const { values: vProd, text: tProd } = await readSheet(token, siteId, driveId, itemId, SP_SHEET_PRODUCCION, PRODUCCION_HEADERS.length + 8);
 
-    const filasOfe  = parseRows(vOfe);
-    const filasProd = parseRows(vProd);
+    const filasOfe  = parseRows(vOfe,  tOfe);
+    const filasProd = parseRows(vProd, tProd);
 
     // Cargar lista de técnicos de Firestore para resolver acrónimos → nombres
     const tecSnap      = await db.doc('listas_config/tecnicos').get();
@@ -383,7 +408,7 @@ async function runSyncToSharePoint(coleccion, sheetName, headers, buildRow) {
     const { siteId, driveId, itemId } = await getSpIds(token);
 
     // 1. Leer el estado actual del Excel (fuente de verdad)
-    const excelValues = await readSheet(token, siteId, driveId, itemId, sheetName, headers.length + 8);
+    const { values: excelValues } = await readSheet(token, siteId, driveId, itemId, sheetName, headers.length + 8);
 
     // Identificar la columna ID en el Excel por nombre normalizado
     const idFieldNorm = coleccion === 'ofertas' ? 'n gestiona' : 'n trabajo';
@@ -515,7 +540,7 @@ exports.syncOfertasToSharePoint = onDocumentWritten({
     document:       "ofertas/{docId}",
     secrets:        SP_SECRETS,
     timeoutSeconds: 120,
-    memory:         "256MiB",
+    memory:         "1GiB",
 }, async () => {
     try {
         await runSyncToSharePoint("ofertas", SP_SHEET_OFERTAS, OFERTAS_HEADERS, ofertaToRow);
@@ -528,13 +553,31 @@ exports.syncProduccionToSharePoint = onDocumentWritten({
     document:       "produccion/{docId}",
     secrets:        SP_SECRETS,
     timeoutSeconds: 120,
-    memory:         "256MiB",
+    memory:         "1GiB",
 }, async () => {
     try {
         await runSyncToSharePoint("produccion", SP_SHEET_PRODUCCION, PRODUCCION_HEADERS,
             (_id, d) => produccionToRow(d));
     } catch (err) {
         logger.error("❌ syncProduccionToSharePoint:", err.message, err.response?.data);
+    }
+});
+
+// ─── SYNC SHAREPOINT → FIRESTORE (escribe directo en Firestore, callable manual) ─
+exports.syncSharePointToFirestore = onCall({
+    secrets:        SP_SECRETS,
+    timeoutSeconds: 300,
+    memory:         "1GiB",
+}, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Debes estar autenticado.");
+    try {
+        const result = await runSyncToFirestore();
+        logger.info(`✅ syncSharePointToFirestore: ${result.ofertas} ofertas, ${result.produccion} producciones`);
+        return result;
+    } catch (err) {
+        const detail = err.response?.data ? JSON.stringify(err.response.data).slice(0, 400) : '';
+        logger.error("❌ syncSharePointToFirestore:", err.message, detail);
+        throw new HttpsError("internal", `Error en sync: ${err.message}`);
     }
 });
 
@@ -556,18 +599,18 @@ exports.syncFromSharePoint = onCall({
         const { siteId, driveId, itemId } = await getSpIds(token);
 
         if (coleccion === "ambos") {
-            const vOfe  = await readSheet(token, siteId, driveId, itemId, SP_SHEET_OFERTAS,    OFERTAS_HEADERS.length    + 8);
-            const vProd = await readSheet(token, siteId, driveId, itemId, SP_SHEET_PRODUCCION, PRODUCCION_HEADERS.length + 8);
-            const ofertas    = parseRows(vOfe);
-            const produccion = parseRows(vProd);
+            const { values: vOfe,  text: tOfe  } = await readSheet(token, siteId, driveId, itemId, SP_SHEET_OFERTAS,    OFERTAS_HEADERS.length    + 8);
+            const { values: vProd, text: tProd } = await readSheet(token, siteId, driveId, itemId, SP_SHEET_PRODUCCION, PRODUCCION_HEADERS.length + 8);
+            const ofertas    = parseRows(vOfe,  tOfe);
+            const produccion = parseRows(vProd, tProd);
             logger.info(`📥 syncFromSharePoint ambos: ${ofertas.length} ofertas, ${produccion.length} producción`);
             return { ofertas, produccion };
         }
 
         const sheetName = coleccion === "ofertas" ? SP_SHEET_OFERTAS : SP_SHEET_PRODUCCION;
         const colCount  = (coleccion === "ofertas" ? OFERTAS_HEADERS.length : PRODUCCION_HEADERS.length) + 8;
-        const values    = await readSheet(token, siteId, driveId, itemId, sheetName, colCount);
-        const filas     = parseRows(values);
+        const { values, text } = await readSheet(token, siteId, driveId, itemId, sheetName, colCount);
+        const filas = parseRows(values, text);
         logger.info(`📥 syncFromSharePoint ${coleccion}: ${filas.length} filas`);
         return { filas };
     } catch (err) {
