@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "build": "vite build"
+  },
   "dependencies": {
     "firebase-admin": "^13.10.0",
     "xlsx": "^0.18.5"

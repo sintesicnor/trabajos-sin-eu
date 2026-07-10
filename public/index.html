@@ -64,17 +64,20 @@
         }
 
         // ── v0.037: Firebase App Check con reCAPTCHA Enterprise ──
+        // En local, se omite por completo: reCAPTCHA Enterprise es una llamada de red
+        // real que no puede resolverse en un entorno de pruebas/emulador sin interacción.
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
-            self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-        }
-        try {
-            const appCheck = initializeAppCheck(app, {
-                provider: new ReCaptchaEnterpriseProvider('6Ld-3ZIsAAAAACeVzehqoWHcTT8DLmY35LWg55Xl'),
-                isTokenAutoRefreshEnabled: true
-            });
-            console.log("🛡️ Firebase App Check inicializado con reCAPTCHA Enterprise");
-        } catch (appCheckErr) {
-            console.warn("⚠️ App Check no se pudo inicializar:", appCheckErr);
+            console.log("🛠️ Entorno local detectado. Omitiendo Firebase App Check.");
+        } else {
+            try {
+                const appCheck = initializeAppCheck(app, {
+                    provider: new ReCaptchaEnterpriseProvider('6Ld-3ZIsAAAAACeVzehqoWHcTT8DLmY35LWg55Xl'),
+                    isTokenAutoRefreshEnabled: true
+                });
+                console.log("🛡️ Firebase App Check inicializado con reCAPTCHA Enterprise");
+            } catch (appCheckErr) {
+                console.warn("⚠️ App Check no se pudo inicializar:", appCheckErr);
+            }
         }
 
         // Conectar a emulador de Autenticación si estamos en localhost
