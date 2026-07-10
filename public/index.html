@@ -35,7 +35,7 @@
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, collection, getDocs, getDocsFromServer, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, connectFirestoreEmulator, collection, getDocs, getDocsFromServer, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
@@ -57,6 +57,11 @@
         });
         const auth = getAuth(app);
         const functions = getFunctions(app);
+
+        // Conectar Firestore al emulador si estamos en localhost (nunca tocar datos reales en local)
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            connectFirestoreEmulator(db, "127.0.0.1", 8080);
+        }
 
         // ── v0.037: Firebase App Check con reCAPTCHA Enterprise ──
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {

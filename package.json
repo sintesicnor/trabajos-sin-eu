@@ -4,6 +4,8 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@firebase/rules-unit-testing": "^5.0.1"
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "playwright": "^1.61.1",
+    "vite": "^8.1.4"
   }
 }
