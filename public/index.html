@@ -2460,6 +2460,9 @@
             Object.keys(tableFilters[tblId]).forEach(cIdx => {
                 const filterVal = tableFilters[tblId][cIdx];
                 if (!Array.isArray(filterVal) || filterVal.length === 0) return;
+                // Si el filtro incluye "(Vacías)", el usuario quiere ver SOLO las filas
+                // vacías: no auto-añadir meses reales, o se mostrarían también esas filas.
+                if (filterVal.includes('__empty__')) return;
                 const thEl = table.querySelector(`thead tr th:nth-child(${parseInt(cIdx) + 1})`);
                 if (!thEl || thEl.dataset.filterType !== 'date-yearmonth') return;
                 Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
