@@ -2453,31 +2453,6 @@
             const tbody = table.querySelector('tbody');
             if (!tbody) return;
 
-            // Auto-expand date-yearmonth filters: if a month exists in the data but not
-            // in the saved filter, add it automatically so new months are always visible.
-            // This prevents a filter saved in month X from hiding data from month X+1.
-            let filterUpdated = false;
-            Object.keys(tableFilters[tblId]).forEach(cIdx => {
-                const filterVal = tableFilters[tblId][cIdx];
-                if (!Array.isArray(filterVal) || filterVal.length === 0) return;
-                // Si el filtro incluye "(Vacías)", el usuario quiere ver SOLO las filas
-                // vacías: no auto-añadir meses reales, o se mostrarían también esas filas.
-                if (filterVal.includes('__empty__')) return;
-                const thEl = table.querySelector(`thead tr th:nth-child(${parseInt(cIdx) + 1})`);
-                if (!thEl || thEl.dataset.filterType !== 'date-yearmonth') return;
-                Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
-                    const cell = tr.children[cIdx];
-                    if (!cell) return;
-                    const v = (cell.dataset.valor || cell.textContent).trim();
-                    const p = v.split('/');
-                    if (p.length === 3 && p[2].length === 4) {
-                        const ym = `${p[2]}-${p[1].padStart(2, '0')}`;
-                        if (!filterVal.includes(ym)) { filterVal.push(ym); filterUpdated = true; }
-                    }
-                });
-            });
-            if (filterUpdated) guardarPreferenciasUsuario();
-
             Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
                 let show = true;
                 Object.keys(tableFilters[tblId]).forEach(cIdx => {
