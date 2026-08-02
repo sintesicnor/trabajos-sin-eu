@@ -8340,6 +8340,12 @@
             return Array.from(document.querySelectorAll(`#${panelId} input:checked`)).map(cb => cb.value);
         }
 
+        // Compara texto ignorando mayúsculas/minúsculas y acentos (p.ej. "Autoprotección"
+        // guardado en una línea vs "AUTOPROTECCION" de la lista maestra de servicios)
+        function normTexto(s) {
+            return (s || '').toString().trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        }
+
         function limpiarMiniDropdown(panelId, labelId) {
             document.querySelectorAll(`#${panelId} input`).forEach(cb => { cb.checked = false; });
             actualizarMiniDropdownLabel(panelId, labelId);
@@ -8386,6 +8392,10 @@
 
             const selTecs = leerMiniDropdownValues('dd-mensual-tec-panel');
             const selSrvs = leerMiniDropdownValues('dd-mensual-srv-panel');
+            // Comparación de servicio ignorando mayúsculas/acentos: los datos reales
+            // no siempre coinciden exactamente con la lista maestra (p.ej. "Autoprotección"
+            // guardado con tilde/minúsculas frente a "AUTOPROTECCION" del desplegable)
+            const selSrvsNorm = new Set(selSrvs.map(normTexto));
 
             // Read year filter from productividad
             const selYears = Array.from(document.getElementById('filt-prod-carga-year')?.selectedOptions || []).map(o => parseInt(o.value));
@@ -8408,7 +8418,7 @@
                 if (!fechaAr || !filtYears.includes(fechaAr.getFullYear())) return;
                 const presup = parseSpanishNum(prod.presupuesto_m) || 0;
                 if (presup === 0) return;
-                if (selSrvs.length > 0 && !selSrvs.includes((prod.servicio || '').trim())) return;
+                if (selSrvsNorm.size > 0 && !selSrvsNorm.has(normTexto(prod.servicio))) return;
                 const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
                 const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
                 // El técnico solo se exige si hay un filtro de técnico activo: sin filtro,
@@ -8432,7 +8442,7 @@
                 fArMap[nt] = (p.fecha_ar || '').trim();
                 tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
                 presupMap[nt] = parseSpanishNum(p.presupuesto_m) || 0;
-                srvMap[nt] = (p.servicio || '').trim();
+                srvMap[nt] = normTexto(p.servicio);
             });
 
             function resolverTecP(trabajadorStr) {
@@ -8453,7 +8463,7 @@
                 const tipoExp = tipoExpMap[numT] || '';
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
                 if (fArMap[numT]) return; // ya tiene fecha de facturaci\u00f3n: no es "por facturar"
-                if (selSrvs.length > 0 && !selSrvs.includes(srvMap[numT])) return;
+                if (selSrvsNorm.size > 0 && !selSrvsNorm.has(srvMap[numT])) return;
                 const tec = resolverTecP((p.trabajador || '').trim());
                 if (selTecs.length > 0 && (!tec || !selTecs.includes(tec.acronimo))) return;
                 if (!horasPorLinea[numT]) horasPorLinea[numT] = [];
