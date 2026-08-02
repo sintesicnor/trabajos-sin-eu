@@ -3227,34 +3227,6 @@
                             return;
                         }
 
-                        if (iconContainer.dataset.active === 'true') {
-                            iconContainer.dataset.active = 'false';
-                            iconContainer.innerHTML = normalSvg;
-                            iconContainer.style.color = '';
-
-                            if (isHybridFilter || isMulti || isDateYearMonthFilter) {
-                                popup.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-                                if (isHybridFilter) {
-                                    const si = popup.querySelector('input[type="text"]');
-                                    if (si) si.value = '';
-                                    popup.querySelectorAll('label').forEach(lbl => lbl.style.display = '');
-                                }
-                            } else {
-                                const ip = popup.querySelector('input[type="text"]');
-                                if (ip) ip.value = '';
-                            }
-
-                            const tblId = table.dataset.tableId;
-                            const colIndex = Array.from(th.parentNode.children).indexOf(th);
-                            if (tableFilters[tblId]) {
-                                tableFilters[tblId][colIndex] = (isHybridFilter || isMulti || isDateYearMonthFilter) ? [] : '';
-                                applyTableFilters(table);
-                                guardarPreferenciasUsuario();
-                            }
-                            popup.style.display = 'none';
-                            return;
-                        }
-
                         const isVisible = popup.style.display === 'flex' || popup.style.display === 'block';
                         document.querySelectorAll('.filter-popup').forEach(p => p.style.display = 'none');
                         if (!isVisible) {
