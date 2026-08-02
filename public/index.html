@@ -2468,7 +2468,8 @@
                                     const parts = rawText.split('/');
                                     if (parts.length === 3 && parts[2].length === 4) {
                                         const ym = `${parts[2]}-${parts[1].padStart(2, '0')}`;
-                                        if (!filterVal.includes(ym)) show = false;
+                                        // "(Con fecha)" muestra cualquier fila con fecha válida, sin importar el mes
+                                        if (!filterVal.includes(ym) && !filterVal.includes('__hasdate__')) show = false;
                                     } else {
                                         // Celda vacía: mostrar solo si '__empty__' está en el filtro
                                         if (!filterVal.includes('__empty__')) show = false;
@@ -2871,6 +2872,8 @@
                             const vals = Array.from(popup.querySelectorAll('input.cb-mes-ym:checked')).map(cb => cb.dataset.ym);
                             const vacioCb = popup.querySelector('input.cb-mes-vacio');
                             if (vacioCb && vacioCb.checked) vals.push('__empty__');
+                            const conFechaCb = popup.querySelector('input.cb-mes-confecha');
+                            if (conFechaCb && conFechaCb.checked) vals.push('__hasdate__');
                             tableFilters[tblIdDate][colIdxDate] = vals;
                             if (vals.length > 0) {
                                 iconContainer.dataset.active = 'true';
@@ -2903,6 +2906,19 @@
                             vacioLbl.appendChild(vacioCb);
                             vacioLbl.appendChild(document.createTextNode('(Vacías)'));
                             popup.appendChild(vacioLbl);
+
+                            // Casilla "Con fecha"
+                            const conFechaLbl = document.createElement('label');
+                            conFechaLbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:3px 0;border-bottom:1px solid #e2e8f0;margin-bottom:4px;padding-bottom:5px;color:#64748b;';
+                            const conFechaCb = document.createElement('input');
+                            conFechaCb.type = 'checkbox';
+                            conFechaCb.className = 'cb-mes-confecha';
+                            conFechaCb.style.cssText = 'width:13px;height:13px;cursor:pointer;';
+                            conFechaCb.checked = savedFilterDate.includes('__hasdate__');
+                            conFechaCb.addEventListener('change', actualizarFiltroFecha);
+                            conFechaLbl.appendChild(conFechaCb);
+                            conFechaLbl.appendChild(document.createTextNode('(Con fecha)'));
+                            popup.appendChild(conFechaLbl);
 
                             const ymMap = {};
                             table.querySelectorAll('tbody tr').forEach(tr => {
