@@ -8379,9 +8379,10 @@
                 }
             }
 
-            // Desplegable (cerrado por defecto) de Técnico: todos los técnicos, ordenados por nombre
+            // Desplegable (cerrado por defecto) de Técnico: solo técnicos de producción
+            // (casilla "Prod" en Configuración), ordenados por nombre
             const tecItems = [...listaTecnicos]
-                .filter(t => t.acronimo)
+                .filter(t => t.acronimo && t.prod !== false)
                 .sort((a, b) => (a.nombre_pila || a.acronimo).localeCompare(b.nombre_pila || b.acronimo, 'es'))
                 .map(t => ({ value: t.acronimo, label: t.nombre_pila || t.acronimo }));
             poblarMiniDropdownSiVacio('dd-mensual-tec-panel', 'dd-mensual-tec-label', tecItems);
@@ -8396,6 +8397,26 @@
             // no siempre coinciden exactamente con la lista maestra (p.ej. "Autoprotección"
             // guardado con tilde/minúsculas frente a "AUTOPROTECCION" del desplegable)
             const selSrvsNorm = new Set(selSrvs.map(normTexto));
+
+            // DEBUG TEMPORAL: comparar los valores de "servicio" que realmente hay en
+            // las líneas facturables con la lista del desplegable, para diagnosticar
+            // por qué un filtro de servicio no encuentra coincidencias. Se puede quitar
+            // una vez confirmado el motivo.
+            if (!window._debugServiciosHecho) {
+                window._debugServiciosHecho = true;
+                const vistos = new Map();
+                datosProduccionMemoria.forEach(p => {
+                    const tipoExp = (p.tipo_expediente || '').trim().toUpperCase();
+                    if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                    if (!(p.fecha_ar || '').trim()) return;
+                    const raw = p.servicio;
+                    const norm = normTexto(raw);
+                    if (!vistos.has(norm)) vistos.set(norm, { raw, count: 0 });
+                    vistos.get(norm).count++;
+                });
+                console.log('DEBUG servicios (líneas facturadas ANUAL/PUNTUAL):', Array.from(vistos.entries()).map(([norm, v]) => `"${v.raw}" (normalizado: "${norm}", ${v.count} líneas)`));
+                console.log('DEBUG servicios del desplegable (listaServicios):', JSON.stringify(listaServicios));
+            }
 
             // Read year filter from productividad
             const selYears = Array.from(document.getElementById('filt-prod-carga-year')?.selectedOptions || []).map(o => parseInt(o.value));
@@ -8421,6 +8442,10 @@
                 if (selSrvsNorm.size > 0 && !selSrvsNorm.has(normTexto(prod.servicio))) return;
                 const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
                 const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
+                // Solo técnicos de producción (casilla "Prod" en Configuración) cuentan
+                // en los Informes; si el técnico no resuelve, se cuenta igual (no se
+                // conoce su estado "Prod", y no se quiere perder importe por eso).
+                if (tec && tec.prod === false) return;
                 // El técnico solo se exige si hay un filtro de técnico activo: sin filtro,
                 // la línea cuenta igual aunque su campo de técnico no resuelva a nadie
                 // conocido (para que el total mensual sea exacto, no solo el filtrado).
@@ -8465,6 +8490,7 @@
                 if (fArMap[numT]) return; // ya tiene fecha de facturaci\u00f3n: no es "por facturar"
                 if (selSrvsNorm.size > 0 && !selSrvsNorm.has(srvMap[numT])) return;
                 const tec = resolverTecP((p.trabajador || '').trim());
+                if (tec && tec.prod === false) return;
                 if (selTecs.length > 0 && (!tec || !selTecs.includes(tec.acronimo))) return;
                 if (!horasPorLinea[numT]) horasPorLinea[numT] = [];
                 horasPorLinea[numT].push({ orden: fecha.getTime(), mes: fecha.getMonth(), importe: horas * costeHoraActual });
