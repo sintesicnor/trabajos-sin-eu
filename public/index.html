@@ -8360,8 +8360,10 @@
                 if (presup === 0) return;
                 const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
                 const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
-                if (!tec) return;
-                if (selTecs.length > 0 && !selTecs.includes(tec.acronimo)) return;
+                // El técnico solo se exige si hay un filtro de técnico activo: sin filtro,
+                // la línea cuenta igual aunque su campo de técnico no resuelva a nadie
+                // conocido (para que el total mensual sea exacto, no solo el filtrado).
+                if (selTecs.length > 0 && (!tec || !selTecs.includes(tec.acronimo))) return;
                 facturadoMes[fechaAr.getMonth()] += presup;
             });
 
@@ -8399,8 +8401,7 @@
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
                 if (fArMap[numT]) return; // ya tiene fecha de facturaci\u00f3n: no es "por facturar"
                 const tec = resolverTecP((p.trabajador || '').trim());
-                if (!tec) return;
-                if (selTecs.length > 0 && !selTecs.includes(tec.acronimo)) return;
+                if (selTecs.length > 0 && (!tec || !selTecs.includes(tec.acronimo))) return;
                 if (!horasPorLinea[numT]) horasPorLinea[numT] = [];
                 horasPorLinea[numT].push({ orden: fecha.getTime(), mes: fecha.getMonth(), importe: horas * costeHoraActual });
             });
