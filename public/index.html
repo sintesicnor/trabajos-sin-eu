@@ -8398,35 +8398,6 @@
             // guardado con tilde/minúsculas frente a "AUTOPROTECCION" del desplegable)
             const selSrvsNorm = new Set(selSrvs.map(normTexto));
 
-            // DEBUG TEMPORAL: diagnosticar por qué el filtro de Servicio no encuentra
-            // coincidencias para "Autoprotección" en concreto. Se puede quitar una vez
-            // confirmado el motivo. Se fuerza a texto plano (JSON.stringify) para que
-            // la consola no lo colapse como "Array(N)" y se pueda copiar tal cual.
-            if (!window._debugServiciosHecho) {
-                window._debugServiciosHecho = true;
-                const vistos = new Map();
-                let totalLineas = 0;
-                datosProduccionMemoria.forEach(p => {
-                    const tipoExp = (p.tipo_expediente || '').trim().toUpperCase();
-                    if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
-                    if (!(p.fecha_ar || '').trim()) return;
-                    totalLineas++;
-                    const raw = p.servicio;
-                    const norm = normTexto(raw);
-                    if (!vistos.has(norm)) vistos.set(norm, { raw, count: 0 });
-                    vistos.get(norm).count++;
-                });
-                console.log('DEBUG total líneas facturadas ANUAL/PUNTUAL: ' + totalLineas + ', servicios distintos: ' + vistos.size);
-                const relacionadosAuto = Array.from(vistos.entries())
-                    .filter(([norm]) => norm.includes('AUTO') || norm.includes('PROTEC'))
-                    .map(([norm, v]) => ({ valorReal: v.raw, normalizado: norm, coincideConDesplegable: norm === 'AUTOPROTECCION', numeroDeLineas: v.count }));
-                console.log('DEBUG valores de servicio relacionados con "auto"/"protec": ' + JSON.stringify(relacionadosAuto, null, 2));
-                if (relacionadosAuto.length === 0) {
-                    console.log('DEBUG: no se encontró NINGÚN valor de servicio que contenga "auto" o "protec" en ninguna línea facturada ANUAL/PUNTUAL.');
-                }
-                console.log('DEBUG servicios del desplegable (listaServicios): ' + JSON.stringify(listaServicios));
-            }
-
             // Read year filter from productividad
             const selYears = Array.from(document.getElementById('filt-prod-carga-year')?.selectedOptions || []).map(o => parseInt(o.value));
             const filtYears = selYears.length > 0 ? selYears : [curYear];
@@ -8448,7 +8419,7 @@
                 if (!fechaAr || !filtYears.includes(fechaAr.getFullYear())) return;
                 const presup = parseSpanishNum(prod.presupuesto_m) || 0;
                 if (presup === 0) return;
-                if (selSrvsNorm.size > 0 && !selSrvsNorm.has(normTexto(prod.servicio))) return;
+                if (selSrvsNorm.size > 0 && !selSrvsNorm.has(normTexto(prod.tipo_servicio || prod.servicio))) return;
                 const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
                 const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
                 // Solo técnicos de producción (casilla "Prod" en Configuración) cuentan
@@ -8476,7 +8447,7 @@
                 fArMap[nt] = (p.fecha_ar || '').trim();
                 tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
                 presupMap[nt] = parseSpanishNum(p.presupuesto_m) || 0;
-                srvMap[nt] = normTexto(p.servicio);
+                srvMap[nt] = normTexto(p.tipo_servicio || p.servicio);
             });
 
             function resolverTecP(trabajadorStr) {
