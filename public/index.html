@@ -8365,22 +8365,27 @@
                 facturadoMes[fechaAr.getMonth()] += presup;
             });
 
-            // Por facturar: hours from partes_horas on non-VB, non-facturado ANUAL/PUNTUAL, grouped by month of parte
-            const vbMap = {};
+            // Por facturar: horas de partes_horas en l\u00edneas ANUAL/PUNTUAL SIN fecha de
+            // facturaci\u00f3n (fecha_ar), a "costeHoraActual" \u20ac/h, con un tope por l\u00ednea
+            // igual a su Presupuesto (M). El importe de cada l\u00ednea se reparte por mes
+            // en orden cronol\u00f3gico y deja de sumar en cuanto se alcanza ese tope, para
+            // que la suma de "por facturar" de una l\u00ednea nunca supere su presupuesto.
             const fArMap = {};
             const tipoExpMap = {};
+            const presupMap = {};
             datosProduccionMemoria.forEach(p => {
                 const nt = String(p.num_trabajo);
-                vbMap[nt] = (p.visto_vb_cliente || '').trim().toLowerCase() === 'si';
                 fArMap[nt] = (p.fecha_ar || '').trim();
                 tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
+                presupMap[nt] = parseSpanishNum(p.presupuesto_m) || 0;
             });
 
-            const getWords = (str) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, ' ').toLowerCase().split(/\s+/).filter(w => w.length > 2);
             function resolverTecP(trabajadorStr) {
                 return resolverTecPorIdTec(trabajadorStr);
             }
 
+            // 1) Agrupar horas v\u00e1lidas por l\u00ednea (num_trabajo), en orden cronol\u00f3gico
+            const horasPorLinea = {};
             (window._partesHorasData || []).forEach(p => {
                 const fecha = parseFechaR(p.fecha);
                 if (!fecha || !filtYears.includes(fecha.getFullYear())) return;
@@ -8392,12 +8397,27 @@
                 if (!numT) return;
                 const tipoExp = tipoExpMap[numT] || '';
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
-                if (vbMap[numT]) return;
-                if (fArMap[numT]) return;
+                if (fArMap[numT]) return; // ya tiene fecha de facturaci\u00f3n: no es "por facturar"
                 const tec = resolverTecP((p.trabajador || '').trim());
                 if (!tec) return;
                 if (selTecs.length > 0 && !selTecs.includes(tec.acronimo)) return;
-                porFacturarMes[fecha.getMonth()] += horas * costeHoraActual;
+                if (!horasPorLinea[numT]) horasPorLinea[numT] = [];
+                horasPorLinea[numT].push({ orden: fecha.getTime(), mes: fecha.getMonth(), importe: horas * costeHoraActual });
+            });
+
+            // 2) Por cada l\u00ednea: sumar por mes hasta el tope de su Presupuesto (M)
+            Object.keys(horasPorLinea).forEach(numT => {
+                const tope = presupMap[numT] || 0;
+                if (tope <= 0) return; // sin presupuesto asignado: nada que "por facturar"
+                let acumulado = 0;
+                horasPorLinea[numT]
+                    .sort((a, b) => a.orden - b.orden)
+                    .forEach(entry => {
+                        if (acumulado >= tope) return;
+                        const importe = Math.min(entry.importe, tope - acumulado);
+                        acumulado += importe;
+                        porFacturarMes[entry.mes] += importe;
+                    });
             });
 
             // Plugin to show total on top of stacked bars, and the amount inside each segment
@@ -8685,7 +8705,6 @@
             } else if (isRend) {
                 document.getElementById('panel-dash-rendimiento').style.display = 'block';
                 cargarDashboardRendimiento();
-                cargarMensualFactChart();
                 cargarTablaHorasSinFacturar();
             } else if (isFin) {
                 document.getElementById('panel-dash-financiero').style.display = 'block';
@@ -8696,6 +8715,7 @@
             } else {
                 document.getElementById('panel-dash-produccion').style.display = 'block';
                 cargarDashboardProduccion();
+                cargarMensualFactChart();
             }
         }
 
@@ -11775,6 +11795,17 @@
                     </div>
 
                     <div id="panel-dash-produccion" style="display: block;">
+                        <div class="chart-box" style="margin-bottom: 24px;">
+                            <h3 class="chart-title">Facturado y por facturar mensual</h3>
+                            <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
+                                <div class="filter-group"><label>Técnico</label>
+                                    <select id="filt-mensual-tec" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
+                                </div>
+                                <button id="btn-update-mensual" class="btn-primary" style="height: 36px;">Aplicar</button>
+                                <button id="btn-clear-mensual" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
+                            </div>
+                            <div style="width: 100%; height: 350px; position: relative;"><canvas id="chart-mensual-fact"></canvas></div>
+                        </div>
                         <div id="dash-pro-filtros"
                             style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: nowrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label><select id="filt-pro-year" class="multi-select"></select></div>
@@ -11863,18 +11894,6 @@
                                 <button id="btn-detalle-productividad" class="btn-secondary" title="Mostrar/ocultar dato Fact/mes por técnico" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1; opacity: 0.5; display: none;">Detalle</button>
                             </div>
                             <div id="container-carga-rendimiento"></div>
-                        </div>
-
-                        <div class="chart-box" style="margin-bottom: 24px;">
-                            <h3 class="chart-title">Facturado y por facturar mensual</h3>
-                            <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
-                                <div class="filter-group"><label>Técnico</label>
-                                    <select id="filt-mensual-tec" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
-                                </div>
-                                <button id="btn-update-mensual" class="btn-primary" style="height: 36px;">Aplicar</button>
-                                <button id="btn-clear-mensual" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
-                            </div>
-                            <div style="width: 100%; height: 350px; position: relative;"><canvas id="chart-mensual-fact"></canvas></div>
                         </div>
 
                         <div class="chart-box" style="margin-bottom: 24px;">
@@ -12604,6 +12623,7 @@
                         <h2 class="config-section-title">📊 Gráficos de Informes</h2>
                         <details open style="margin-bottom:14px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Informe de Producción</summary>
                         <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
+                            <li><strong>Facturado y por facturar mensual</strong>: gráfico de barras de los últimos 12 meses (líneas ANUAL/PUNTUAL). Facturado = Presupuesto (M) de las líneas con fecha de facturación ese mes. Por facturar = horas registradas en líneas sin fecha de facturación × coste por hora estimada, con un tope por línea igual a su Presupuesto (M)</li>
                             <li>KPIs: facturación pendiente, facturación realizada, trabajos activos</li>
                             <li>Distribución de presupuesto por tipo de servicio, por cliente y por técnico responsable</li>
                             <li>Evolución mensual de importes</li>
@@ -12613,7 +12633,6 @@
                             <li><strong>Productividad por técnico</strong>: barras de facturado / por facturar / pendiente por cada técnico, con filtros de año y mes</li>
                             <li><strong>Fact/mes</strong>: dato de facturación media mensual por técnico. Solo visible para admin tras pulsar el botón <em>Detalle</em> (junto a "Borrar filtros"). Está oculto por defecto.</li>
                             <li><strong>Distribución interno vs productivo</strong>: horas internas frente a horas productivas por técnico (basado en partes)</li>
-                            <li><strong>Facturado y por facturar mensual</strong>: gráfico de barras de los últimos 12 meses</li>
                         </ul></details>
                         <details style="margin-bottom:14px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Informe Financiero <span style="font-size:11px;color:#94a3b8;">(admin, financiero)</span></summary>
                         <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
