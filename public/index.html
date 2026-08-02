@@ -7741,7 +7741,10 @@
                 tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
                 presupMap[nt] = parseSpanishNum(p.presupuesto_m) || 0;
                 gastosMap[nt] = parseSpanishNum(p.gastos_n) || 0;
-                horasDispMap[nt] = parseSpanishNum(p.horas_disponibles) || 0;
+                // "Horas Disponibles" no se guarda en Firestore: se calcula al vuelo,
+                // igual que en la columna de la tabla (Presupuesto - Gastos) / coste hora
+                horasDispMap[nt] = (presupMap[nt] > 0 && costeHoraActual > 0)
+                    ? (presupMap[nt] - gastosMap[nt]) / costeHoraActual : 0;
                 vbClienteMap[nt] = (p.visto_vb_cliente || '').trim().toLowerCase() === 'si';
                 fechaArMap[nt] = (p.fecha_ar || '').trim();
             });
