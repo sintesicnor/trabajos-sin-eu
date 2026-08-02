@@ -7732,12 +7732,16 @@
 
             const tipoExpMap = {};
             const presupMap = {};
+            const gastosMap = {};
+            const horasDispMap = {};
             const vbClienteMap = {};
             const fechaArMap = {};
             datosProduccionMemoria.forEach(p => {
                 const nt = String(p.num_trabajo);
                 tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
                 presupMap[nt] = parseSpanishNum(p.presupuesto_m) || 0;
+                gastosMap[nt] = parseSpanishNum(p.gastos_n) || 0;
+                horasDispMap[nt] = parseSpanishNum(p.horas_disponibles) || 0;
                 vbClienteMap[nt] = (p.visto_vb_cliente || '').trim().toLowerCase() === 'si';
                 fechaArMap[nt] = (p.fecha_ar || '').trim();
             });
@@ -7747,8 +7751,10 @@
             // ══════════════════════════════════════
             // CHART 1: Productividad por técnico
             // ══════════════════════════════════════
+            // Solo técnicos de producción (casilla "Prod" en Configuración), igual
+            // que en el resto de gráficos de Informes
             const tecCarga = {};
-            listaTecnicos.forEach(t => {
+            listaTecnicos.filter(t => t.prod !== false).forEach(t => {
                 tecCarga[t.acronimo] = { label: t.nombre_pila || t.acronimo, facturado: 0, porFacturar: 0, totalAsignado: 0 };
             });
 
@@ -7762,16 +7768,59 @@
                 const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
                 if (!tec || !tecCarga[tec.acronimo]) return;
                 tecCarga[tec.acronimo].totalAsignado += presup;
+            });
 
-                // 2) Facturado: has fecha_ar (Fecha Facturación) matching filter
-                const fAr = parseFechaR((prod.fecha_ar || '').trim());
-                if (fAr && matchFilt(fAr)) {
-                    tecCarga[tec.acronimo].facturado += presup;
+            // 2) Agrupar TODAS las horas (histórico completo, de cualquier técnico)
+            // por línea, para poder calcular el precio/hora real de cada línea y
+            // repartir el importe facturado entre quienes de verdad invirtieron
+            // horas en ella (no solo el técnico titular T1/Responsable)
+            const horasPorLineaTodas = {}; // numT -> { total, porTec: { acronimo: horas } }
+            partesData.forEach(p => {
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const m = obs.match(/^(\d{3,6})/);
+                const numT = m ? m[1] : null;
+                if (!numT) return;
+                const tipoExp = tipoExpMap[numT] || '';
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                if (!horasPorLineaTodas[numT]) horasPorLineaTodas[numT] = { total: 0, porTec: {} };
+                horasPorLineaTodas[numT].total += horas;
+                const tec = resolverTecP((p.trabajador || '').trim());
+                if (tec && tecCarga[tec.acronimo]) {
+                    horasPorLineaTodas[numT].porTec[tec.acronimo] = (horasPorLineaTodas[numT].porTec[tec.acronimo] || 0) + horas;
                 }
             });
 
-            // 3) Por facturar: sum hours*costeHora from partes_horas for ANUAL+PUNTUAL
-            //    where VB Cliente != 'Si' (not yet approved by client)
+            // 3) Facturado: por cada línea con fecha de facturación (dentro del
+            // filtro), el importe (Presupuesto M - Gastos N) se reparte entre los
+            // técnicos que metieron horas en esa línea, en proporción a las horas
+            // de cada uno sobre el total de horas invertidas en la línea (todo el
+            // histórico, no solo el periodo filtrado). Si la línea está facturada
+            // pero no tiene ninguna hora registrada, su importe no se reparte
+            // (no hay forma de saber a quién atribuírselo).
+            datosProduccionMemoria.forEach(prod => {
+                const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                const nt = String(prod.num_trabajo);
+                const fAr = parseFechaR((prod.fecha_ar || '').trim());
+                if (!fAr || !matchFilt(fAr)) return;
+                const valorLinea = (presupMap[nt] || 0) - (gastosMap[nt] || 0);
+                if (valorLinea <= 0) return;
+                const horasLinea = horasPorLineaTodas[nt];
+                if (!horasLinea || horasLinea.total <= 0) return;
+                const precioHora = valorLinea / horasLinea.total;
+                Object.keys(horasLinea.porTec).forEach(acr => {
+                    tecCarga[acr].facturado += horasLinea.porTec[acr] * precioHora;
+                });
+            });
+
+            // 4) Por facturar: horas de líneas sin fecha de facturación (y sin VB
+            // Cliente 'Si'), a coste por hora estimada, con un tope de horas por
+            // línea igual a sus "Horas Disponibles". Las horas se cuentan en orden
+            // cronológico y dejan de contar en cuanto se alcanza ese tope, igual
+            // que el tope por importe del gráfico "Facturado y por facturar mensual".
+            const horasPorLineaPend = {}; // numT -> [{ orden, acr, horas }]
             partesData.forEach(p => {
                 const fecha = parseFechaR(p.fecha);
                 if (!matchFilt(fecha)) return;
@@ -7783,13 +7832,26 @@
                 if (!numT) return;
                 const tipoExp = tipoExpMap[numT] || '';
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
-                // Only count if VB Cliente is NOT 'Si' (work not yet client-approved)
                 if (vbClienteMap[numT]) return;
-                // Also skip if already facturado
                 if (fechaArMap[numT]) return;
                 const tec = resolverTecP((p.trabajador || '').trim());
                 if (!tec || !tecCarga[tec.acronimo]) return;
-                tecCarga[tec.acronimo].porFacturar += horas * costeHoraActual;
+                if (!horasPorLineaPend[numT]) horasPorLineaPend[numT] = [];
+                horasPorLineaPend[numT].push({ orden: fecha.getTime(), acr: tec.acronimo, horas });
+            });
+
+            Object.keys(horasPorLineaPend).forEach(numT => {
+                const tope = horasDispMap[numT] || 0;
+                if (tope <= 0) return; // sin horas disponibles: nada que "por facturar"
+                let acumulado = 0;
+                horasPorLineaPend[numT]
+                    .sort((a, b) => a.orden - b.orden)
+                    .forEach(entry => {
+                        if (acumulado >= tope) return;
+                        const horasContadas = Math.min(entry.horas, tope - acumulado);
+                        acumulado += horasContadas;
+                        tecCarga[entry.acr].porFacturar += horasContadas * costeHoraActual;
+                    });
             });
 
             // Sort by facturado descending
@@ -12774,7 +12836,7 @@
                         <details style="margin-bottom:14px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Informe de Rendimiento <span style="font-size:11px;color:#94a3b8;">(admin, edición)</span></summary>
                         <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
                             <li><strong>Facturado y por facturar mensual</strong>: gráfico de barras de los últimos 12 meses (líneas ANUAL/PUNTUAL), con filtros de Año, Técnico y Servicio y una tarjeta con el Facturado Total y Medio mensual (se recalcula según los filtros aplicados). El filtro de Año muestra los años de los que hay registros y por defecto solo muestra el año en curso. Facturado = Presupuesto (M) de las líneas con fecha de facturación ese mes. Por facturar = horas registradas en líneas sin fecha de facturación × coste por hora estimada, con un tope por línea igual a su Presupuesto (M)</li>
-                            <li><strong>Productividad por técnico</strong>: barras de facturado / por facturar / pendiente por cada técnico, con filtros de año y mes</li>
+                            <li><strong>Productividad por técnico</strong>: barras de facturado / por facturar / pendiente por cada técnico (solo técnicos "Prod"), con filtros de año y mes. Facturado = en cada línea facturada, (Presupuesto M - Gastos N) se reparte entre los técnicos que metieron horas en ella, proporcionalmente a las horas de cada uno sobre el total de horas de la línea. Por facturar = horas de líneas sin facturar × coste por hora estimada, con un tope de horas por línea igual a sus Horas Disponibles. Pendiente = Asignado (Presupuesto de las líneas de las que es titular T1) menos Facturado y Por facturar</li>
                             <li><strong>Fact/mes</strong>: dato de facturación media mensual por técnico. Solo visible para admin tras pulsar el botón <em>Detalle</em> (junto a "Borrar filtros"). Está oculto por defecto.</li>
                             <li><strong>Distribución interno vs productivo</strong>: horas internas frente a horas productivas por técnico (basado en partes)</li>
                         </ul></details>
