@@ -8312,30 +8312,39 @@
                 }
             }
 
-            // Populate tech filter with only techs that have ANUAL/PUNTUAL billed data
+            // Desplegable de Técnico: todos los técnicos, ordenados por nombre
             const tecSel = document.getElementById('filt-mensual-tec');
-            if (tecSel) {
-                const tecsWithData = new Set();
-                datosProduccionMemoria.forEach(p => {
-                    const tipoExp = (p.tipo_expediente || '').trim().toUpperCase();
-                    if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
-                    if (!(p.fecha_ap || '').trim()) return;
-                    const tecField = (p.ejecutor_t1 || p.responsable_g || '').trim();
-                    const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
-                    if (tec) tecsWithData.add(tec.acronimo);
-                });
+            if (tecSel && tecSel.options.length === 0) {
                 const prevSel = new Set(Array.from(tecSel.selectedOptions).map(o => o.value));
                 tecSel.innerHTML = '';
-                listaTecnicos.filter(t => tecsWithData.has(t.acronimo)).forEach(t => {
+                [...listaTecnicos]
+                    .filter(t => t.acronimo)
+                    .sort((a, b) => (a.nombre_pila || a.acronimo).localeCompare(b.nombre_pila || b.acronimo, 'es'))
+                    .forEach(t => {
+                        const opt = document.createElement('option');
+                        opt.value = t.acronimo;
+                        opt.textContent = t.nombre_pila || t.acronimo;
+                        if (prevSel.has(t.acronimo)) opt.selected = true;
+                        tecSel.appendChild(opt);
+                    });
+            }
+
+            // Desplegable de Servicio: lista maestra de servicios
+            const srvSel = document.getElementById('filt-mensual-srv');
+            if (srvSel && srvSel.options.length === 0) {
+                const prevSelSrv = new Set(Array.from(srvSel.selectedOptions).map(o => o.value));
+                srvSel.innerHTML = '';
+                [...listaServicios].sort((a, b) => a.localeCompare(b, 'es')).forEach(s => {
                     const opt = document.createElement('option');
-                    opt.value = t.acronimo;
-                    opt.textContent = t.nombre_pila || t.acronimo;
-                    if (prevSel.has(t.acronimo)) opt.selected = true;
-                    tecSel.appendChild(opt);
+                    opt.value = s;
+                    opt.textContent = s;
+                    if (prevSelSrv.has(s)) opt.selected = true;
+                    srvSel.appendChild(opt);
                 });
             }
 
             const selTecs = Array.from(tecSel?.selectedOptions || []).map(o => o.value);
+            const selSrvs = Array.from(srvSel?.selectedOptions || []).map(o => o.value);
 
             // Read year filter from productividad
             const selYears = Array.from(document.getElementById('filt-prod-carga-year')?.selectedOptions || []).map(o => parseInt(o.value));
@@ -8358,6 +8367,7 @@
                 if (!fechaAr || !filtYears.includes(fechaAr.getFullYear())) return;
                 const presup = parseSpanishNum(prod.presupuesto_m) || 0;
                 if (presup === 0) return;
+                if (selSrvs.length > 0 && !selSrvs.includes((prod.servicio || '').trim())) return;
                 const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
                 const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
                 // El técnico solo se exige si hay un filtro de técnico activo: sin filtro,
@@ -8375,11 +8385,13 @@
             const fArMap = {};
             const tipoExpMap = {};
             const presupMap = {};
+            const srvMap = {};
             datosProduccionMemoria.forEach(p => {
                 const nt = String(p.num_trabajo);
                 fArMap[nt] = (p.fecha_ar || '').trim();
                 tipoExpMap[nt] = (p.tipo_expediente || '').trim().toUpperCase();
                 presupMap[nt] = parseSpanishNum(p.presupuesto_m) || 0;
+                srvMap[nt] = (p.servicio || '').trim();
             });
 
             function resolverTecP(trabajadorStr) {
@@ -8400,6 +8412,7 @@
                 const tipoExp = tipoExpMap[numT] || '';
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
                 if (fArMap[numT]) return; // ya tiene fecha de facturaci\u00f3n: no es "por facturar"
+                if (selSrvs.length > 0 && !selSrvs.includes(srvMap[numT])) return;
                 const tec = resolverTecP((p.trabajador || '').trim());
                 if (selTecs.length > 0 && (!tec || !selTecs.includes(tec.acronimo))) return;
                 if (!horasPorLinea[numT]) horasPorLinea[numT] = [];
@@ -8420,6 +8433,16 @@
                         porFacturarMes[entry.mes] += importe;
                     });
             });
+
+            // Tarjeta resumen: total y media mensual de Facturado, respetando los
+            // filtros de Técnico/Servicio activos (se recalcula cada vez que se
+            // aplican o borran filtros, igual que el propio gráfico)
+            const totalFacturadoAnual = facturadoMes.reduce((a, b) => a + b, 0);
+            const mediaFacturadoMensual = totalFacturadoAnual / 12;
+            const kpiFactTotal = document.getElementById('kpi-mensual-fact-total');
+            const kpiFactMedio = document.getElementById('kpi-mensual-fact-medio');
+            if (kpiFactTotal) kpiFactTotal.textContent = fmtE.format(Math.round(totalFacturadoAnual));
+            if (kpiFactMedio) kpiFactMedio.textContent = fmtE.format(Math.round(mediaFacturadoMensual));
 
             // Plugin to show total on top of stacked bars, and the amount inside each segment
             const stackedTotalPlugin = {
@@ -8508,6 +8531,8 @@
         document.getElementById('btn-clear-mensual')?.addEventListener('click', () => {
             const el = document.getElementById('filt-mensual-tec');
             if (el) Array.from(el.options).forEach(o => o.selected = false);
+            const elSrv = document.getElementById('filt-mensual-srv');
+            if (elSrv) Array.from(elSrv.options).forEach(o => o.selected = false);
             cargarMensualFactChart();
         });
 
@@ -11876,10 +11901,25 @@
                                 <div class="filter-group"><label>Técnico</label>
                                     <select id="filt-mensual-tec" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
                                 </div>
+                                <div class="filter-group"><label>Servicio</label>
+                                    <select id="filt-mensual-srv" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
+                                </div>
                                 <button id="btn-update-mensual" class="btn-primary" style="height: 36px;">Aplicar</button>
                                 <button id="btn-clear-mensual" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
                             </div>
-                            <div style="width: 100%; height: 350px; position: relative;"><canvas id="chart-mensual-fact"></canvas></div>
+                            <div style="display: flex; gap: 16px; align-items: stretch; flex-wrap: wrap;">
+                                <div style="flex: 1 1 500px; min-width: 0; height: 350px; position: relative;"><canvas id="chart-mensual-fact"></canvas></div>
+                                <div style="width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; justify-content: center;">
+                                    <div class="kpi-card">
+                                        <div class="kpi-title">Facturado Total</div>
+                                        <div class="kpi-value" id="kpi-mensual-fact-total" style="color: #10b981;">0 €</div>
+                                    </div>
+                                    <div class="kpi-card">
+                                        <div class="kpi-title">Facturado Medio / mes</div>
+                                        <div class="kpi-value" id="kpi-mensual-fact-medio" style="color: #10b981;">0 €</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <div class="chart-box" style="margin-bottom: 24px;">
                             <h3 class="chart-title">Productividad por técnico</h3>
@@ -12630,7 +12670,7 @@
                         </ul></details>
                         <details style="margin-bottom:14px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Informe de Rendimiento <span style="font-size:11px;color:#94a3b8;">(admin, edición)</span></summary>
                         <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
-                            <li><strong>Facturado y por facturar mensual</strong>: gráfico de barras de los últimos 12 meses (líneas ANUAL/PUNTUAL). Facturado = Presupuesto (M) de las líneas con fecha de facturación ese mes. Por facturar = horas registradas en líneas sin fecha de facturación × coste por hora estimada, con un tope por línea igual a su Presupuesto (M)</li>
+                            <li><strong>Facturado y por facturar mensual</strong>: gráfico de barras de los últimos 12 meses (líneas ANUAL/PUNTUAL), con filtros de Técnico y Servicio y una tarjeta con el Facturado Total y Medio mensual (se recalcula según los filtros aplicados). Facturado = Presupuesto (M) de las líneas con fecha de facturación ese mes. Por facturar = horas registradas en líneas sin fecha de facturación × coste por hora estimada, con un tope por línea igual a su Presupuesto (M)</li>
                             <li><strong>Productividad por técnico</strong>: barras de facturado / por facturar / pendiente por cada técnico, con filtros de año y mes</li>
                             <li><strong>Fact/mes</strong>: dato de facturación media mensual por técnico. Solo visible para admin tras pulsar el botón <em>Detalle</em> (junto a "Borrar filtros"). Está oculto por defecto.</li>
                             <li><strong>Distribución interno vs productivo</strong>: horas internas frente a horas productivas por técnico (basado en partes)</li>
