@@ -8289,6 +8289,67 @@
             }
         }
 
+        // ═══ Mini-desplegable con casillas (cerrado por defecto), reutilizable ═══
+        // Sustituye a los <select multiple>, que siempre se muestran como una lista
+        // fija con scroll en vez de un desplegable que se abre/cierra.
+        function poblarMiniDropdownSiVacio(panelId, labelId, items) {
+            const panel = document.getElementById(panelId);
+            const label = document.getElementById(labelId);
+            const btn = panel ? document.getElementById(panelId.replace('-panel', '-btn')) : null;
+            if (!panel || !label || !btn) return;
+
+            if (panel.childElementCount === 0) {
+                items.forEach(item => {
+                    const lbl = document.createElement('label');
+                    lbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:3px 0;white-space:nowrap;';
+                    const cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.value = item.value;
+                    cb.style.cssText = 'width:13px;height:13px;cursor:pointer;flex-shrink:0;';
+                    cb.addEventListener('change', () => actualizarMiniDropdownLabel(panelId, labelId));
+                    lbl.appendChild(cb);
+                    lbl.appendChild(document.createTextNode(item.label));
+                    panel.appendChild(lbl);
+                });
+            }
+
+            if (!btn._miniDdWired) {
+                btn._miniDdWired = true;
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isOpen = panel.style.display !== 'none';
+                    document.querySelectorAll('.mini-dd-panel').forEach(p => { p.style.display = 'none'; });
+                    panel.style.display = isOpen ? 'none' : 'block';
+                });
+                panel.addEventListener('click', e => e.stopPropagation());
+                panel.classList.add('mini-dd-panel');
+            }
+        }
+
+        function actualizarMiniDropdownLabel(panelId, labelId) {
+            const panel = document.getElementById(panelId);
+            const label = document.getElementById(labelId);
+            if (!panel || !label) return;
+            const checked = Array.from(panel.querySelectorAll('input:checked'));
+            if (checked.length === 0) label.textContent = 'Todos';
+            else if (checked.length <= 2) label.textContent = checked.map(cb => cb.nextSibling.textContent).join(', ');
+            else label.textContent = checked.length + ' seleccionados';
+        }
+
+        function leerMiniDropdownValues(panelId) {
+            return Array.from(document.querySelectorAll(`#${panelId} input:checked`)).map(cb => cb.value);
+        }
+
+        function limpiarMiniDropdown(panelId, labelId) {
+            document.querySelectorAll(`#${panelId} input`).forEach(cb => { cb.checked = false; });
+            actualizarMiniDropdownLabel(panelId, labelId);
+        }
+
+        // Cerrar cualquier mini-desplegable abierto al hacer clic fuera
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.mini-dd-panel').forEach(p => { p.style.display = 'none'; });
+        });
+
         // ═══ Monthly Facturado/PorFacturar Chart ═══
         let _chartMensualFact = null;
 
@@ -8312,39 +8373,19 @@
                 }
             }
 
-            // Desplegable de Técnico: todos los técnicos, ordenados por nombre
-            const tecSel = document.getElementById('filt-mensual-tec');
-            if (tecSel && tecSel.options.length === 0) {
-                const prevSel = new Set(Array.from(tecSel.selectedOptions).map(o => o.value));
-                tecSel.innerHTML = '';
-                [...listaTecnicos]
-                    .filter(t => t.acronimo)
-                    .sort((a, b) => (a.nombre_pila || a.acronimo).localeCompare(b.nombre_pila || b.acronimo, 'es'))
-                    .forEach(t => {
-                        const opt = document.createElement('option');
-                        opt.value = t.acronimo;
-                        opt.textContent = t.nombre_pila || t.acronimo;
-                        if (prevSel.has(t.acronimo)) opt.selected = true;
-                        tecSel.appendChild(opt);
-                    });
-            }
+            // Desplegable (cerrado por defecto) de Técnico: todos los técnicos, ordenados por nombre
+            const tecItems = [...listaTecnicos]
+                .filter(t => t.acronimo)
+                .sort((a, b) => (a.nombre_pila || a.acronimo).localeCompare(b.nombre_pila || b.acronimo, 'es'))
+                .map(t => ({ value: t.acronimo, label: t.nombre_pila || t.acronimo }));
+            poblarMiniDropdownSiVacio('dd-mensual-tec-panel', 'dd-mensual-tec-label', tecItems);
 
-            // Desplegable de Servicio: lista maestra de servicios
-            const srvSel = document.getElementById('filt-mensual-srv');
-            if (srvSel && srvSel.options.length === 0) {
-                const prevSelSrv = new Set(Array.from(srvSel.selectedOptions).map(o => o.value));
-                srvSel.innerHTML = '';
-                [...listaServicios].sort((a, b) => a.localeCompare(b, 'es')).forEach(s => {
-                    const opt = document.createElement('option');
-                    opt.value = s;
-                    opt.textContent = s;
-                    if (prevSelSrv.has(s)) opt.selected = true;
-                    srvSel.appendChild(opt);
-                });
-            }
+            // Desplegable (cerrado por defecto) de Servicio: lista maestra de servicios
+            const srvItems = [...listaServicios].sort((a, b) => a.localeCompare(b, 'es')).map(s => ({ value: s, label: s }));
+            poblarMiniDropdownSiVacio('dd-mensual-srv-panel', 'dd-mensual-srv-label', srvItems);
 
-            const selTecs = Array.from(tecSel?.selectedOptions || []).map(o => o.value);
-            const selSrvs = Array.from(srvSel?.selectedOptions || []).map(o => o.value);
+            const selTecs = leerMiniDropdownValues('dd-mensual-tec-panel');
+            const selSrvs = leerMiniDropdownValues('dd-mensual-srv-panel');
 
             // Read year filter from productividad
             const selYears = Array.from(document.getElementById('filt-prod-carga-year')?.selectedOptions || []).map(o => parseInt(o.value));
@@ -8436,9 +8477,13 @@
 
             // Tarjeta resumen: total y media mensual de Facturado, respetando los
             // filtros de Técnico/Servicio activos (se recalcula cada vez que se
-            // aplican o borran filtros, igual que el propio gráfico)
+            // aplican o borran filtros, igual que el propio gráfico).
+            // La media se divide entre los meses ya transcurridos COMPLETOS del año
+            // en curso (p.ej. en agosto, entre los 7 meses de enero a julio); para
+            // un año distinto al actual (ya cerrado), se divide entre 12.
             const totalFacturadoAnual = facturadoMes.reduce((a, b) => a + b, 0);
-            const mediaFacturadoMensual = totalFacturadoAnual / 12;
+            const mesesTranscurridos = targetYear === curYear ? Math.max(1, new Date().getMonth()) : 12;
+            const mediaFacturadoMensual = totalFacturadoAnual / mesesTranscurridos;
             const kpiFactTotal = document.getElementById('kpi-mensual-fact-total');
             const kpiFactMedio = document.getElementById('kpi-mensual-fact-medio');
             if (kpiFactTotal) kpiFactTotal.textContent = fmtE.format(Math.round(totalFacturadoAnual));
@@ -8529,10 +8574,8 @@
 
         document.getElementById('btn-update-mensual')?.addEventListener('click', () => cargarMensualFactChart());
         document.getElementById('btn-clear-mensual')?.addEventListener('click', () => {
-            const el = document.getElementById('filt-mensual-tec');
-            if (el) Array.from(el.options).forEach(o => o.selected = false);
-            const elSrv = document.getElementById('filt-mensual-srv');
-            if (elSrv) Array.from(elSrv.options).forEach(o => o.selected = false);
+            limpiarMiniDropdown('dd-mensual-tec-panel', 'dd-mensual-tec-label');
+            limpiarMiniDropdown('dd-mensual-srv-panel', 'dd-mensual-srv-label');
             cargarMensualFactChart();
         });
 
@@ -11899,10 +11942,20 @@
                             <h3 class="chart-title">Facturado y por facturar mensual</h3>
                             <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: flex-end;">
                                 <div class="filter-group"><label>Técnico</label>
-                                    <select id="filt-mensual-tec" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
+                                    <div style="position:relative;">
+                                        <button type="button" id="dd-mensual-tec-btn" class="btn-secondary" style="height:36px;min-width:140px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;">
+                                            <span id="dd-mensual-tec-label">Todos</span><span style="color:#94a3b8;">▾</span>
+                                        </button>
+                                        <div id="dd-mensual-tec-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:180px;max-height:260px;overflow-y:auto;"></div>
+                                    </div>
                                 </div>
                                 <div class="filter-group"><label>Servicio</label>
-                                    <select id="filt-mensual-srv" class="multi-select" multiple style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;min-width:140px;min-height:36px;"></select>
+                                    <div style="position:relative;">
+                                        <button type="button" id="dd-mensual-srv-btn" class="btn-secondary" style="height:36px;min-width:140px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;">
+                                            <span id="dd-mensual-srv-label">Todos</span><span style="color:#94a3b8;">▾</span>
+                                        </button>
+                                        <div id="dd-mensual-srv-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:180px;max-height:260px;overflow-y:auto;"></div>
+                                    </div>
                                 </div>
                                 <button id="btn-update-mensual" class="btn-primary" style="height: 36px;">Aplicar</button>
                                 <button id="btn-clear-mensual" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
