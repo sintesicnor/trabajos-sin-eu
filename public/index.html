@@ -2508,7 +2508,7 @@
             const visibles = allRows.filter(r => r.style.display !== 'none').length;
             if (allRows.length > 0 && visibles === 0 && tableFilters[tblId]) {
                 console.warn(`⚠️ Filtro obsoleto en "${tblId}" oculta todos los datos, limpiando...`, JSON.stringify(tableFilters[tblId]));
-                delete tableFilters[tblId];
+                tableFilters[tblId] = {};
                 allRows.forEach(r => r.style.display = '');
                 guardarPreferenciasUsuario();
             }
@@ -2521,7 +2521,10 @@
             if (!table) return;
             const tblId = table.dataset.tableId;
             if (!tblId) return;
-            if (tableFilters[tblId]) delete tableFilters[tblId];
+            // Vaciar (no borrar la clave): varios sitios leen tableFilters[tblId][colIdx]
+            // al reabrir un popup de filtro; si se borra la clave entera, esa lectura
+            // lanza un error y el popup deja de poder abrirse hasta recargar la página.
+            if (tableFilters[tblId]) tableFilters[tblId] = {};
             const NORMAL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>`;
             table.querySelectorAll('.header-filter-icon[data-active="true"]').forEach(ic => {
                 ic.dataset.active = 'false';
@@ -3547,7 +3550,7 @@
                     count++;
                 }
                 console.log(`Borradas las vistas de ${count} usuarios exitosamente.`);
-                Object.keys(tableFilters).forEach(k => delete tableFilters[k]);
+                Object.keys(tableFilters).forEach(k => { tableFilters[k] = {}; });
                 Object.keys(localStorage).forEach(k => {
                     if (k.includes('_gestor_col_order_')) localStorage.removeItem(k);
                 });
@@ -3570,7 +3573,7 @@
 
                     if (prefs.filtros) {
                         // Limpiar filtros actuales antes de aplicar los guardados
-                        Object.keys(tableFilters).forEach(k => delete tableFilters[k]);
+                        Object.keys(tableFilters).forEach(k => { tableFilters[k] = {}; });
                         Object.assign(tableFilters, prefs.filtros);
                     }
 
@@ -3613,7 +3616,7 @@
                         if (savedViewsOrder.length > 0) {
                             const defaultView = savedViews[savedViewsOrder[0]];
                             if (defaultView && defaultView.filtros) {
-                                Object.keys(tableFilters).forEach(k => delete tableFilters[k]);
+                                Object.keys(tableFilters).forEach(k => { tableFilters[k] = {}; });
                                 Object.assign(tableFilters, JSON.parse(JSON.stringify(defaultView.filtros)));
                             }
                             if (defaultView && defaultView.orden_columnas) {
@@ -3771,7 +3774,7 @@
             if (!vista) return;
 
             if (vista.filtros) {
-                Object.keys(tableFilters).forEach(k => delete tableFilters[k]);
+                Object.keys(tableFilters).forEach(k => { tableFilters[k] = {}; });
                 Object.assign(tableFilters, JSON.parse(JSON.stringify(vista.filtros)));
             }
             if (vista.orden_columnas) {
