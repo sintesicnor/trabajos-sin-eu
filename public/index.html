@@ -23,6 +23,12 @@
     <script defer
         src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 
+    <!-- Chat IA: marked (Markdown -> HTML) + DOMPurify (limpieza obligatoria del HTML
+         resultante antes de insertarlo — el texto viene de un modelo de IA, nunca es
+         HTML de confianza) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+
     <!-- Service Worker: soporte offline automático -->
     <script>
         if ('serviceWorker' in navigator) {
@@ -35,10 +41,11 @@
     <script type="module">
         // Import the functions you need from the SDKs you need
         import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { initializeFirestore, persistentLocalCache, connectFirestoreEmulator, collection, getDocs, getDocsFromServer, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, orderBy, limit, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { initializeFirestore, persistentLocalCache, connectFirestoreEmulator, collection, collectionGroup, getDocs, getDocsFromServer, getDoc, doc, setDoc, updateDoc, addDoc, query, where, writeBatch, increment, arrayUnion, arrayRemove, orderBy, limit, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, connectAuthEmulator, createUserWithEmailAndPassword, OAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, setPersistence, browserSessionPersistence, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
+        import { getFunctions, httpsCallable, connectFunctionsEmulator } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js";
         import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, connectStorageEmulator } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -57,10 +64,16 @@
         });
         const auth = getAuth(app);
         const functions = getFunctions(app);
+        const storage = getStorage(app);
 
-        // Conectar Firestore al emulador si estamos en localhost (nunca tocar datos reales en local)
+        // Conectar Firestore y Functions al emulador si estamos en localhost (nunca
+        // tocar datos ni funciones reales en local — sin esto, las Cloud Functions
+        // callable seguirían llamando a producción aunque Firestore/Auth sí estén
+        // emulados, y un token del emulador de Auth no es válido en producción).
         if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
             connectFirestoreEmulator(db, "127.0.0.1", 8080);
+            connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+            connectStorageEmulator(storage, "127.0.0.1", 9199);
         }
 
         // ── v0.037: Firebase App Check con reCAPTCHA Enterprise ──
@@ -104,6 +117,7 @@
         let costeHoraActual = 60; // Valor por defecto
         let currentUserRole = null; // 'admin', 'edicion', 'lectura', 'financiero', 'consultor'
         let currentUserAcronym = null; // Acrónimo del técnico logueado
+        let currentUserEmail = ''; // Email resuelto con fallback a providerData (ver onAuthStateChanged) — user.email puede ser null con Microsoft
         let mostrarDetalleProductividad = false;
 
         // ── Permisos por rol (persistidos en Firestore doc "permisos_roles") ──
@@ -241,6 +255,7 @@
         let listaOficinas = ['MADRID', 'NAVARRA'];
         let listaOrigenes = ['CLIENTE NUEVO', 'CLIENTE ANTIGUO'];
         let listaTiposExpediente = ['INTERNO', 'MATRIZ', 'ANUAL', 'PUNTUAL', 'PARADO'];
+        let listaEquipos = [];
 
         let preferenciaTecnicos = 'acronimo'; // 'acronimo' o 'nombre_pila'
         let freezeColsProd = 5; // Nº de columnas que muestran icono fijador
@@ -252,6 +267,23 @@
         const PARTES_CACHE_TTL = 5 * 60 * 1000; // 5 minutos de TTL
         let tableProd = null;
         let tableOfe = null;
+
+        // ── Chat IA ──
+        let _chatIAInicializado = false;  // evita reasignar listeners de la vista en cada click
+        let chatIAActualId = null;        // chatId de la conversación abierta (null = sin guardar aún)
+        let chatIAMensajes = [];          // historial en memoria: [{role:'user'|'assistant', content:'...'}]
+        let chatIAModeloSeleccionado = 'gemini-2.5-flash-lite';
+        let chatIAEnviando = false;       // evita doble envío mientras se espera respuesta
+
+        // ── Proyectos IA ──
+        // Proyecto actualmente abierto en la vista de Chat IA (null = chat
+        // personal, fuera de cualquier proyecto). La vista de detalle de un
+        // proyecto REUTILIZA el DOM/JS del Chat IA normal — enviarMensajeChatIA,
+        // cargarHistorialChatIA, abrirChatIA, renderMensajeChatIA, etc. se
+        // comportan de forma distinta según esta variable esté a null o no.
+        let chatIAProyectoActual = null;
+        let _proyectosIAInicializado = false;
+        let proyectosIAFiltro = 'mios'; // 'mios' | 'publicos'
 
         // ── v0.037 Fase 2: registrarCambio() ELIMINADA ──
         // La auditoría se gestiona ahora desde Cloud Functions (backend inmutable).
@@ -466,6 +498,7 @@
                         if (listaOrigenes.length === 0) listaOrigenes = ['CLIENTE NUEVO', 'CLIENTE ANTIGUO'];
                     }
                     if (d.id === "tipos_expediente") listaTiposExpediente = d.data().items || [];
+                    if (d.id === "equipos") listaEquipos = d.data().items || [];
                 });
 
                 // Crear individualmente solo los documentos que falten.
@@ -478,6 +511,7 @@
                 if (!existingDocs.has('oficinas'))         initMissing.push(setDoc(doc(db, "listas_config", "oficinas"),         { items: listaOficinas }));
                 if (!existingDocs.has('origenes'))         initMissing.push(setDoc(doc(db, "listas_config", "origenes"),         { items: listaOrigenes }));
                 if (!existingDocs.has('tipos_expediente')) initMissing.push(setDoc(doc(db, "listas_config", "tipos_expediente"), { items: listaTiposExpediente }));
+                if (!existingDocs.has('equipos'))          initMissing.push(setDoc(doc(db, "listas_config", "equipos"),          { items: listaEquipos }));
                 if (initMissing.length > 0) await Promise.all(initMissing);
 
                 // Renderizar UI Configuración de Listas
@@ -524,6 +558,20 @@
                     const fullY = y < 100 ? 2000 + y : y;
                     const dt = new Date(fullY, m - 1, d);
                     if (!isNaN(dt.getTime())) return dt;
+                } else if (p.length === 2) {
+                    // Formato mm/yy o mm/yyyy (sin día) — algunos trabajos
+                    // (p.ej. contratos ANUAL) solo llevan mes/año en Fecha
+                    // Inicio/Fecha Entrega. Sin esta rama caía en el fallback
+                    // "new Date(s)" de más abajo, que interpreta "08/21"
+                    // como 21 de agosto del año EN CURSO en vez de agosto de
+                    // 2021 — una fecha completamente distinta. Se toma el
+                    // día 1 del mes indicado.
+                    const m = parseInt(p[0], 10), y = parseInt(p[1], 10);
+                    if (m >= 1 && m <= 12 && !isNaN(y)) {
+                        const fullY = y < 100 ? 2000 + y : y;
+                        const dt = new Date(fullY, m - 1, 1);
+                        if (!isNaN(dt.getTime())) return dt;
+                    }
                 }
             }
             // Formato dd-mm-yyyy o dd-mm-yy (guiones)
@@ -588,6 +636,13 @@
             str = str.replace(/\./g, '').replace(',', '.');
             const parsed = parseFloat(str);
             return isNaN(parsed) ? 0 : parsed;
+        }
+
+        // Formato español para horas: punto de miles, coma decimal, siempre
+        // un solo decimal (ej: 70,5 / 1.234,0) — sin la "h" final, para poder
+        // reutilizarlo tanto en tooltips ("70,5h") como en otros sitios.
+        function _formatearHorasEs(horas) {
+            return (horas || 0).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
         }
 
         // Utilidad para sanear IDs de Firestore (Mantiene compatibilidad con versiones anteriores)
@@ -713,6 +768,23 @@
             e.preventDefault();
             switchView('tab-suministro', 'view-suministro');
             cargarSuministro();
+        });
+
+        document.getElementById('tab-chat-ia')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Salir de un proyecto si se estaba viendo uno: este tab es
+            // siempre el chat personal, fuera de cualquier proyecto.
+            chatIAProyectoActual = null;
+            switchView('tab-chat-ia', 'view-chat-ia');
+            initChatIA();
+            _actualizarCabeceraProyectoIA();
+            cargarHistorialChatIA();
+        });
+
+        document.getElementById('tab-proyectos-ia')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchView('tab-proyectos-ia', 'view-proyectos-ia');
+            initProyectosIA();
         });
 
         const tabDashboard = document.getElementById('tab-dashboard');
@@ -2004,6 +2076,1296 @@
             } catch (err) {
                 console.error("Error cargando suministro:", err);
                 tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align:center;padding:20px;color:#ef4444;">Error al cargar suministros.</td></tr>`;
+            }
+        }
+
+        // ══════════════════════════════════════
+        // CHAT IA
+        // ══════════════════════════════════════
+
+        let chatIAPeriodoUso = 'mes';
+        let chatIAArchivosPendientes = []; // File[] seleccionados, aun sin subir a Storage
+
+        // ── Panel de gasto por usuario (solo atoledo@tesicnor.com) ──
+        const CHAT_IA_EMAIL_CONTROLADOR = 'atoledo@tesicnor.com';
+        let chatIAPeriodoAdmin = 'mes';
+        let chatIAModoLectura = false; // true mientras se ve el chat de otro usuario (sin poder escribir)
+        let _chatIATodosLosChatsCache = null; // [{id, usuario_uid, usuario_email, titulo, ...}] de TODOS los usuarios
+
+        // Misma lista que la de storage.rules en el backend — aqui solo es para dar
+        // feedback inmediato en el cliente; la validacion real y vinculante es la
+        // de las Storage Rules, esto no sustituye esa comprobacion server-side.
+        const CHAT_IA_TIPOS_PERMITIDOS = [
+            'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+            'text/plain', 'text/csv', 'text/markdown',
+            'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ];
+        const CHAT_IA_TAMANO_MAXIMO = 20 * 1024 * 1024;
+
+        // Resuelve un email a un nombre legible de técnico usando la misma
+        // listaTecnicos que ya se usa en el resto de la app (ver
+        // onAuthStateChanged) — con fallback al email si no se encuentra.
+        function nombreTecnicoPorEmail(email) {
+            if (!email) return '';
+            const tec = listaTecnicos.find((t) => (t.email || '').toLowerCase() === email.toLowerCase());
+            return tec ? (tec.nombre_pila || tec.acronimo || email) : email;
+        }
+
+        // Valida (tipo/tamaño permitido) y añade un archivo a
+        // chatIAArchivosPendientes — compartido entre el selector de
+        // archivo, pegar desde el portapapeles y arrastrar y soltar. Los
+        // archivos que llegan sin nombre útil (portapapeles) reciben uno
+        // legible con la extensión real de su tipo MIME.
+        function _agregarArchivoPendienteChatIA(file, indice) {
+            if (!file) return;
+            if (!CHAT_IA_TIPOS_PERMITIDOS.includes(file.type)) {
+                alert(`Tipo de archivo no permitido: ${file.name || file.type}`);
+                return;
+            }
+            if (file.size > CHAT_IA_TAMANO_MAXIMO) {
+                alert(`El archivo "${file.name || ''}" supera el tamaño máximo de 20 MB.`);
+                return;
+            }
+            let archivo = file;
+            if (!file.name || file.name === 'blob') {
+                const extension = (file.type.split('/')[1] || 'bin').split('+')[0];
+                const nombre = `pegado_${Date.now()}${indice ? '_' + indice : ''}.${extension}`;
+                archivo = new File([file], nombre, { type: file.type });
+            }
+            chatIAArchivosPendientes.push(archivo);
+        }
+
+        function initChatIA() {
+            if (_chatIAInicializado) return;
+            _chatIAInicializado = true;
+
+            document.getElementById('chat-ia-model-select')?.addEventListener('change', (e) => {
+                chatIAModeloSeleccionado = e.target.value;
+            });
+
+            document.getElementById('chat-ia-nuevo-btn')?.addEventListener('click', nuevaConversacionChatIA);
+
+            document.getElementById('chat-ia-attach-btn')?.addEventListener('click', () => {
+                document.getElementById('chat-ia-file-input')?.click();
+            });
+            document.getElementById('chat-ia-file-input')?.addEventListener('change', (e) => {
+                Array.from(e.target.files || []).forEach((file, i) => _agregarArchivoPendienteChatIA(file, i));
+                e.target.value = ''; // permite volver a elegir el mismo archivo si se quita y se re-añade
+                _renderAdjuntosPendientesChatIA();
+            });
+
+            const sendBtn = document.getElementById('chat-ia-send-btn');
+            const input = document.getElementById('chat-ia-input');
+            sendBtn?.addEventListener('click', enviarMensajeChatIA);
+            input?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    enviarMensajeChatIA();
+                }
+            });
+            // Autoajuste de altura del textarea, como una caja de chat normal
+            input?.addEventListener('input', () => {
+                input.style.height = 'auto';
+                input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+            });
+            // Pegar un archivo del portapapeles (una captura de pantalla con
+            // Ctrl+V, o un documento copiado en el explorador de archivos) lo
+            // añade como adjunto pendiente, igual que si se hubiera elegido
+            // con el botón 📎.
+            input?.addEventListener('paste', (e) => {
+                const items = Array.from(e.clipboardData?.items || []).filter((item) => item.kind === 'file');
+                if (items.length === 0) return; // pegado de texto normal: comportamiento por defecto
+                e.preventDefault();
+                items.forEach((item, i) => _agregarArchivoPendienteChatIA(item.getAsFile(), i));
+                _renderAdjuntosPendientesChatIA();
+            });
+
+            // Arrastrar y soltar uno o varios archivos sobre la zona de
+            // escritura los añade como adjuntos pendientes. El resaltado
+            // visual va en dragenter/dragover y se quita en dragleave/drop;
+            // dragover necesita preventDefault() para que el navegador
+            // permita soltar ahí.
+            const inputArea = document.getElementById('chat-ia-input-area');
+            const _resaltarZonaDropChatIA = (activo) => {
+                if (!inputArea) return;
+                inputArea.style.background = activo ? '#eff6ff' : '#fff';
+                inputArea.style.outline = activo ? '2px dashed #2176AC' : 'none';
+                inputArea.style.outlineOffset = '-4px';
+            };
+            ['dragenter', 'dragover'].forEach((evtName) => {
+                inputArea?.addEventListener(evtName, (e) => {
+                    e.preventDefault();
+                    _resaltarZonaDropChatIA(true);
+                });
+            });
+            inputArea?.addEventListener('dragleave', () => _resaltarZonaDropChatIA(false));
+            inputArea?.addEventListener('drop', (e) => {
+                e.preventDefault();
+                _resaltarZonaDropChatIA(false);
+                if (chatIAModoLectura) return; // viendo el chat de otro usuario: sin escritura
+                Array.from(e.dataTransfer?.files || []).forEach((file, i) => _agregarArchivoPendienteChatIA(file, i));
+                _renderAdjuntosPendientesChatIA();
+            });
+
+            document.querySelectorAll('.chat-ia-periodo-btn').forEach((btn) => {
+                btn.addEventListener('click', () => cargarUsoCosteChatIA(btn.dataset.periodo));
+            });
+
+            // Panel de gasto por usuario: el botón que lo abre solo se muestra para
+            // esta persona en concreto. La comprobación real de acceso a los datos
+            // está en firestore.rules — esto es solo para no mostrar un botón que
+            // a cualquier otro usuario le daría un error de permisos al pulsarlo.
+            if (currentUserEmail.toLowerCase() === CHAT_IA_EMAIL_CONTROLADOR) {
+                const btnAdmin = document.getElementById('chat-ia-panel-admin-btn');
+                if (btnAdmin) btnAdmin.style.display = '';
+                btnAdmin?.addEventListener('click', abrirPanelGastoUsuariosChatIA);
+                document.getElementById('chat-ia-admin-volver-btn')?.addEventListener('click', cerrarPanelGastoUsuariosChatIA);
+                document.getElementById('chat-ia-banner-lectura-volver')?.addEventListener('click', () => {
+                    nuevaConversacionChatIA();
+                    abrirPanelGastoUsuariosChatIA();
+                });
+                document.querySelectorAll('.chat-ia-admin-periodo-btn').forEach((btn) => {
+                    btn.addEventListener('click', () => cargarResumenGastoUsuariosChatIA(btn.dataset.periodo));
+                });
+            }
+
+            // ── Proyectos IA: cabecera de proyecto (tabs Chat/Instrucciones/
+            // Contexto/Memoria, botón de configuración) — comparte este mismo
+            // DOM/listeners con el chat personal, gated por chatIAProyectoActual.
+            document.getElementById('chat-ia-proyecto-volver')?.addEventListener('click', (e) => {
+                e.preventDefault();
+                cerrarProyectoIA();
+            });
+            document.querySelectorAll('.chat-ia-proyecto-tab').forEach((btn) => {
+                btn.addEventListener('click', () => _cambiarTabProyectoIA(btn.dataset.tab));
+            });
+            document.getElementById('chat-ia-proyecto-config-btn')?.addEventListener('click', abrirModalConfigProyectoIA);
+            document.getElementById('chat-ia-proyecto-instrucciones-guardar')?.addEventListener('click', guardarInstruccionesProyectoIA);
+            document.getElementById('chat-ia-proyecto-contexto-guardar')?.addEventListener('click', guardarContextoTextoProyectoIA);
+            document.getElementById('chat-ia-proyecto-contexto-attach-btn')?.addEventListener('click', () => {
+                document.getElementById('chat-ia-proyecto-contexto-file-input')?.click();
+            });
+            document.getElementById('chat-ia-proyecto-contexto-file-input')?.addEventListener('change', (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) subirArchivoContextoProyectoIA(file);
+            });
+
+            cargarHistorialChatIA();
+            cargarUsoCosteChatIA();
+        }
+
+        function _renderAdjuntosPendientesChatIA() {
+            const cont = document.getElementById('chat-ia-adjuntos-pendientes');
+            if (!cont) return;
+            cont.innerHTML = '';
+            chatIAArchivosPendientes.forEach((file, idx) => {
+                const chip = document.createElement('div');
+                chip.style.cssText = 'display:flex; align-items:center; gap:6px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:14px; padding:4px 10px; font-size:12px; color:#334155;';
+                const nombre = document.createElement('span');
+                nombre.textContent = '📎 ' + file.name;
+                const btnQuitar = document.createElement('button');
+                btnQuitar.type = 'button';
+                btnQuitar.textContent = '✕';
+                btnQuitar.title = 'Quitar';
+                btnQuitar.style.cssText = 'border:none; background:none; cursor:pointer; color:#94a3b8; font-size:12px; padding:0;';
+                btnQuitar.addEventListener('click', () => {
+                    chatIAArchivosPendientes.splice(idx, 1);
+                    _renderAdjuntosPendientesChatIA();
+                });
+                chip.appendChild(nombre);
+                chip.appendChild(btnQuitar);
+                cont.appendChild(chip);
+            });
+        }
+
+        function nuevaConversacionChatIA() {
+            chatIAActualId = null;
+            chatIAMensajes = [];
+            chatIAArchivosPendientes = [];
+            _renderAdjuntosPendientesChatIA();
+            const cont = document.getElementById('chat-ia-mensajes');
+            if (cont) cont.innerHTML = '';
+            _marcarChatActivoEnHistorial(null);
+
+            // Empezar una conversación propia siempre saca del modo lectura del
+            // chat de otro usuario, si se estaba viendo uno.
+            if (chatIAModoLectura) {
+                chatIAModoLectura = false;
+                const banner = document.getElementById('chat-ia-banner-lectura');
+                if (banner) banner.style.display = 'none';
+                const input = document.getElementById('chat-ia-input');
+                const sendBtn = document.getElementById('chat-ia-send-btn');
+                const attachBtn = document.getElementById('chat-ia-attach-btn');
+                if (input) { input.disabled = false; input.placeholder = 'Escribe un mensaje...'; }
+                if (sendBtn) sendBtn.disabled = false;
+                if (attachBtn) attachBtn.disabled = false;
+            }
+        }
+
+        // ── Historial de conversaciones ──
+
+        function _tituloDesdeMensaje(texto) {
+            const limpio = texto.trim().replace(/\s+/g, ' ');
+            return limpio.length > 45 ? limpio.slice(0, 45) + '…' : limpio;
+        }
+
+        // Formato español: coma decimal, punto de miles, siempre 2 decimales
+        // (los precios se calculan con más precisión internamente, pero se
+        // muestran redondeados a 2 decimales para que sean legibles).
+        function _formatearEurChatIA(numero) {
+            return (numero || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        async function cargarHistorialChatIA() {
+            const cont = document.getElementById('chat-ia-historial-lista');
+            const uid = auth.currentUser?.uid;
+            if (!cont || !uid) return;
+            cont.innerHTML = '<div style="color:#94a3b8;">Cargando…</div>';
+            try {
+                let chats;
+                if (chatIAProyectoActual) {
+                    // Modo grupal: TODAS las conversaciones compartidas del
+                    // proyecto (canal de equipo). Modo individual: solo las
+                    // propias, aunque el proyecto sea público — cada técnico
+                    // ve únicamente sus conversaciones dentro del proyecto.
+                    const esGrupal = chatIAProyectoActual.visibilidad === 'publico' && chatIAProyectoActual.modo_colaboracion === 'grupal';
+                    const q = esGrupal
+                        ? query(collection(db, 'chats_ia'),
+                            where('proyecto_id', '==', chatIAProyectoActual.id),
+                            where('proyecto_visibilidad', '==', 'publico'),
+                            where('proyecto_modo_colaboracion', '==', 'grupal'),
+                            orderBy('fecha_actualizacion', 'desc'), limit(50))
+                        : query(collection(db, 'chats_ia'),
+                            where('proyecto_id', '==', chatIAProyectoActual.id),
+                            where('usuario_uid', '==', uid),
+                            orderBy('fecha_actualizacion', 'desc'), limit(50));
+                    const snap = await getDocs(q);
+                    chats = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => !c.archivado);
+                } else {
+                    // Chat personal: misma query de siempre, con un filtro
+                    // cliente extra para no mezclar conversaciones de
+                    // proyecto en el historial de chat "suelto" — un
+                    // where('proyecto_id','==',null) no valdría porque los
+                    // chats antiguos no tienen ese campo en absoluto.
+                    const q = query(collection(db, 'chats_ia'), where('usuario_uid', '==', uid), orderBy('fecha_actualizacion', 'desc'), limit(50));
+                    const snap = await getDocs(q);
+                    chats = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => !c.archivado && !c.proyecto_id);
+                }
+                cont.innerHTML = '';
+                if (chats.length === 0) {
+                    cont.innerHTML = '<div style="color:#94a3b8;">Sin conversaciones todavía.</div>';
+                    return;
+                }
+                chats.forEach((chat) => cont.appendChild(_renderItemHistorialChatIA(chat)));
+            } catch (err) {
+                console.error('Error cargando historial de Chat IA:', err);
+                cont.innerHTML = '<div style="color:#ef4444;">Error al cargar el historial.</div>';
+            }
+        }
+
+        function _renderItemHistorialChatIA(chat) {
+            const item = document.createElement('div');
+            item.dataset.chatId = chat.id;
+            item.className = 'chat-ia-historial-item';
+            item.style.cssText = `padding:10px; border-radius:8px; cursor:pointer; margin-bottom:4px;
+                border:1px solid transparent; display:flex; flex-direction:column; gap:2px;`;
+            if (chat.id === chatIAActualId) {
+                item.style.background = '#eff6ff';
+                item.style.borderColor = '#bfdbfe';
+            }
+
+            const titulo = document.createElement('div');
+            titulo.textContent = chat.titulo || '(sin título)';
+            titulo.style.cssText = 'font-size:13px; color:#0f172a; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+
+            const sub = document.createElement('div');
+            const fecha = chat.fecha_actualizacion?.toDate ? chat.fecha_actualizacion.toDate() : null;
+            const esGrupal = chatIAProyectoActual?.visibilidad === 'publico' && chatIAProyectoActual?.modo_colaboracion === 'grupal';
+            const autorGrupal = (esGrupal && chat.usuario_email) ? ` · ${nombreTecnicoPorEmail(chat.usuario_email)}` : '';
+            sub.textContent = (fecha ? fecha.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) + ' · ' : '') + (chat.modelo_actual || '') + autorGrupal;
+            sub.style.cssText = 'font-size:11px; color:#94a3b8;';
+
+            const acciones = document.createElement('div');
+            acciones.style.cssText = 'display:flex; align-items:center; gap:8px; margin-top:2px;';
+            const btnRenombrar = document.createElement('button');
+            btnRenombrar.textContent = '✏️ Renombrar';
+            btnRenombrar.type = 'button';
+            btnRenombrar.style.cssText = 'border:none; background:none; cursor:pointer; font-size:11px; padding:0; color:#64748b;';
+            btnRenombrar.addEventListener('click', (e) => { e.stopPropagation(); renombrarChatIA(chat.id, chat.titulo); });
+            const btnArchivar = document.createElement('button');
+            btnArchivar.textContent = '🗑️ Archivar';
+            btnArchivar.type = 'button';
+            btnArchivar.style.cssText = 'border:none; background:none; cursor:pointer; font-size:11px; padding:0; color:#64748b;';
+            btnArchivar.addEventListener('click', (e) => { e.stopPropagation(); archivarChatIA(chat.id); });
+            const costeChat = document.createElement('span');
+            costeChat.textContent = `${_formatearEurChatIA(chat.coste_total_eur)}€`;
+            costeChat.title = 'Coste total de esta conversación';
+            costeChat.style.cssText = 'font-size:11px; color:#94a3b8; margin-left:auto;';
+            acciones.appendChild(btnRenombrar);
+            acciones.appendChild(btnArchivar);
+            acciones.appendChild(costeChat);
+
+            item.appendChild(titulo);
+            item.appendChild(sub);
+            item.appendChild(acciones);
+            item.addEventListener('click', () => abrirChatIA(chat.id));
+            return item;
+        }
+
+        function _marcarChatActivoEnHistorial(chatId) {
+            document.querySelectorAll('.chat-ia-historial-item').forEach((el) => {
+                const activo = el.dataset.chatId === chatId;
+                el.style.background = activo ? '#eff6ff' : '';
+                el.style.borderColor = activo ? '#bfdbfe' : 'transparent';
+            });
+        }
+
+        async function abrirChatIA(chatId) {
+            if (chatIAEnviando) return;
+            const cont = document.getElementById('chat-ia-mensajes');
+            if (cont) cont.innerHTML = '<div style="color:#94a3b8; padding:12px;">Cargando conversación…</div>';
+            const uid = auth.currentUser?.uid;
+            // Chat grupal de un proyecto público: se lee la conversación
+            // entera (todo el equipo puede verla), sin filtrar por
+            // usuario_uid. En cualquier otro caso (chat personal o
+            // individual dentro de un proyecto), el filtro por usuario_uid
+            // sigue siendo imprescindible: sin un filtro de igualdad que
+            // coincida con la regla de seguridad, Firestore no puede
+            // verificar la consulta "list" y la deniega entera.
+            const esGrupal = chatIAProyectoActual?.visibilidad === 'publico' && chatIAProyectoActual?.modo_colaboracion === 'grupal';
+            try {
+                const mensajesQuery = esGrupal
+                    ? query(collection(db, `chats_ia/${chatId}/mensajes`), orderBy('fecha', 'asc'))
+                    : query(collection(db, `chats_ia/${chatId}/mensajes`), where('usuario_uid', '==', uid), orderBy('fecha', 'asc'));
+                const [chatSnap, mensajesSnap] = await Promise.all([
+                    getDoc(doc(db, 'chats_ia', chatId)),
+                    getDocs(mensajesQuery),
+                ]);
+                chatIAActualId = chatId;
+                chatIAMensajes = [];
+                if (cont) cont.innerHTML = '';
+                mensajesSnap.docs.forEach((d) => {
+                    const m = d.data();
+                    chatIAMensajes.push({ role: m.rol, content: m.contenido });
+                    const meta = m.rol === 'assistant' && m.coste_eur != null
+                        ? `${m.modelo || ''} · ${(m.tokens_entrada || 0) + (m.tokens_salida || 0)} tokens · ${_formatearEurChatIA(m.coste_eur)}€${m.coste_verificado ? '' : ' (estimado)'}`
+                        : null;
+                    const autorGrupal = (esGrupal && m.rol === 'user') ? nombreTecnicoPorEmail(m.usuario_email) : null;
+                    renderMensajeChatIA(m.rol, m.contenido, meta, m.adjuntos, autorGrupal);
+                });
+                const modeloChat = chatSnap.data()?.modelo_actual;
+                if (modeloChat) {
+                    chatIAModeloSeleccionado = modeloChat;
+                    const select = document.getElementById('chat-ia-model-select');
+                    if (select) select.value = modeloChat;
+                }
+                _marcarChatActivoEnHistorial(chatId);
+            } catch (err) {
+                console.error('Error abriendo conversación de Chat IA:', err);
+                if (cont) cont.innerHTML = '<div style="color:#ef4444; padding:12px;">Error al cargar la conversación.</div>';
+            }
+        }
+
+        async function renombrarChatIA(chatId, tituloActual) {
+            const nuevo = prompt('Nuevo título de la conversación:', tituloActual || '');
+            if (!nuevo || !nuevo.trim()) return;
+            try {
+                await updateDoc(doc(db, 'chats_ia', chatId), { titulo: nuevo.trim() });
+                cargarHistorialChatIA();
+            } catch (err) {
+                console.error('Error renombrando conversación de Chat IA:', err);
+                alert('No se pudo renombrar la conversación.');
+            }
+        }
+
+        async function archivarChatIA(chatId) {
+            if (!confirm('¿Archivar esta conversación? Dejará de aparecer en el historial.')) return;
+            try {
+                await updateDoc(doc(db, 'chats_ia', chatId), { archivado: true });
+                if (chatId === chatIAActualId) nuevaConversacionChatIA();
+                cargarHistorialChatIA();
+            } catch (err) {
+                console.error('Error archivando conversación de Chat IA:', err);
+                alert('No se pudo archivar la conversación.');
+            }
+        }
+
+        // ── Uso y coste ──
+
+        function _inicioPeriodoChatIA(periodo) {
+            const ahora = new Date();
+            if (periodo === 'hoy') {
+                return new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+            }
+            if (periodo === 'semana') {
+                const diaSemana = (ahora.getDay() + 6) % 7; // lunes = 0
+                return new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - diaSemana);
+            }
+            return new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+        }
+
+        async function cargarUsoCosteChatIA(periodo) {
+            if (periodo) chatIAPeriodoUso = periodo;
+            document.querySelectorAll('.chat-ia-periodo-btn').forEach((b) => {
+                const activo = b.dataset.periodo === chatIAPeriodoUso;
+                b.style.background = activo ? '#2176AC' : '#f1f5f9';
+                b.style.color = activo ? '#fff' : '#334155';
+            });
+
+            const cont = document.getElementById('chat-ia-uso-contenido');
+            const uid = auth.currentUser?.uid;
+            if (!cont || !uid) return;
+            cont.textContent = 'Cargando…';
+
+            const inicio = _inicioPeriodoChatIA(chatIAPeriodoUso);
+
+            try {
+                const q = query(
+                    collectionGroup(db, 'mensajes'),
+                    where('usuario_uid', '==', uid),
+                    where('rol', '==', 'assistant'),
+                    where('fecha', '>=', inicio),
+                );
+                const snap = await getDocs(q);
+                let coste = 0;
+                let tokens = 0;
+                let hayNoVerificado = false;
+                snap.forEach((d) => {
+                    const m = d.data();
+                    coste += m.coste_eur || 0;
+                    tokens += (m.tokens_entrada || 0) + (m.tokens_salida || 0);
+                    if (m.coste_verificado === false) hayNoVerificado = true;
+                });
+                cont.innerHTML = `<div style="font-size:18px; font-weight:700; color:#0f172a;">${_formatearEurChatIA(coste)}€${hayNoVerificado ? ' *' : ''}</div>
+                    <div style="color:#94a3b8;">${tokens.toLocaleString('es-ES')} tokens · ${snap.size} mensajes</div>
+                    ${hayNoVerificado ? '<div style="color:#94a3b8; margin-top:4px;">* incluye modelos con coste estimado</div>' : ''}`;
+            } catch (err) {
+                console.error('Error cargando uso/coste de Chat IA:', err);
+                cont.textContent = 'Error al cargar el uso.';
+            }
+        }
+
+        // ── Panel de gasto por usuario (solo atoledo@tesicnor.com) ──
+
+        function abrirPanelGastoUsuariosChatIA() {
+            const normal = document.getElementById('chat-ia-layout-normal');
+            const panel = document.getElementById('chat-ia-panel-admin');
+            if (normal) normal.style.display = 'none';
+            if (panel) panel.style.display = 'flex';
+            cargarResumenGastoUsuariosChatIA();
+        }
+
+        function cerrarPanelGastoUsuariosChatIA() {
+            const panel = document.getElementById('chat-ia-panel-admin');
+            if (panel) panel.style.display = 'none';
+            const normal = document.getElementById('chat-ia-layout-normal');
+            if (normal) normal.style.display = 'flex';
+            if (chatIAModoLectura) nuevaConversacionChatIA();
+        }
+
+        // Todas las conversaciones de todos los usuarios (solo la puede leer
+        // atoledo@tesicnor.com, según firestore.rules). Se cachea en memoria
+        // porque el resumen y el listado por usuario reutilizan los mismos datos.
+        async function _cargarTodosLosChatsChatIA() {
+            if (_chatIATodosLosChatsCache) return _chatIATodosLosChatsCache;
+            const snap = await getDocs(collection(db, 'chats_ia'));
+            _chatIATodosLosChatsCache = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            return _chatIATodosLosChatsCache;
+        }
+
+        async function cargarResumenGastoUsuariosChatIA(periodo) {
+            if (periodo) chatIAPeriodoAdmin = periodo;
+            document.querySelectorAll('.chat-ia-admin-periodo-btn').forEach((b) => {
+                const activo = b.dataset.periodo === chatIAPeriodoAdmin;
+                b.style.background = activo ? '#2176AC' : '#f1f5f9';
+                b.style.color = activo ? '#fff' : '#334155';
+            });
+
+            const cont = document.getElementById('chat-ia-admin-contenido');
+            if (!cont) return;
+            cont.textContent = 'Cargando…';
+
+            const inicio = _inicioPeriodoChatIA(chatIAPeriodoAdmin);
+
+            try {
+                const [todosLosChats, mensajesSnap] = await Promise.all([
+                    _cargarTodosLosChatsChatIA(),
+                    getDocs(query(collectionGroup(db, 'mensajes'), where('rol', '==', 'assistant'), where('fecha', '>=', inicio))),
+                ]);
+
+                const emailPorUid = {};
+                todosLosChats.forEach((c) => { emailPorUid[c.usuario_uid] = c.usuario_email; });
+
+                const porUsuario = {};
+                mensajesSnap.forEach((d) => {
+                    const m = d.data();
+                    if (!m.usuario_uid) return;
+                    // El email del propio mensaje (ver chatConIA) es la fuente
+                    // más fiable para resolver el uid a un email: en un chat
+                    // grupal de Proyecto IA, chats_ia.usuario_uid es quien
+                    // CREÓ la conversación, no necesariamente quien envió
+                    // cada mensaje — sin esto, un técnico que solo participa
+                    // en canales ajenos aparecería aquí con su uid en crudo
+                    // en vez de su email.
+                    if (m.usuario_email) emailPorUid[m.usuario_uid] = m.usuario_email;
+                    if (!porUsuario[m.usuario_uid]) porUsuario[m.usuario_uid] = { coste: 0, tokens: 0, mensajes: 0 };
+                    porUsuario[m.usuario_uid].coste += m.coste_eur || 0;
+                    porUsuario[m.usuario_uid].tokens += (m.tokens_entrada || 0) + (m.tokens_salida || 0);
+                    porUsuario[m.usuario_uid].mensajes += 1;
+                });
+
+                // Último recurso: cualquier uid que siga sin email (mensajes
+                // antiguos sin el campo, o con usuario_email vacío por el bug
+                // de auth.currentUser.email con cuentas Microsoft) se resuelve
+                // contra Firebase Auth, que siempre lo tiene.
+                const uidsSinEmail = Object.keys(porUsuario).filter((uid) => !emailPorUid[uid]);
+                if (uidsSinEmail.length > 0) {
+                    try {
+                        const resolver = httpsCallable(functions, 'resolverEmailsPorUid');
+                        const { data } = await resolver({ uids: uidsSinEmail });
+                        Object.assign(emailPorUid, data.emailPorUid);
+                    } catch (err) {
+                        console.warn('No se pudieron resolver emails vía Auth para el panel de gasto:', err);
+                    }
+                }
+
+                const filas = Object.keys(porUsuario)
+                    .map((uid) => ({ uid, email: emailPorUid[uid] || uid, ...porUsuario[uid] }))
+                    .sort((a, b) => b.coste - a.coste);
+
+                if (filas.length === 0) {
+                    cont.innerHTML = '<div style="color:#94a3b8;">Sin actividad en este período.</div>';
+                    return;
+                }
+
+                const costeTotal = filas.reduce((acc, f) => acc + f.coste, 0);
+                cont.innerHTML = `<div style="font-size:13px; color:#64748b; margin-bottom:14px;">
+                        Total del período: <strong style="color:#0f172a;">${_formatearEurChatIA(costeTotal)}€</strong> · ${filas.length} usuario(s) con actividad
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:6px;" id="chat-ia-admin-filas"></div>`;
+
+                const contFilas = document.getElementById('chat-ia-admin-filas');
+                filas.forEach((f) => {
+                    const fila = document.createElement('div');
+                    fila.style.cssText = 'display:flex; align-items:center; gap:12px; padding:12px 16px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; cursor:pointer;';
+                    fila.innerHTML = `<div style="flex:1; font-size:14px; color:#0f172a; font-weight:500;">${f.email}</div>
+                        <div style="font-size:13px; color:#64748b;">${f.mensajes} mensajes · ${f.tokens.toLocaleString('es-ES')} tokens</div>
+                        <div style="font-size:15px; font-weight:700; color:#0f172a; min-width:90px; text-align:right;">${_formatearEurChatIA(f.coste)}€</div>`;
+                    fila.addEventListener('click', () => mostrarChatsDeUsuarioChatIA(f.uid, f.email));
+                    contFilas.appendChild(fila);
+                });
+            } catch (err) {
+                console.error('Error cargando gasto por usuario de Chat IA:', err);
+                cont.textContent = 'Error al cargar el gasto por usuario.';
+            }
+        }
+
+        async function mostrarChatsDeUsuarioChatIA(uid, email) {
+            const cont = document.getElementById('chat-ia-admin-contenido');
+            if (!cont) return;
+            cont.innerHTML = '<div style="color:#94a3b8;">Cargando…</div>';
+
+            const todosLosChats = await _cargarTodosLosChatsChatIA();
+            const chatsUsuario = todosLosChats
+                .filter((c) => c.usuario_uid === uid)
+                .sort((a, b) => (b.fecha_actualizacion?.toMillis?.() || 0) - (a.fecha_actualizacion?.toMillis?.() || 0));
+
+            cont.innerHTML = '';
+            const volver = document.createElement('button');
+            volver.type = 'button';
+            volver.textContent = '← Volver al resumen';
+            volver.style.cssText = 'border:none; background:none; color:#2176AC; cursor:pointer; font-size:13px; margin-bottom:14px; padding:0;';
+            volver.addEventListener('click', () => cargarResumenGastoUsuariosChatIA());
+            cont.appendChild(volver);
+
+            const titulo = document.createElement('div');
+            titulo.textContent = `Conversaciones de ${email}`;
+            titulo.style.cssText = 'font-size:14px; font-weight:600; color:#0f172a; margin-bottom:12px;';
+            cont.appendChild(titulo);
+
+            if (chatsUsuario.length === 0) {
+                const vacio = document.createElement('div');
+                vacio.textContent = 'Este usuario no tiene conversaciones.';
+                vacio.style.color = '#94a3b8';
+                cont.appendChild(vacio);
+                return;
+            }
+
+            const lista = document.createElement('div');
+            lista.style.cssText = 'display:flex; flex-direction:column; gap:6px;';
+            chatsUsuario.forEach((c) => {
+                const fila = document.createElement('div');
+                fila.style.cssText = 'display:flex; align-items:center; gap:12px; padding:10px 14px; background:#fff; border:1px solid #e2e8f0; border-radius:8px; cursor:pointer;';
+                const fecha = c.fecha_actualizacion?.toDate ? c.fecha_actualizacion.toDate() : null;
+                fila.innerHTML = `<div style="flex:1; min-width:0;">
+                        <div style="font-size:13px; color:#0f172a; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${c.titulo || '(sin título)'}</div>
+                        <div style="font-size:11px; color:#94a3b8;">${fecha ? fecha.toLocaleDateString('es-ES') : ''} · ${c.modelo_actual || ''}${c.archivado ? ' · archivado' : ''}</div>
+                    </div>
+                    <div style="font-size:13px; font-weight:600; color:#0f172a;">${_formatearEurChatIA(c.coste_total_eur)}€</div>`;
+                fila.addEventListener('click', () => verChatComoControladorChatIA(c.id, uid, email));
+                lista.appendChild(fila);
+            });
+            cont.appendChild(lista);
+        }
+
+        async function verChatComoControladorChatIA(chatId, ownerUid, ownerEmail) {
+            document.getElementById('chat-ia-panel-admin').style.display = 'none';
+            const normal = document.getElementById('chat-ia-layout-normal');
+            if (normal) normal.style.display = 'flex';
+
+            chatIAModoLectura = true;
+            const banner = document.getElementById('chat-ia-banner-lectura');
+            if (banner) banner.style.display = 'flex';
+            const bannerTexto = document.getElementById('chat-ia-banner-lectura-texto');
+            if (bannerTexto) bannerTexto.textContent = `Viendo la conversación de ${ownerEmail} (solo lectura)`;
+            const input = document.getElementById('chat-ia-input');
+            const sendBtn = document.getElementById('chat-ia-send-btn');
+            const attachBtn = document.getElementById('chat-ia-attach-btn');
+            if (input) { input.disabled = true; input.value = ''; input.placeholder = 'Solo lectura: no puedes escribir en el chat de otro usuario'; }
+            if (sendBtn) sendBtn.disabled = true;
+            if (attachBtn) attachBtn.disabled = true;
+
+            const cont = document.getElementById('chat-ia-mensajes');
+            if (cont) cont.innerHTML = '<div style="color:#94a3b8; padding:12px;">Cargando conversación…</div>';
+            try {
+                const mensajesSnap = await getDocs(query(
+                    collection(db, `chats_ia/${chatId}/mensajes`),
+                    where('usuario_uid', '==', ownerUid),
+                    orderBy('fecha', 'asc'),
+                ));
+                chatIAActualId = chatId;
+                chatIAMensajes = [];
+                if (cont) cont.innerHTML = '';
+                mensajesSnap.docs.forEach((d) => {
+                    const m = d.data();
+                    chatIAMensajes.push({ role: m.rol, content: m.contenido });
+                    const meta = m.rol === 'assistant' && m.coste_eur != null
+                        ? `${m.modelo || ''} · ${(m.tokens_entrada || 0) + (m.tokens_salida || 0)} tokens · ${_formatearEurChatIA(m.coste_eur)}€${m.coste_verificado ? '' : ' (estimado)'}`
+                        : null;
+                    renderMensajeChatIA(m.rol, m.contenido, meta, m.adjuntos);
+                });
+            } catch (err) {
+                console.error('Error abriendo conversación ajena en Chat IA:', err);
+                if (cont) cont.innerHTML = '<div style="color:#ef4444; padding:12px;">Error al cargar la conversación.</div>';
+            }
+        }
+
+        function renderMensajeChatIA(rol, contenido, meta, adjuntos, autorNombre) {
+            const cont = document.getElementById('chat-ia-mensajes');
+            if (!cont) return;
+            const esUsuario = rol === 'user';
+            // Atribución de autor: solo en chats grupales de proyecto (varios
+            // técnicos comparten el mismo hilo), y solo en mensajes de
+            // usuario — la respuesta siempre es "el asistente", no hace
+            // falta atribuirla a quien la disparó.
+            if (esUsuario && autorNombre) {
+                const autorEl = document.createElement('div');
+                autorEl.textContent = autorNombre;
+                autorEl.style.cssText = 'align-self:flex-end; font-size:11px; font-weight:600; color:#64748b; padding:0 4px;';
+                cont.appendChild(autorEl);
+            }
+            const burbuja = document.createElement('div');
+            burbuja.style.cssText = `max-width:75%; align-self:${esUsuario ? 'flex-end' : 'flex-start'};
+                background:${esUsuario ? '#2176AC' : '#ffffff'}; color:${esUsuario ? '#ffffff' : '#0f172a'};
+                border:1px solid ${esUsuario ? '#2176AC' : '#e2e8f0'}; border-radius:12px; padding:10px 14px;
+                font-size:14px; line-height:1.5; white-space:pre-wrap; word-break:break-word;`;
+            if (contenido) {
+                const textoEl = document.createElement('div');
+                if (!esUsuario && window.marked && window.DOMPurify) {
+                    // El texto viene de un modelo de IA: nunca se trata como HTML de
+                    // confianza. Se pasa siempre por DOMPurify antes de insertarlo.
+                    textoEl.innerHTML = DOMPurify.sanitize(marked.parse(contenido));
+                    textoEl.style.whiteSpace = 'normal';
+                    textoEl.classList.add('chat-ia-markdown');
+                } else {
+                    textoEl.textContent = contenido;
+                }
+                burbuja.appendChild(textoEl);
+            }
+
+            if (adjuntos && adjuntos.length) {
+                const cajaAdjuntos = document.createElement('div');
+                cajaAdjuntos.style.cssText = 'display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;';
+                adjuntos.forEach((a) => {
+                    const esImagen = (a.tipo_mime || '').startsWith('image/');
+                    if (esImagen) {
+                        const img = document.createElement('img');
+                        img.alt = a.nombre || 'imagen adjunta';
+                        img.style.cssText = 'max-width:220px; max-height:220px; border-radius:8px; display:block; cursor:pointer;';
+                        getDownloadURL(ref(storage, a.storage_path))
+                            .then((url) => { img.src = url; img.onclick = () => window.open(url, '_blank'); })
+                            .catch((e) => console.error('Error obteniendo URL de adjunto:', e));
+                        cajaAdjuntos.appendChild(img);
+                    } else {
+                        const chip = document.createElement('a');
+                        chip.textContent = '📎 ' + (a.nombre || 'archivo');
+                        chip.target = '_blank';
+                        chip.rel = 'noopener';
+                        chip.style.cssText = `font-size:12px; padding:4px 10px; border-radius:12px;
+                            border:1px solid ${esUsuario ? 'rgba(255,255,255,0.5)' : '#cbd5e1'}; color:inherit; text-decoration:none;`;
+                        getDownloadURL(ref(storage, a.storage_path))
+                            .then((url) => { chip.href = url; })
+                            .catch((e) => console.error('Error obteniendo URL de adjunto:', e));
+                        cajaAdjuntos.appendChild(chip);
+                    }
+                });
+                burbuja.appendChild(cajaAdjuntos);
+            }
+            cont.appendChild(burbuja);
+
+            if (meta) {
+                const metaEl = document.createElement('div');
+                metaEl.style.cssText = `align-self:flex-start; font-size:11px; color:#94a3b8; margin-top:-6px; padding:0 4px;`;
+                metaEl.textContent = meta;
+                cont.appendChild(metaEl);
+            }
+            cont.scrollTop = cont.scrollHeight;
+            return burbuja;
+        }
+
+        async function enviarMensajeChatIA() {
+            if (chatIAEnviando || chatIAModoLectura) return;
+            const input = document.getElementById('chat-ia-input');
+            const texto = (input?.value || '').trim();
+            const archivosPendientes = chatIAArchivosPendientes;
+            if (!texto && archivosPendientes.length === 0) return;
+
+            chatIAEnviando = true;
+            const sendBtn = document.getElementById('chat-ia-send-btn');
+            if (sendBtn) sendBtn.disabled = true;
+
+            input.value = '';
+            input.style.height = 'auto';
+            chatIAArchivosPendientes = [];
+            _renderAdjuntosPendientesChatIA();
+
+            // Crea la conversación en Firestore en el primer mensaje; los
+            // siguientes solo añaden mensajes a la ya existente. Si algo falla
+            // al persistir, el chat sigue funcionando en memoria para este
+            // turno (chatId simplemente no viaja a la función).
+            const uid = auth.currentUser?.uid;
+            // currentUserEmail (no auth.currentUser.email directamente): con
+            // cuentas Microsoft, auth.currentUser.email puede venir vacío —
+            // currentUserEmail ya incluye el fallback a providerData resuelto
+            // en onAuthStateChanged. Sin esto, el chat/mensaje se guarda con
+            // usuario_email vacío y el panel de gasto por usuario (atoledo)
+            // acaba mostrando el uid en crudo en vez del email.
+            const userEmail = currentUserEmail || auth.currentUser?.email || '';
+            const esGrupal = chatIAProyectoActual?.visibilidad === 'publico' && chatIAProyectoActual?.modo_colaboracion === 'grupal';
+            let adjuntosSubidos = [];
+            try {
+                if (!chatIAActualId && uid) {
+                    const nuevoChatData = {
+                        usuario_uid: uid,
+                        usuario_email: userEmail,
+                        titulo: _tituloDesdeMensaje(texto || archivosPendientes[0]?.name || 'Conversación'),
+                        modelo_actual: chatIAModeloSeleccionado,
+                        fecha_creacion: serverTimestamp(),
+                        fecha_actualizacion: serverTimestamp(),
+                        num_mensajes: 0,
+                        coste_total_eur: 0,
+                        archivado: false,
+                    };
+                    if (chatIAProyectoActual) {
+                        nuevoChatData.proyecto_id = chatIAProyectoActual.id;
+                        nuevoChatData.proyecto_visibilidad = chatIAProyectoActual.visibilidad;
+                        nuevoChatData.proyecto_modo_colaboracion = chatIAProyectoActual.modo_colaboracion;
+                    }
+                    const nuevoChat = await addDoc(collection(db, 'chats_ia'), nuevoChatData);
+                    chatIAActualId = nuevoChat.id;
+                }
+
+                // Los archivos se suben a Storage antes de llamar a la función:
+                // la función solo recibe la ruta ya subida, nunca el archivo en
+                // sí — así el payload del callable se mantiene pequeño.
+                if (chatIAActualId && archivosPendientes.length) {
+                    adjuntosSubidos = await Promise.all(archivosPendientes.map(async (file) => {
+                        const storagePath = `chat_ia_adjuntos/${uid}/${chatIAActualId}/${Date.now()}_${file.name}`;
+                        await uploadBytes(ref(storage, storagePath), file);
+                        return { storagePath, mimeType: file.type, nombre: file.name };
+                    }));
+                }
+
+                if (chatIAActualId && uid) {
+                    await addDoc(collection(db, `chats_ia/${chatIAActualId}/mensajes`), {
+                        usuario_uid: uid,
+                        // Solo para mostrar el autor en un chat grupal de
+                        // proyecto (ver renderMensajeChatIA) — no interviene
+                        // en ningún control de acceso.
+                        usuario_email: userEmail,
+                        rol: 'user',
+                        contenido: texto,
+                        adjuntos: adjuntosSubidos.map((a) => ({ nombre: a.nombre, tipo_mime: a.mimeType, storage_path: a.storagePath })),
+                        fecha: serverTimestamp(),
+                    });
+                }
+            } catch (err) {
+                console.error('Error guardando mensaje/adjuntos de Chat IA en Firestore:', err);
+            }
+
+            renderMensajeChatIA('user', texto, null, adjuntosSubidos.map((a) => ({ nombre: a.nombre, tipo_mime: a.mimeType, storage_path: a.storagePath })), esGrupal ? nombreTecnicoPorEmail(userEmail) : null);
+            chatIAMensajes.push({ role: 'user', content: texto || '(archivo adjunto sin mensaje de texto)' });
+
+            const pensando = renderMensajeChatIA('assistant', 'Pensando…');
+            if (pensando) pensando.style.color = '#94a3b8';
+
+            try {
+                const callable = httpsCallable(functions, 'chatConIA', { timeout: 180000 });
+                const result = await callable({
+                    chatId: chatIAActualId,
+                    modelo: chatIAModeloSeleccionado,
+                    mensajes: chatIAMensajes,
+                    adjuntos: adjuntosSubidos.length ? adjuntosSubidos : undefined,
+                    proyectoId: chatIAProyectoActual?.id,
+                });
+                const { respuesta, modelo, usage, adjuntos: adjuntosRespuesta } = result.data;
+                pensando.remove();
+                const metaTxt = usage
+                    ? `${modelo} · ${usage.tokens_entrada + usage.tokens_salida} tokens · ${_formatearEurChatIA(usage.coste_eur)}€${usage.coste_verificado ? '' : ' (estimado)'}`
+                    : modelo;
+                renderMensajeChatIA('assistant', respuesta, metaTxt, adjuntosRespuesta);
+                chatIAMensajes.push({ role: 'assistant', content: respuesta });
+                cargarHistorialChatIA();
+                if (!chatIAProyectoActual) cargarUsoCosteChatIA();
+            } catch (err) {
+                console.error('Error en Chat IA:', err);
+                pensando.remove();
+                renderMensajeChatIA('assistant', 'Error: ' + (err.message || 'no se pudo obtener respuesta.'));
+                chatIAMensajes.pop(); // no dejar el mensaje de usuario "colgado" sin respuesta en el historial enviado a la API
+            } finally {
+                chatIAEnviando = false;
+                if (sendBtn) sendBtn.disabled = false;
+                input?.focus();
+            }
+        }
+
+        // ══════════════════════════════════════
+        // PROYECTOS IA
+        // ══════════════════════════════════════
+        // La vista de detalle de un proyecto REUTILIZA el DOM y las funciones
+        // del Chat IA normal (view-chat-ia, enviarMensajeChatIA, abrirChatIA,
+        // cargarHistorialChatIA, renderMensajeChatIA...), parametrizadas por
+        // chatIAProyectoActual — ver más arriba en este mismo bloque. Aquí
+        // solo vive lo específico de proyectos: el listado, los modales de
+        // creación/configuración, y las cabeceras/paneles de Instrucciones,
+        // Contexto y Memoria.
+
+        function _puedeEditarContenidoProyectoIA() {
+            if (!chatIAProyectoActual) return false;
+            const uid = auth.currentUser?.uid;
+            return chatIAProyectoActual.propietario_uid === uid
+                || (chatIAProyectoActual.visibilidad === 'publico' && chatIAProyectoActual.permitir_edicion_miembros === true);
+        }
+
+        // Alterna entre el chat normal y los paneles de Instrucciones/
+        // Contexto/Memoria dentro de la misma columna de view-chat-ia.
+        function _mostrarPanelProyectoIA(tab) {
+            const mensajes = document.getElementById('chat-ia-mensajes');
+            const inputArea = document.getElementById('chat-ia-input-area');
+            const panelInstrucciones = document.getElementById('chat-ia-proyecto-panel-instrucciones');
+            const panelContexto = document.getElementById('chat-ia-proyecto-panel-contexto');
+            const panelMemoria = document.getElementById('chat-ia-proyecto-panel-memoria');
+            const historialPanel = document.getElementById('chat-ia-historial-panel');
+
+            const esChat = tab === 'chat';
+            if (mensajes) mensajes.style.display = esChat ? 'flex' : 'none';
+            if (inputArea) inputArea.style.display = esChat ? '' : 'none';
+            if (panelInstrucciones) panelInstrucciones.style.display = tab === 'instrucciones' ? 'flex' : 'none';
+            if (panelContexto) panelContexto.style.display = tab === 'contexto' ? 'flex' : 'none';
+            if (panelMemoria) panelMemoria.style.display = tab === 'memoria' ? 'flex' : 'none';
+            // El historial de conversaciones del faldón derecho solo tiene
+            // sentido mientras se está viendo el propio chat.
+            if (historialPanel) historialPanel.style.display = (esChat || !chatIAProyectoActual) ? 'flex' : 'none';
+
+            document.querySelectorAll('.chat-ia-proyecto-tab').forEach((btn) => {
+                const activo = btn.dataset.tab === tab;
+                btn.style.color = activo ? '#2176AC' : '#64748b';
+                btn.style.borderBottomColor = activo ? '#2176AC' : 'transparent';
+            });
+        }
+
+        function _cambiarTabProyectoIA(tab) {
+            if (!chatIAProyectoActual) return;
+            _mostrarPanelProyectoIA(tab);
+            const puedeEditar = _puedeEditarContenidoProyectoIA();
+            if (tab === 'instrucciones') {
+                const input = document.getElementById('chat-ia-proyecto-instrucciones-input');
+                if (input) { input.value = chatIAProyectoActual.instrucciones || ''; input.disabled = !puedeEditar; }
+                const btn = document.getElementById('chat-ia-proyecto-instrucciones-guardar');
+                if (btn) btn.style.display = puedeEditar ? '' : 'none';
+            } else if (tab === 'contexto') {
+                const input = document.getElementById('chat-ia-proyecto-contexto-input');
+                if (input) { input.value = chatIAProyectoActual.contexto_texto || ''; input.disabled = !puedeEditar; }
+                const btnGuardar = document.getElementById('chat-ia-proyecto-contexto-guardar');
+                if (btnGuardar) btnGuardar.style.display = puedeEditar ? '' : 'none';
+                const btnAttach = document.getElementById('chat-ia-proyecto-contexto-attach-btn');
+                if (btnAttach) btnAttach.style.display = puedeEditar ? '' : 'none';
+                _renderArchivosContextoProyectoIA();
+            } else if (tab === 'memoria') {
+                const cont = document.getElementById('chat-ia-proyecto-memoria-contenido');
+                if (cont) {
+                    cont.textContent = chatIAProyectoActual.memoria
+                        || 'Todavía no hay memoria generada para este proyecto — se irá creando sola a medida que haya conversaciones.';
+                }
+            }
+        }
+
+        function _actualizarCabeceraProyectoIA() {
+            const header = document.getElementById('chat-ia-proyecto-header');
+            const configBtn = document.getElementById('chat-ia-proyecto-config-btn');
+            const usoResumen = document.getElementById('chat-ia-uso-resumen');
+            const btnAdmin = document.getElementById('chat-ia-panel-admin-btn');
+            const uid = auth.currentUser?.uid;
+
+            if (!chatIAProyectoActual) {
+                if (header) header.style.display = 'none';
+                if (usoResumen) usoResumen.style.display = '';
+                if (btnAdmin && currentUserEmail.toLowerCase() === CHAT_IA_EMAIL_CONTROLADOR) btnAdmin.style.display = '';
+                _mostrarPanelProyectoIA('chat');
+                return;
+            }
+
+            if (header) header.style.display = 'flex';
+            // El coste/uso personal y el panel de gasto global no aplican
+            // dentro de un proyecto concreto.
+            if (usoResumen) usoResumen.style.display = 'none';
+            if (btnAdmin) btnAdmin.style.display = 'none';
+
+            const nombreEl = document.getElementById('chat-ia-proyecto-nombre');
+            if (nombreEl) nombreEl.textContent = chatIAProyectoActual.nombre || '(sin nombre)';
+            const badgeEl = document.getElementById('chat-ia-proyecto-badge');
+            if (badgeEl) {
+                badgeEl.textContent = chatIAProyectoActual.visibilidad === 'publico'
+                    ? (chatIAProyectoActual.modo_colaboracion === 'grupal' ? '🌐 Público · chat compartido' : '🌐 Público · chat individual')
+                    : '🔒 Privado';
+            }
+            if (configBtn) configBtn.style.display = (chatIAProyectoActual.propietario_uid === uid) ? '' : 'none';
+
+            _mostrarPanelProyectoIA('chat');
+        }
+
+        async function abrirProyectoIA(proyectoId) {
+            try {
+                const snap = await getDoc(doc(db, 'proyectos_ia', proyectoId));
+                if (!snap.exists()) { alert('El proyecto ya no existe.'); return; }
+                chatIAProyectoActual = { id: snap.id, ...snap.data() };
+            } catch (err) {
+                console.error('Error abriendo proyecto IA:', err);
+                alert('No se pudo abrir el proyecto.');
+                return;
+            }
+            switchView('tab-proyectos-ia', 'view-chat-ia');
+            initChatIA();
+            nuevaConversacionChatIA();
+            _actualizarCabeceraProyectoIA();
+            cargarHistorialChatIA();
+        }
+
+        function cerrarProyectoIA() {
+            chatIAProyectoActual = null;
+            nuevaConversacionChatIA();
+            _actualizarCabeceraProyectoIA();
+            switchView('tab-proyectos-ia', 'view-proyectos-ia');
+        }
+
+        // ── Instrucciones / Contexto ──
+
+        async function guardarInstruccionesProyectoIA() {
+            if (!chatIAProyectoActual) return;
+            const input = document.getElementById('chat-ia-proyecto-instrucciones-input');
+            const instrucciones = (input?.value || '').trim();
+            try {
+                await updateDoc(doc(db, 'proyectos_ia', chatIAProyectoActual.id), { instrucciones, fecha_actualizacion: serverTimestamp() });
+                chatIAProyectoActual.instrucciones = instrucciones;
+                alert('Instrucciones guardadas.');
+            } catch (err) {
+                console.error('Error guardando instrucciones de proyecto:', err);
+                alert('No se pudieron guardar las instrucciones.');
+            }
+        }
+
+        async function guardarContextoTextoProyectoIA() {
+            if (!chatIAProyectoActual) return;
+            const input = document.getElementById('chat-ia-proyecto-contexto-input');
+            const contexto_texto = (input?.value || '').trim();
+            try {
+                await updateDoc(doc(db, 'proyectos_ia', chatIAProyectoActual.id), { contexto_texto, fecha_actualizacion: serverTimestamp() });
+                chatIAProyectoActual.contexto_texto = contexto_texto;
+                alert('Contexto guardado.');
+            } catch (err) {
+                console.error('Error guardando contexto de proyecto:', err);
+                alert('No se pudo guardar el contexto.');
+            }
+        }
+
+        function _renderArchivosContextoProyectoIA() {
+            const cont = document.getElementById('chat-ia-proyecto-contexto-archivos');
+            if (!cont || !chatIAProyectoActual) return;
+            cont.innerHTML = '';
+            const archivos = chatIAProyectoActual.contexto_archivos || [];
+            if (archivos.length === 0) {
+                cont.innerHTML = '<div style="color:#94a3b8; font-size:13px;">Sin archivos de contexto.</div>';
+                return;
+            }
+            const puedeEditar = _puedeEditarContenidoProyectoIA();
+            archivos.forEach((a) => {
+                const fila = document.createElement('div');
+                fila.style.cssText = 'display:flex; align-items:center; gap:10px; padding:8px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:13px; color:#334155;';
+                const nombre = document.createElement('span');
+                nombre.textContent = '📎 ' + (a.nombre || 'archivo');
+                nombre.style.flex = '1';
+                fila.appendChild(nombre);
+                if (puedeEditar) {
+                    const btnQuitar = document.createElement('button');
+                    btnQuitar.type = 'button';
+                    btnQuitar.textContent = '✕';
+                    btnQuitar.title = 'Quitar';
+                    btnQuitar.style.cssText = 'border:none; background:none; cursor:pointer; color:#94a3b8;';
+                    btnQuitar.addEventListener('click', () => eliminarArchivoContextoProyectoIA(a));
+                    fila.appendChild(btnQuitar);
+                }
+                cont.appendChild(fila);
+            });
+        }
+
+        async function subirArchivoContextoProyectoIA(file) {
+            if (!chatIAProyectoActual) return;
+            if (!CHAT_IA_TIPOS_PERMITIDOS.includes(file.type)) { alert(`Tipo de archivo no permitido: ${file.name}`); return; }
+            if (file.size > CHAT_IA_TAMANO_MAXIMO) { alert(`El archivo "${file.name}" supera el tamaño máximo de 20 MB.`); return; }
+            const archivosActuales = chatIAProyectoActual.contexto_archivos || [];
+            if (archivosActuales.length >= 5) { alert('Este proyecto ya tiene el máximo de 5 archivos de contexto.'); return; }
+
+            try {
+                const storagePath = `proyectos_ia_contexto/${chatIAProyectoActual.id}/${Date.now()}_${file.name}`;
+                await uploadBytes(ref(storage, storagePath), file);
+                // subido_en va como string (no serverTimestamp()): Firestore no
+                // admite marcas de tiempo de servidor dentro de un array.
+                const nuevoArchivo = {
+                    nombre: file.name,
+                    tipo_mime: file.type,
+                    storage_path: storagePath,
+                    subido_por_uid: auth.currentUser?.uid || '',
+                    subido_en: new Date().toISOString(),
+                };
+                await updateDoc(doc(db, 'proyectos_ia', chatIAProyectoActual.id), {
+                    contexto_archivos: arrayUnion(nuevoArchivo),
+                    fecha_actualizacion: serverTimestamp(),
+                });
+                chatIAProyectoActual.contexto_archivos = [...archivosActuales, nuevoArchivo];
+                _renderArchivosContextoProyectoIA();
+            } catch (err) {
+                console.error('Error subiendo archivo de contexto de proyecto:', err);
+                alert('No se pudo subir el archivo de contexto.');
+            }
+        }
+
+        async function eliminarArchivoContextoProyectoIA(archivo) {
+            if (!chatIAProyectoActual) return;
+            if (!confirm(`¿Quitar "${archivo.nombre}" del contexto del proyecto?`)) return;
+            try {
+                await updateDoc(doc(db, 'proyectos_ia', chatIAProyectoActual.id), {
+                    contexto_archivos: arrayRemove(archivo),
+                    fecha_actualizacion: serverTimestamp(),
+                });
+                await deleteObject(ref(storage, archivo.storage_path)).catch((e) => console.warn('No se pudo borrar el archivo de Storage:', e));
+                chatIAProyectoActual.contexto_archivos = (chatIAProyectoActual.contexto_archivos || []).filter((a) => a.storage_path !== archivo.storage_path);
+                _renderArchivosContextoProyectoIA();
+            } catch (err) {
+                console.error('Error quitando archivo de contexto de proyecto:', err);
+                alert('No se pudo quitar el archivo de contexto.');
+            }
+        }
+
+        // ── Listado y CRUD de proyectos ──
+
+        function initProyectosIA() {
+            if (!_proyectosIAInicializado) {
+                _proyectosIAInicializado = true;
+                document.querySelectorAll('.proyectos-ia-filtro-btn').forEach((btn) => {
+                    btn.addEventListener('click', () => cargarProyectosIA(btn.dataset.filtro));
+                });
+                document.getElementById('proyectos-ia-nuevo-btn')?.addEventListener('click', abrirModalNuevoProyectoIA);
+                document.getElementById('modal-btn-cancelar-proy')?.addEventListener('click', () => {
+                    document.getElementById('modal-nuevo-proyecto-ia').style.display = 'none';
+                });
+                document.getElementById('modal-btn-aceptar-proy')?.addEventListener('click', crearProyectoIA);
+
+                document.getElementById('modal-config-proy-visibilidad')?.addEventListener('change', (e) => {
+                    document.getElementById('modal-config-proy-publico-opciones').style.display = e.target.value === 'publico' ? '' : 'none';
+                });
+                document.getElementById('modal-btn-cancelar-config-proy')?.addEventListener('click', () => {
+                    document.getElementById('modal-config-proyecto-ia').style.display = 'none';
+                });
+                document.getElementById('modal-btn-aceptar-config-proy')?.addEventListener('click', guardarConfigProyectoIA);
+                document.getElementById('modal-btn-borrar-proy')?.addEventListener('click', eliminarProyectoIA);
+            }
+            cargarProyectosIA();
+        }
+
+        async function cargarProyectosIA(filtro) {
+            if (filtro) proyectosIAFiltro = filtro;
+            document.querySelectorAll('.proyectos-ia-filtro-btn').forEach((btn) => {
+                const activo = btn.dataset.filtro === proyectosIAFiltro;
+                btn.style.background = activo ? '#2176AC' : '#f1f5f9';
+                btn.style.color = activo ? '#fff' : '#334155';
+            });
+
+            const grid = document.getElementById('proyectos-ia-grid');
+            const uid = auth.currentUser?.uid;
+            if (!grid || !uid) return;
+            grid.innerHTML = 'Cargando…';
+
+            try {
+                const q = proyectosIAFiltro === 'publicos'
+                    ? query(collection(db, 'proyectos_ia'), where('visibilidad', '==', 'publico'), orderBy('fecha_actualizacion', 'desc'), limit(50))
+                    : query(collection(db, 'proyectos_ia'), where('propietario_uid', '==', uid), orderBy('fecha_actualizacion', 'desc'), limit(50));
+                const snap = await getDocs(q);
+                const proyectos = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((p) => !p.archivado);
+                grid.innerHTML = '';
+                if (proyectos.length === 0) {
+                    grid.innerHTML = `<div style="color:#94a3b8; grid-column:1/-1;">${proyectosIAFiltro === 'publicos' ? 'Ningún técnico ha publicado proyectos públicos todavía.' : 'Todavía no has creado ningún proyecto.'}</div>`;
+                    return;
+                }
+                proyectos.forEach((p) => grid.appendChild(_renderCardProyectoIA(p)));
+            } catch (err) {
+                console.error('Error cargando proyectos IA:', err);
+                grid.innerHTML = '<div style="color:#ef4444;">Error al cargar los proyectos.</div>';
+            }
+        }
+
+        function _renderCardProyectoIA(p) {
+            const card = document.createElement('div');
+            card.style.cssText = 'background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:16px; cursor:pointer; display:flex; flex-direction:column; gap:8px; transition:border-color 0.15s;';
+            card.addEventListener('mouseenter', () => { card.style.borderColor = '#2176AC'; });
+            card.addEventListener('mouseleave', () => { card.style.borderColor = '#e2e8f0'; });
+            card.addEventListener('click', () => abrirProyectoIA(p.id));
+
+            const cabecera = document.createElement('div');
+            cabecera.style.cssText = 'display:flex; align-items:flex-start; justify-content:space-between; gap:8px;';
+            const nombre = document.createElement('div');
+            nombre.textContent = p.nombre || '(sin nombre)';
+            nombre.style.cssText = 'font-size:15px; font-weight:700; color:#0f172a;';
+            const badge = document.createElement('span');
+            badge.textContent = p.visibilidad === 'publico' ? '🌐 Público' : '🔒 Privado';
+            badge.style.cssText = 'font-size:11px; padding:2px 8px; border-radius:10px; background:#f1f5f9; color:#64748b; white-space:nowrap;';
+            cabecera.appendChild(nombre);
+            cabecera.appendChild(badge);
+
+            const descripcion = document.createElement('div');
+            descripcion.textContent = p.descripcion || 'Sin descripción.';
+            descripcion.style.cssText = 'font-size:13px; color:#64748b; flex:1; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;';
+
+            const pie = document.createElement('div');
+            pie.style.cssText = 'font-size:11px; color:#94a3b8;';
+            const uid = auth.currentUser?.uid;
+            const propietarioTxt = p.propietario_uid === uid ? 'Tú' : nombreTecnicoPorEmail(p.propietario_email);
+            pie.textContent = `👤 ${propietarioTxt}`;
+
+            card.appendChild(cabecera);
+            card.appendChild(descripcion);
+            card.appendChild(pie);
+            return card;
+        }
+
+        function abrirModalNuevoProyectoIA() {
+            document.getElementById('modal-proy-nombre').value = '';
+            document.getElementById('modal-proy-descripcion').value = '';
+            document.getElementById('modal-proy-visibilidad').value = 'privado';
+            document.getElementById('modal-nuevo-proyecto-ia').style.display = 'flex';
+        }
+
+        async function crearProyectoIA() {
+            const nombre = document.getElementById('modal-proy-nombre').value.trim();
+            if (!nombre) { alert('El nombre del proyecto es obligatorio.'); return; }
+            const descripcion = document.getElementById('modal-proy-descripcion').value.trim();
+            const visibilidad = document.getElementById('modal-proy-visibilidad').value;
+            const uid = auth.currentUser?.uid;
+            const email = currentUserEmail || auth.currentUser?.email || ''; // ver comentario en enviarMensajeChatIA
+            if (!uid) return;
+
+            try {
+                const nuevoProyecto = await addDoc(collection(db, 'proyectos_ia'), {
+                    propietario_uid: uid,
+                    propietario_email: email,
+                    nombre,
+                    descripcion,
+                    instrucciones: '',
+                    contexto_texto: '',
+                    contexto_archivos: [],
+                    memoria: '',
+                    memoria_actualizada: null,
+                    num_mensajes_total: 0,
+                    memoria_num_mensajes_en_ultima_actualizacion: 0,
+                    visibilidad,
+                    modo_colaboracion: 'individual',
+                    permitir_edicion_miembros: false,
+                    fecha_creacion: serverTimestamp(),
+                    fecha_actualizacion: serverTimestamp(),
+                    archivado: false,
+                });
+                document.getElementById('modal-nuevo-proyecto-ia').style.display = 'none';
+                abrirProyectoIA(nuevoProyecto.id);
+            } catch (err) {
+                console.error('Error creando proyecto IA:', err);
+                alert('No se pudo crear el proyecto.');
+            }
+        }
+
+        // ── Configuración (solo propietario) ──
+
+        function abrirModalConfigProyectoIA() {
+            if (!chatIAProyectoActual) return;
+            document.getElementById('modal-config-proy-visibilidad').value = chatIAProyectoActual.visibilidad || 'privado';
+            document.getElementById('modal-config-proy-modo').value = chatIAProyectoActual.modo_colaboracion || 'individual';
+            document.getElementById('modal-config-proy-permitir-edicion').checked = !!chatIAProyectoActual.permitir_edicion_miembros;
+            document.getElementById('modal-config-proy-publico-opciones').style.display = chatIAProyectoActual.visibilidad === 'publico' ? '' : 'none';
+            document.getElementById('modal-config-proyecto-ia').style.display = 'flex';
+        }
+
+        async function guardarConfigProyectoIA() {
+            if (!chatIAProyectoActual) return;
+            const visibilidad = document.getElementById('modal-config-proy-visibilidad').value;
+            const modo_colaboracion = document.getElementById('modal-config-proy-modo').value;
+            const permitir_edicion_miembros = document.getElementById('modal-config-proy-permitir-edicion').checked;
+            try {
+                await updateDoc(doc(db, 'proyectos_ia', chatIAProyectoActual.id), {
+                    visibilidad, modo_colaboracion, permitir_edicion_miembros,
+                    fecha_actualizacion: serverTimestamp(),
+                });
+                chatIAProyectoActual.visibilidad = visibilidad;
+                chatIAProyectoActual.modo_colaboracion = modo_colaboracion;
+                chatIAProyectoActual.permitir_edicion_miembros = permitir_edicion_miembros;
+                document.getElementById('modal-config-proyecto-ia').style.display = 'none';
+                _actualizarCabeceraProyectoIA();
+                // El modo de colaboración cambia qué conversaciones se ven
+                // (propias vs. canal compartido) — se recarga el historial y
+                // se vuelve a "nueva conversación" para no dejar abierta una
+                // conversación que ya no encaje con el modo nuevo.
+                nuevaConversacionChatIA();
+                cargarHistorialChatIA();
+            } catch (err) {
+                console.error('Error guardando configuración de proyecto:', err);
+                alert('No se pudo guardar la configuración.');
+            }
+        }
+
+        // No hace cascade-delete de sus chats_ia (Firestore no soporta borrado
+        // en cascada); las conversaciones huérfanas dejan de ser accesibles en
+        // la práctica porque ya no aparecen en ningún listado ni son
+        // alcanzables desde la UI, pero sus documentos permanecen en Firestore.
+        async function eliminarProyectoIA() {
+            if (!chatIAProyectoActual) return;
+            if (!confirm(`¿Eliminar el proyecto "${chatIAProyectoActual.nombre}"? Esta acción no se puede deshacer.`)) return;
+            try {
+                await deleteDoc(doc(db, 'proyectos_ia', chatIAProyectoActual.id));
+                document.getElementById('modal-config-proyecto-ia').style.display = 'none';
+                cerrarProyectoIA();
+            } catch (err) {
+                console.error('Error eliminando proyecto IA:', err);
+                alert('No se pudo eliminar el proyecto.');
             }
         }
 
@@ -4351,6 +5713,7 @@
                         // user.email puede ser null con Microsoft — fallback a providerData
                         const msProviderData = user.providerData.find(p => p.providerId === 'microsoft.com');
                         const userEmail = user.email || (msProviderData ? msProviderData.email : '') || '';
+                        currentUserEmail = userEmail;
                         const tecMatch = listaTecnicos.find(t => (t.email || '').toLowerCase() === userEmail.toLowerCase() || (t.id_tec || '').toLowerCase() === userEmail.toLowerCase());
                         currentUserAcronym = tecMatch ? tecMatch.acronimo : null;
 
@@ -6152,26 +7515,19 @@
         // ============================================
         // Lógica del Dashboard de Métricas (Fase 8)
         // ============================================
+        // Delega en parseFechaUniversal() en vez de mantener un parser de
+        // fechas propio y menos tolerante: antes de esto, un formato que
+        // parseFechaUniversal SÍ entendía (p.ej. "mm/yy" en trabajos
+        // ANUAL/PUNTUAL) hacía que extractDateInfo devolviera {y:null,
+        // m:null} — con el efecto de que ese trabajo desaparecía en
+        // silencio de cualquier cosa que dependiera de extractDateInfo
+        // (gráfica "Horas Asignadas", filtro Año/Mes del dashboard...)
+        // aunque sí apareciera correctamente en el Gantt.
         function extractDateInfo(dateStr) {
             if (!dateStr) return { y: null, m: null };
-            const s = String(dateStr).trim();
-            if (!s) return { y: null, m: null };
-            // Formato dd/mm/yyyy
-            if (s.includes('/')) {
-                let parts = s.split('/');
-                if (parts.length === 3) return { y: parts[2], m: parts[1] };
-            }
-            // Formato yyyy-mm-dd
-            if (s.includes('-')) {
-                let parts = s.split('-');
-                if (parts.length >= 2) return { y: parts[0], m: parts[1] };
-            }
-            // Número de serie Excel (ej: 46007)
-            if (/^\d{4,5}$/.test(s)) {
-                const d = excelSerialToDate(s);
-                if (d) return { y: String(d.getFullYear()), m: String(d.getMonth() + 1).padStart(2, '0') };
-            }
-            return { y: null, m: null };
+            const dt = parseFechaUniversal(dateStr);
+            if (!dt) return { y: null, m: null };
+            return { y: String(dt.getFullYear()), m: String(dt.getMonth() + 1).padStart(2, '0') };
         }
 
         function populateYearsSelect() {
@@ -6653,7 +8009,28 @@
             });
 
             const ganttContainer = document.getElementById('gantt-scroll-container');
+            const ganttScrollOuter = document.getElementById('gantt-scroll-outer');
             if (ganttContainer) ganttContainer.style.height = Math.max(400, fl.length * 38 + 80) + 'px';
+
+            // Ancho horizontal: solo crece (y aparece scroll) si el rango de fechas no cabe
+            // con un mínimo de px/mes legible; si cabe, ocupa el 100% del contenedor visible.
+            const availWidth = ganttScrollOuter ? ganttScrollOuter.clientWidth : 1000;
+            const PX_PER_MONTH = 80;
+            let ganttContentWidth = availWidth;
+            if (minT && maxT) {
+                const spanMonths = (maxT - minT) / (1000 * 60 * 60 * 24 * 30.44);
+                ganttContentWidth = Math.max(availWidth, Math.ceil(spanMonths * PX_PER_MONTH));
+            }
+            if (ganttContainer) ganttContainer.style.width = ganttContentWidth + 'px';
+
+            // Sincroniza el header sticky con el scroll horizontal (listener único)
+            if (ganttScrollOuter && !ganttScrollOuter._ganttSyncBound) {
+                ganttScrollOuter.addEventListener('scroll', () => {
+                    const header = document.getElementById('gantt-sticky-header');
+                    if (header) header.scrollLeft = ganttScrollOuter.scrollLeft;
+                });
+                ganttScrollOuter._ganttSyncBound = true;
+            }
 
             const ganttExcess = fm.map((m, i) => {
                 if (m.pctUso <= 100) return null;
@@ -6760,7 +8137,8 @@
                 if (ganttChart && stickyHeader) {
                     const xScale = ganttChart.scales.x;
                     if (xScale && xScale.ticks) {
-                        let html = '<div style="position:relative;height:32px;font-size:11px;color:#64748b;font-weight:500;">';
+                        const contentW = ganttContainer ? ganttContainer.style.width : '1000px';
+                        let html = '<div style="position:relative;height:32px;font-size:11px;color:#64748b;font-weight:500;width:' + contentW + ';">';
                         let lastX = -999;
                         const minSpacing = 46;
                         xScale.ticks.forEach((tick, i) => {
@@ -6771,7 +8149,7 @@
                         });
                         html += '</div>';
                         stickyHeader.innerHTML = html;
-                        stickyHeader.style.minWidth = ganttChart.canvas.parentElement.style.minWidth || '1000px';
+                        stickyHeader.scrollLeft = ganttScrollOuter ? ganttScrollOuter.scrollLeft : 0;
                     }
                 }
 
@@ -7097,7 +8475,13 @@
                         chartsObj.proMeses.data.datasets[0].backgroundColor = newColors;
                         chartsObj.proMeses.update();
                     },
-                    plugins: { tooltip: { callbacks: { footer: () => 'Clic para filtrar Gantt' } } }
+                    plugins: { tooltip: { callbacks: {
+                        // Formato español (punto de miles, coma decimal, un
+                        // solo decimal): el tooltip por defecto de Chart.js
+                        // usa el número JS tal cual, sin localizar.
+                        label: (context) => `Horas Asignadas: ${_formatearHorasEs(context.parsed.y)}h`,
+                        footer: () => 'Clic para filtrar Gantt',
+                    } } }
                 }
             });
         }
@@ -7777,7 +9161,7 @@
             // por línea, para poder calcular el precio/hora real de cada línea y
             // repartir el importe facturado entre quienes de verdad invirtieron
             // horas en ella (no solo el técnico titular T1/Responsable)
-            const horasPorLineaTodas = {}; // numT -> { total, porTec: { acronimo: horas } }
+            const horasPorLineaTodas = {}; // numT -> { resuelto, porTec: { acronimo: horas } }
             partesData.forEach(p => {
                 const horas = parseFloat(p.horas) || 0;
                 if (horas === 0) return;
@@ -7787,21 +9171,25 @@
                 if (!numT) return;
                 const tipoExp = tipoExpMap[numT] || '';
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
-                if (!horasPorLineaTodas[numT]) horasPorLineaTodas[numT] = { total: 0, porTec: {} };
-                horasPorLineaTodas[numT].total += horas;
+                // Horas de trabajadores que no resuelven a un técnico "Prod" actual
+                // (baja, ID cambiado, técnico no-Prod, etc.) se descartan aquí: no
+                // deben diluir el precio/hora de los técnicos que sí se conocen.
                 const tec = resolverTecP((p.trabajador || '').trim());
-                if (tec && tecCarga[tec.acronimo]) {
-                    horasPorLineaTodas[numT].porTec[tec.acronimo] = (horasPorLineaTodas[numT].porTec[tec.acronimo] || 0) + horas;
-                }
+                if (!tec || !tecCarga[tec.acronimo]) return;
+                if (!horasPorLineaTodas[numT]) horasPorLineaTodas[numT] = { resuelto: 0, porTec: {} };
+                horasPorLineaTodas[numT].resuelto += horas;
+                horasPorLineaTodas[numT].porTec[tec.acronimo] = (horasPorLineaTodas[numT].porTec[tec.acronimo] || 0) + horas;
             });
 
             // 3) Facturado: por cada línea con fecha de facturación (dentro del
             // filtro), el importe (Presupuesto M - Gastos N) se reparte entre los
             // técnicos que metieron horas en esa línea, en proporción a las horas
-            // de cada uno sobre el total de horas invertidas en la línea (todo el
+            // de cada uno sobre el total de horas RESUELTAS de la línea (todo el
             // histórico, no solo el periodo filtrado). Si la línea está facturada
-            // pero no tiene ninguna hora registrada, su importe no se reparte
-            // (no hay forma de saber a quién atribuírselo).
+            // pero no tiene ninguna hora atribuible a un técnico conocido, el
+            // importe se imputa entero al técnico titular (Ejecutor T1 /
+            // Responsable) — igual que el "Asignado" — para que una línea
+            // facturada nunca desaparezca del total de Facturado.
             datosProduccionMemoria.forEach(prod => {
                 const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
@@ -7811,11 +9199,16 @@
                 const valorLinea = (presupMap[nt] || 0) - (gastosMap[nt] || 0);
                 if (valorLinea <= 0) return;
                 const horasLinea = horasPorLineaTodas[nt];
-                if (!horasLinea || horasLinea.total <= 0) return;
-                const precioHora = valorLinea / horasLinea.total;
-                Object.keys(horasLinea.porTec).forEach(acr => {
-                    tecCarga[acr].facturado += horasLinea.porTec[acr] * precioHora;
-                });
+                if (horasLinea && horasLinea.resuelto > 0) {
+                    const precioHora = valorLinea / horasLinea.resuelto;
+                    Object.keys(horasLinea.porTec).forEach(acr => {
+                        tecCarga[acr].facturado += horasLinea.porTec[acr] * precioHora;
+                    });
+                } else {
+                    const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
+                    const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
+                    if (tec && tecCarga[tec.acronimo]) tecCarga[tec.acronimo].facturado += valorLinea;
+                }
             });
 
             // 4) Por facturar: horas de líneas sin fecha de facturación (y sin VB
@@ -8477,6 +9870,21 @@
             const srvItems = [...listaServicios].sort((a, b) => a.localeCompare(b, 'es')).map(s => ({ value: s, label: s }));
             poblarMiniDropdownSiVacio('dd-mensual-srv-panel', 'dd-mensual-srv-label', srvItems);
 
+            // Desplegable de Equipo (selección única): lista tasada de equipos
+            // (Configuración > Técnicos). Se rellena una sola vez, conservando la
+            // selección actual si se vuelve a llamar a esta función (p.ej. al
+            // aplicar otro filtro).
+            const selEquipoEl = document.getElementById('sel-mensual-equipo');
+            if (selEquipoEl && !selEquipoEl.dataset.populated) {
+                const valorPrevio = selEquipoEl.value;
+                selEquipoEl.innerHTML = '<option value="">Todos</option>' +
+                    [...listaEquipos].sort((a, b) => a.localeCompare(b, 'es'))
+                        .map(eq => `<option value="${escapeHTML(eq)}">${escapeHTML(eq)}</option>`).join('');
+                selEquipoEl.value = valorPrevio;
+                selEquipoEl.dataset.populated = 'true';
+            }
+            const selEquipo = selEquipoEl ? selEquipoEl.value : '';
+
             const selTecs = leerMiniDropdownValues('dd-mensual-tec-panel');
             const selSrvs = leerMiniDropdownValues('dd-mensual-srv-panel');
             // Comparación de servicio ignorando mayúsculas/acentos: los datos reales
@@ -8496,33 +9904,7 @@
             const facturadoMes = new Array(12).fill(0);
             const porFacturarMes = new Array(12).fill(0);
 
-            // Facturado: production lines with fecha_ar (Fecha Facturación), grouped by month
-            datosProduccionMemoria.forEach(prod => {
-                const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
-                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
-                const fechaAr = parseFechaR((prod.fecha_ar || '').trim());
-                if (!fechaAr || !filtYears.includes(fechaAr.getFullYear())) return;
-                const presup = parseSpanishNum(prod.presupuesto_m) || 0;
-                if (presup === 0) return;
-                if (selSrvsNorm.size > 0 && !selSrvsNorm.has(normTexto(prod.tipo_servicio || prod.servicio))) return;
-                const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
-                const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
-                // Solo técnicos de producción (casilla "Prod" en Configuración) cuentan
-                // en los Informes; si el técnico no resuelve, se cuenta igual (no se
-                // conoce su estado "Prod", y no se quiere perder importe por eso).
-                if (tec && tec.prod === false) return;
-                // El técnico solo se exige si hay un filtro de técnico activo: sin filtro,
-                // la línea cuenta igual aunque su campo de técnico no resuelva a nadie
-                // conocido (para que el total mensual sea exacto, no solo el filtrado).
-                if (selTecs.length > 0 && (!tec || !selTecs.includes(tec.acronimo))) return;
-                facturadoMes[fechaAr.getMonth()] += presup;
-            });
-
-            // Por facturar: horas de partes_horas en l\u00edneas ANUAL/PUNTUAL SIN fecha de
-            // facturaci\u00f3n (fecha_ar), a "costeHoraActual" \u20ac/h, con un tope por l\u00ednea
-            // igual a su Presupuesto (M). El importe de cada l\u00ednea se reparte por mes
-            // en orden cronol\u00f3gico y deja de sumar en cuanto se alcanza ese tope, para
-            // que la suma de "por facturar" de una l\u00ednea nunca supere su presupuesto.
+            // Mapas por linea, necesarios tanto para Facturado como para Por facturar
             const fArMap = {};
             const tipoExpMap = {};
             const presupMap = {};
@@ -8539,7 +9921,93 @@
                 return resolverTecPorIdTec(trabajadorStr);
             }
 
-            // 1) Agrupar horas v\u00e1lidas por l\u00ednea (num_trabajo), en orden cronol\u00f3gico
+            // Horas por linea (historico completo, cualquier tecnico), usadas para
+            // repartir el importe facturado de cada linea en proporcion a las horas
+            // de quienes de verdad trabajaron en ella. Antes se imputaba el 100% del
+            // Presupuesto al tecnico titular (Ejecutor T1 / Responsable), dejando a 0
+            // a los tecnicos de apoyo que meten horas en lineas ajenas.
+            const horasPorLineaTodas = {}; // numT -> { resuelto, porTec: { acronimo: horas } }
+            (window._partesHorasData || []).forEach(p => {
+                const horas = parseFloat(p.horas) || 0;
+                if (horas === 0) return;
+                const obs = String(p.observaciones_crudas || p.observaciones || p.obs || '').trim();
+                const m = obs.match(/^(\d{3,6})/);
+                const numT = m ? m[1] : null;
+                if (!numT) return;
+                const tipoExp = tipoExpMap[numT] || '';
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                // Horas de trabajadores que ya no resuelven a ningun tecnico actual
+                // (baja, ID cambiado, etc.) se descartan aqui: solo cuentan para el
+                // reparto las horas de "resuelto" (ver mas abajo, denominador del
+                // reparto), para que esas horas huerfanas no diluyan el importe de
+                // los tecnicos que si se conocen.
+                const tec = resolverTecP((p.trabajador || '').trim());
+                if (!tec) return;
+                if (!horasPorLineaTodas[numT]) horasPorLineaTodas[numT] = { resuelto: 0, porTec: {} };
+                horasPorLineaTodas[numT].resuelto += horas;
+                horasPorLineaTodas[numT].porTec[tec.acronimo] = (horasPorLineaTodas[numT].porTec[tec.acronimo] || 0) + horas;
+            });
+
+            // Facturado: por cada linea con fecha de facturacion (dentro del ano
+            // filtrado), el Presupuesto (M) se reparte entre los tecnicos que
+            // metieron horas en esa linea, en proporcion a las horas de cada uno
+            // sobre el total de horas RESUELTAS de la linea (historico completo, no
+            // solo el ano filtrado). No se resta Gastos (N), igual que el total
+            // general de este grafico sin filtro de tecnico.
+            // Si la linea no tiene ninguna hora atribuible a un tecnico conocido (ni
+            // registrada ni resuelta), el importe se imputa entero al tecnico titular
+            // (Ejecutor T1 / Responsable) — igual que antes de este reparto por horas
+            // — para que una linea facturada nunca desaparezca del total general.
+            // facturadoMesServicio[mes] = { servicio: importe } — desglose por
+            // servicio de lo facturado ese mes (dentro del filtro de Equipo/Tecnico
+            // activo), para mostrar en el tooltip del grafico.
+            const facturadoMesServicio = Array.from({ length: 12 }, () => ({}));
+            datosProduccionMemoria.forEach(prod => {
+                const tipoExp = (prod.tipo_expediente || '').trim().toUpperCase();
+                if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
+                const nt = String(prod.num_trabajo);
+                const fechaAr = parseFechaR((prod.fecha_ar || '').trim());
+                if (!fechaAr || !filtYears.includes(fechaAr.getFullYear())) return;
+                if (selSrvsNorm.size > 0 && !selSrvsNorm.has(normTexto(prod.tipo_servicio || prod.servicio))) return;
+                const valorLinea = presupMap[nt] || 0;
+                if (valorLinea <= 0) return;
+                const mes = fechaAr.getMonth();
+                // Agrupar por servicio normalizado (mismo problema de mayusculas/acentos
+                // inconsistentes que en el resto del grafico), mostrando la etiqueta de
+                // la lista maestra cuando hay coincidencia
+                const srvLineaRaw = (prod.tipo_servicio || prod.servicio || 'Sin servicio').trim();
+                const srvLineaNorm = normTexto(srvLineaRaw);
+                const srvLabel = listaServicios.find(s => normTexto(s) === srvLineaNorm) || srvLineaRaw;
+                const acumular = (acr, importe) => {
+                    facturadoMes[mes] += importe;
+                    const entry = facturadoMesServicio[mes][srvLineaNorm] || { label: srvLabel, total: 0 };
+                    entry.total += importe;
+                    facturadoMesServicio[mes][srvLineaNorm] = entry;
+                };
+                const horasLinea = horasPorLineaTodas[nt];
+                if (horasLinea && horasLinea.resuelto > 0) {
+                    Object.keys(horasLinea.porTec).forEach(acr => {
+                        const tec = listaTecnicos.find(t => t.acronimo === acr);
+                        if (tec && tec.prod === false) return;
+                        if (selTecs.length > 0 && !selTecs.includes(acr)) return;
+                        if (selEquipo && (!tec || (tec.equipo || '') !== selEquipo)) return;
+                        acumular(acr, (horasLinea.porTec[acr] / horasLinea.resuelto) * valorLinea);
+                    });
+                } else {
+                    // Fallback: sin ninguna hora atribuible a un tecnico conocido
+                    const tecField = (prod.ejecutor_t1 || prod.responsable_g || '').trim();
+                    const tec = listaTecnicos.find(t => t.acronimo === tecField || t.nombre_pila === tecField || t.nombre === tecField);
+                    if (tec && tec.prod === false) return;
+                    if (selTecs.length > 0 && (!tec || !selTecs.includes(tec.acronimo))) return;
+                    if (selEquipo && (!tec || (tec.equipo || '') !== selEquipo)) return;
+                    acumular(tec ? tec.acronimo : '', valorLinea);
+                }
+            });
+
+            // Por facturar: horas de partes_horas en lineas ANUAL/PUNTUAL SIN fecha de
+            // facturacion, a "costeHoraActual" euros/h, con un tope por linea igual a
+            // su Presupuesto (M). El importe de cada linea se reparte por mes en orden
+            // cronologico y deja de sumar en cuanto se alcanza ese tope.
             const horasPorLinea = {};
             (window._partesHorasData || []).forEach(p => {
                 const fecha = parseFechaR(p.fecha);
@@ -8552,16 +10020,16 @@
                 if (!numT) return;
                 const tipoExp = tipoExpMap[numT] || '';
                 if (tipoExp !== 'ANUAL' && tipoExp !== 'PUNTUAL') return;
-                if (fArMap[numT]) return; // ya tiene fecha de facturaci\u00f3n: no es "por facturar"
+                if (fArMap[numT]) return; // ya tiene fecha de facturacion: no es "por facturar"
                 if (selSrvsNorm.size > 0 && !selSrvsNorm.has(srvMap[numT])) return;
                 const tec = resolverTecP((p.trabajador || '').trim());
                 if (tec && tec.prod === false) return;
                 if (selTecs.length > 0 && (!tec || !selTecs.includes(tec.acronimo))) return;
+                if (selEquipo && (!tec || (tec.equipo || '') !== selEquipo)) return;
                 if (!horasPorLinea[numT]) horasPorLinea[numT] = [];
                 horasPorLinea[numT].push({ orden: fecha.getTime(), mes: fecha.getMonth(), importe: horas * costeHoraActual });
             });
 
-            // 2) Por cada l\u00ednea: sumar por mes hasta el tope de su Presupuesto (M)
             Object.keys(horasPorLinea).forEach(numT => {
                 const tope = presupMap[numT] || 0;
                 if (tope <= 0) return; // sin presupuesto asignado: nada que "por facturar"
@@ -8660,11 +10128,31 @@
                         legend: { position: 'top' },
                         tooltip: {
                             callbacks: {
-                                label: ctx => ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw),
+                                label: ctx => {
+                                    const idx = ctx.dataIndex;
+                                    const totalBarra = (facturadoMes[idx] || 0) + (porFacturarMes[idx] || 0);
+                                    const pct = totalBarra > 0 ? (ctx.raw / totalBarra * 100) : 0;
+                                    return ' ' + ctx.dataset.label + ': ' + fmtE.format(ctx.raw) + ' (' + pct.toFixed(0) + '%)';
+                                },
                                 afterBody: function(items) {
                                     const idx = items[0].dataIndex;
                                     const total = (facturadoMes[idx] || 0) + (porFacturarMes[idx] || 0);
-                                    return ['Total: ' + fmtE.format(Math.round(total))];
+                                    const lineas = ['Total: ' + fmtE.format(Math.round(total))];
+                                    // Desglose de lo Facturado ese mes por servicio (util sobre todo
+                                    // con el filtro de Equipo activo, para ver cuanto de su facturacion
+                                    // viene de su propia area y cuanto de otras)
+                                    const desglose = facturadoMesServicio[idx] || {};
+                                    const srvs = Object.values(desglose).sort((a, b) => b.total - a.total);
+                                    const totalFacturadoMes = facturadoMes[idx] || 0;
+                                    if (srvs.length > 0) {
+                                        lineas.push('');
+                                        lineas.push('Facturado por servicio:');
+                                        srvs.forEach(s => {
+                                            const pct = totalFacturadoMes > 0 ? (s.total / totalFacturadoMes * 100) : 0;
+                                            lineas.push('  ' + fmtE.format(Math.round(s.total)) + ' (' + pct.toFixed(0) + '%) en ' + s.label);
+                                        });
+                                    }
+                                    return lineas;
                                 }
                             }
                         }
@@ -8677,6 +10165,8 @@
         document.getElementById('btn-clear-mensual')?.addEventListener('click', () => {
             limpiarMiniDropdown('dd-mensual-tec-panel', 'dd-mensual-tec-label');
             limpiarMiniDropdown('dd-mensual-srv-panel', 'dd-mensual-srv-label');
+            const selEquipoEl = document.getElementById('sel-mensual-equipo');
+            if (selEquipoEl) selEquipoEl.value = '';
             // El filtro de Año, a diferencia de Técnico/Servicio, vuelve al año en
             // curso (no a "todos"), que es su estado por defecto
             limpiarMiniDropdown('dd-mensual-year-panel', 'dd-mensual-year-label');
@@ -9251,6 +10741,31 @@
             }
         }
 
+        function opcionesEquipoHTML(valorActual) {
+            const opts = listaEquipos.map(eq => `<option value="${escapeHTML(eq)}" ${valorActual === eq ? 'selected' : ''}>${escapeHTML(eq)}</option>`).join('');
+            return `<option value="">-</option>${opts}<option value="__crear_equipo__">+ Crear nuevo equipo...</option>`;
+        }
+
+        // Maneja el cambio de un <select> de Equipo: si el usuario elige "Crear nuevo equipo",
+        // pide el nombre, lo añade a la lista tasada (listas_config/equipos) y lo deja seleccionado.
+        // onGuardar recibe el valor final (string) para persistirlo donde corresponda (técnico o add-row).
+        async function manejarCambioEquipo(selectEl, valorPrevio, onGuardar) {
+            let valor = selectEl.value;
+            if (valor === '__crear_equipo__') {
+                const nombre = prompt('Nombre del nuevo equipo:');
+                valor = (nombre || '').trim();
+                if (!valor) { selectEl.value = valorPrevio || ''; return; }
+                if (!listaEquipos.includes(valor)) {
+                    listaEquipos.push(valor);
+                    await setDoc(doc(db, "listas_config", "equipos"), { items: listaEquipos });
+                } else {
+                    alert('Ese equipo ya existe, se ha seleccionado.');
+                }
+                selectEl.innerHTML = opcionesEquipoHTML(valor);
+            }
+            await onGuardar(valor);
+        }
+
         function renderListaTecnicos() {
             const tbody = document.getElementById('tbody-tecnicos');
             if (!tbody) return;
@@ -9266,6 +10781,9 @@
                     <td class="tec-nombre" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9;"><span>${escapeHTML(t.nombre)}</span></td>
                     <td class="tec-acronimo" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.acronimo)}</span></td>
                     <td class="tec-pila" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.nombre_pila || '')}</span></td>
+                    <td class="tec-equipo" style="padding: 6px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; text-align: center;">
+                        <select class="select-equipo-row" style="width: 100%; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 4px; font-size: 13px;">${opcionesEquipoHTML(t.equipo || '')}</select>
+                    </td>
                     <td class="tec-id" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.id_tec || '')}</span></td>
                     <td class="tec-email" style="padding: 6px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; text-align: center;"><span>${escapeHTML(t.email || '')}</span></td>
                     <td class="tec-rol" style="padding: 6px 12px; font-size: 14px; border-bottom: 1px solid #f1f5f9; text-align: center; cursor: pointer;" title="Doble clic para cambiar rol"><span>${escapeHTML(t.rol || 'lectura')}</span></td>
@@ -9291,6 +10809,13 @@
                     await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
                     reinjectarColumnasDinamicas();
                     cargarProduccion();
+                });
+
+                tr.querySelector('.select-equipo-row').addEventListener('change', (e) => {
+                    manejarCambioEquipo(e.target, t.equipo || '', async (valor) => {
+                        t.equipo = valor;
+                        await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
+                    });
                 });
 
                 tr.querySelector('.btn-edit-list-tec').addEventListener('click', () => {
@@ -9437,6 +10962,12 @@
             renderListaSimple('ul-origenes', listaOrigenes, 'origenes', 'input-add-origen');
             renderListaSimple('ul-tipos-exp', listaTiposExpediente, 'tipos_expediente', 'input-add-expediente');
             renderListaTecnicos();
+
+            const selAddEquipo = document.getElementById('input-tec-equipo');
+            if (selAddEquipo) {
+                const actual = selAddEquipo.value === '__crear_equipo__' ? '' : selAddEquipo.value;
+                selAddEquipo.innerHTML = opcionesEquipoHTML(actual);
+            }
         }
 
         function initEventosListasConfig() {
@@ -9452,6 +10983,13 @@
             const btnAddExp = document.getElementById('btn-add-expediente');
             if (btnAddExp) btnAddExp.addEventListener('click', () => agregarElementoListaSimple('input-add-expediente', listaTiposExpediente, 'tipos_expediente'));
 
+            const selAddEquipo = document.getElementById('input-tec-equipo');
+            if (selAddEquipo) {
+                selAddEquipo.addEventListener('change', (e) => {
+                    manejarCambioEquipo(e.target, '', () => {}); // solo crea/selecciona; se lee al pulsar Añadir
+                });
+            }
+
             const btnAddTec = document.getElementById('btn-add-tecnico');
             if (btnAddTec) {
                 btnAddTec.addEventListener('click', async () => {
@@ -9462,10 +11000,12 @@
                     const email = document.getElementById('input-tec-email').value.trim();
                     const rol = document.getElementById('input-tec-rol').value;
                     const color = document.getElementById('input-tec-color').value;
+                    const equipoSel = document.getElementById('input-tec-equipo');
+                    const equipo = (equipoSel && equipoSel.value !== '__crear_equipo__') ? equipoSel.value : '';
 
                     const prod = document.getElementById('input-tec-prod')?.checked !== false;
                     if (nombre && acronimo) {
-                        listaTecnicos.push({ nombre, acronimo, nombre_pila, id_tec, email, color, rol, prod });
+                        listaTecnicos.push({ nombre, acronimo, nombre_pila, id_tec, email, color, rol, prod, equipo });
                         await setDoc(doc(db, "listas_config", "tecnicos"), { items: listaTecnicos });
                         // Sincronizar con usuarios/{email} y usuarios_activos si hay email
                         if (email && email.includes('@')) {
@@ -9481,6 +11021,7 @@
                         document.getElementById('input-tec-color').value = '#ffffff';
                         const prodChk = document.getElementById('input-tec-prod');
                         if (prodChk) prodChk.checked = true;
+                        if (equipoSel) equipoSel.innerHTML = opcionesEquipoHTML('');
                         renderListaTecnicos();
                         reinjectarColumnasDinamicas();
                         cargarProduccion();
@@ -11560,6 +13101,21 @@
                 <span>Suministro</span>
             </a>
 
+            <a href="#" class="nav-item" id="tab-chat-ia">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                <span>Chat IA</span>
+            </a>
+            <a href="#" class="nav-item" id="tab-proyectos-ia">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                </svg>
+                <span>Proyectos IA</span>
+            </a>
+
             <!-- Gestor de Vistas -->
             <div id="views-manager-container" style="padding: 12px; margin: 4px 12px 12px 12px; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
                 <div style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.05em; display: flex; align-items: center; justify-content: space-between;">
@@ -11883,6 +13439,170 @@
                     </div>
                 </div>
 
+                <!-- Vista: Chat IA -->
+                <style>
+                    /* Estilos mínimos para el Markdown renderizado en las respuestas del
+                       asistente — el resto del contenido de la app usa CSS inline, pero el
+                       HTML de marked.js siempre genera las mismas etiquetas, así que aquí
+                       tiene más sentido un bloque de estilo compartido. */
+                    .chat-ia-markdown p { margin: 0 0 8px; }
+                    .chat-ia-markdown p:last-child { margin-bottom: 0; }
+                    .chat-ia-markdown ul, .chat-ia-markdown ol { margin: 0 0 8px; padding-left: 22px; }
+                    .chat-ia-markdown li { margin-bottom: 2px; }
+                    .chat-ia-markdown h1, .chat-ia-markdown h2, .chat-ia-markdown h3,
+                    .chat-ia-markdown h4, .chat-ia-markdown h5, .chat-ia-markdown h6 {
+                        margin: 12px 0 6px; line-height: 1.3;
+                    }
+                    .chat-ia-markdown h1:first-child, .chat-ia-markdown h2:first-child,
+                    .chat-ia-markdown h3:first-child, .chat-ia-markdown h4:first-child { margin-top: 0; }
+                    .chat-ia-markdown code {
+                        background: #f1f5f9; border-radius: 4px; padding: 1px 5px;
+                        font-family: 'Courier New', monospace; font-size: 13px;
+                    }
+                    .chat-ia-markdown pre {
+                        background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px;
+                        overflow-x: auto; margin: 0 0 8px;
+                    }
+                    .chat-ia-markdown pre code { background: none; padding: 0; color: inherit; }
+                    .chat-ia-markdown blockquote {
+                        margin: 0 0 8px; padding-left: 10px; border-left: 3px solid #cbd5e1; color: #64748b;
+                    }
+                    .chat-ia-markdown a { color: #2176AC; }
+                    .chat-ia-markdown table { border-collapse: collapse; margin: 0 0 8px; font-size: 13px; }
+                    .chat-ia-markdown th, .chat-ia-markdown td { border: 1px solid #e2e8f0; padding: 4px 8px; }
+                </style>
+                <div id="view-chat-ia" class="app-view" style="display:none; min-height:0;">
+                    <div style="display:flex; height:100%;" id="chat-ia-layout-normal">
+                        <!-- Columna principal del chat -->
+                        <div style="flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:#f8fafc;">
+                            <!-- Cabecera de Proyecto IA: solo visible cuando chatIAProyectoActual != null
+                                 (ver _actualizarCabeceraProyectoIA). Reutiliza toda la maquinaria del Chat IA
+                                 normal (mismos #chat-ia-mensajes/#chat-ia-input-area de abajo). -->
+                            <div id="chat-ia-proyecto-header" style="display:none; flex-direction:column; border-bottom:1px solid #e2e8f0; background:#fff;">
+                                <div style="display:flex; align-items:center; gap:12px; padding:10px 20px 0;">
+                                    <a href="#" id="chat-ia-proyecto-volver" style="font-size:13px; color:#2176AC; text-decoration:none; white-space:nowrap;">← Proyectos</a>
+                                    <div id="chat-ia-proyecto-nombre" style="font-size:15px; font-weight:700; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
+                                    <span id="chat-ia-proyecto-badge" style="font-size:11px; padding:2px 8px; border-radius:10px; background:#f1f5f9; color:#64748b; white-space:nowrap;"></span>
+                                    <button id="chat-ia-proyecto-config-btn" class="btn-secondary" style="display:none; margin-left:auto; padding:5px 10px; font-size:12px; white-space:nowrap;">⚙ Configuración</button>
+                                </div>
+                                <div style="display:flex; gap:4px; padding:8px 20px 0;">
+                                    <button class="chat-ia-proyecto-tab" data-tab="chat" style="padding:6px 14px; border:none; background:none; border-bottom:2px solid transparent; font-size:13px; font-weight:600; cursor:pointer; color:#64748b;">💬 Chat</button>
+                                    <button class="chat-ia-proyecto-tab" data-tab="instrucciones" style="padding:6px 14px; border:none; background:none; border-bottom:2px solid transparent; font-size:13px; font-weight:600; cursor:pointer; color:#64748b;">📋 Instrucciones</button>
+                                    <button class="chat-ia-proyecto-tab" data-tab="contexto" style="padding:6px 14px; border:none; background:none; border-bottom:2px solid transparent; font-size:13px; font-weight:600; cursor:pointer; color:#64748b;">📚 Contexto</button>
+                                    <button class="chat-ia-proyecto-tab" data-tab="memoria" style="padding:6px 14px; border:none; background:none; border-bottom:2px solid transparent; font-size:13px; font-weight:600; cursor:pointer; color:#64748b;">🧠 Memoria</button>
+                                </div>
+                            </div>
+                            <div id="chat-ia-proyecto-panel-instrucciones" style="display:none; flex:1; min-height:0; overflow-y:auto; padding:20px; flex-direction:column; gap:10px;">
+                                <div style="font-size:12px; color:#94a3b8;">Instrucciones que se añaden al asistente en todas las conversaciones de este proyecto.</div>
+                                <textarea id="chat-ia-proyecto-instrucciones-input" rows="10" style="flex:1; resize:vertical; padding:12px; border:1px solid #cbd5e1; border-radius:8px; font-family:inherit; font-size:14px;" placeholder="Ej: Responde siempre citando el número de expediente…"></textarea>
+                                <button id="chat-ia-proyecto-instrucciones-guardar" class="btn-primary" style="align-self:flex-start; padding:8px 16px;">Guardar instrucciones</button>
+                            </div>
+                            <div id="chat-ia-proyecto-panel-contexto" style="display:none; flex:1; min-height:0; overflow-y:auto; padding:20px; flex-direction:column; gap:18px;">
+                                <div>
+                                    <div style="font-size:12px; color:#94a3b8; margin-bottom:6px;">Texto de contexto (se envía al asistente en todas las conversaciones de este proyecto).</div>
+                                    <textarea id="chat-ia-proyecto-contexto-input" rows="8" style="width:100%; box-sizing:border-box; resize:vertical; padding:12px; border:1px solid #cbd5e1; border-radius:8px; font-family:inherit; font-size:14px;" placeholder="Pega aquí información de referencia del proyecto…"></textarea>
+                                    <button id="chat-ia-proyecto-contexto-guardar" class="btn-primary" style="margin-top:8px; padding:8px 16px;">Guardar contexto</button>
+                                </div>
+                                <div>
+                                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+                                        <div style="font-size:12px; color:#94a3b8;">Archivos de contexto (máx. 5 — se envían en cada turno de cada conversación, mantenlos pequeños).</div>
+                                        <button id="chat-ia-proyecto-contexto-attach-btn" class="btn-secondary" style="padding:5px 10px; font-size:12px; white-space:nowrap;">+ Añadir archivo</button>
+                                        <input type="file" id="chat-ia-proyecto-contexto-file-input" style="display:none;"
+                                            accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.txt,.csv,.md,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
+                                    </div>
+                                    <div id="chat-ia-proyecto-contexto-archivos" style="display:flex; flex-direction:column; gap:6px;"></div>
+                                </div>
+                            </div>
+                            <div id="chat-ia-proyecto-panel-memoria" style="display:none; flex:1; min-height:0; overflow-y:auto; padding:20px; flex-direction:column; gap:10px;">
+                                <div style="font-size:12px; color:#94a3b8;">Memoria generada automáticamente a partir de las conversaciones del proyecto (se actualiza sola cada varios mensajes; no es editable).</div>
+                                <div id="chat-ia-proyecto-memoria-contenido" style="white-space:pre-wrap; font-size:14px; line-height:1.6; color:#0f172a; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:16px;"></div>
+                            </div>
+                            <div id="chat-ia-header" style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; row-gap:8px; padding:12px 20px; border-bottom:1px solid #e2e8f0; background:#fff;">
+                                <label for="chat-ia-model-select" style="font-size:13px; font-weight:600; color:#334155;">Modelo</label>
+                                <select id="chat-ia-model-select" style="padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+                                    <!-- Claude (Anthropic) oculto temporalmente: Opus 5 y Haiku 4.5 bloqueados
+                                         por cuota 0 en Vertex (caso de soporte abierto con Google), y Fable 5
+                                         por el consentimiento de datos con el publisher, aun sin confirmar tras
+                                         activarlo. El backend (functions/index.js) sigue aceptando los 3 modelos
+                                         sin cambios, así que basta con volver a añadir este <optgroup> cuando
+                                         alguno funcione de verdad. -->
+                                    <optgroup label="Gemini (Google)">
+                                        <option value="gemini-2.5-pro">Gemini 2.5 Pro (potente)</option>
+                                        <option value="gemini-2.5-flash-lite" selected>Gemini 2.5 Flash-Lite (rápido y económico)</option>
+                                        <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image "nano banana" (genera imágenes)</option>
+                                        <option value="gemini-3-pro-image">Gemini 3 Pro Image "nano banana pro" (imágenes de más calidad, más caro)</option>
+                                    </optgroup>
+                                </select>
+                                <button id="chat-ia-nuevo-btn" class="btn-secondary" style="padding:6px 12px; font-size:13px; white-space:nowrap;">+ Nueva conversación</button>
+                                <!-- Solo visible para atoledo@tesicnor.com (ver initChatIA) -->
+                                <button id="chat-ia-panel-admin-btn" class="btn-secondary" style="display:none; padding:6px 12px; font-size:13px; margin-left:auto; white-space:nowrap;">📊 Gasto por usuario</button>
+                            </div>
+                            <div id="chat-ia-banner-lectura" style="display:none; background:#fef3c7; color:#92400e; padding:8px 20px; font-size:13px; align-items:center; gap:10px;">
+                                <span id="chat-ia-banner-lectura-texto"></span>
+                                <button id="chat-ia-banner-lectura-volver" type="button" style="margin-left:auto; border:none; background:none; color:#92400e; text-decoration:underline; cursor:pointer; font-size:13px;">← Volver al panel de gasto</button>
+                            </div>
+                            <div id="chat-ia-mensajes" style="flex:1; min-height:0; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px;"></div>
+                            <div id="chat-ia-input-area" style="border-top:1px solid #e2e8f0; padding:12px 20px; background:#fff;">
+                                <div id="chat-ia-adjuntos-pendientes" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;"></div>
+                                <div style="display:flex; gap:8px; align-items:flex-end;">
+                                    <input type="file" id="chat-ia-file-input" multiple style="display:none;"
+                                        accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.txt,.csv,.md,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
+                                    <button id="chat-ia-attach-btn" type="button" title="Adjuntar archivo"
+                                        style="padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; background:#f1f5f9; color:#334155; cursor:pointer;">📎</button>
+                                    <textarea id="chat-ia-input" placeholder="Escribe un mensaje..." rows="1"
+                                        style="flex:1; resize:none; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-family:inherit; font-size:14px;"></textarea>
+                                    <button id="chat-ia-send-btn" class="btn-primary" style="padding:10px 18px;">Enviar</button>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Faldón derecho: historial + uso/coste (próximas fases) -->
+                        <div id="chat-ia-historial-panel" style="width:280px; border-left:1px solid #e2e8f0; display:flex; flex-direction:column; background:#fff;">
+                            <div id="chat-ia-uso-resumen" style="padding:14px; border-bottom:1px solid #e2e8f0; font-size:12px; color:#64748b;">
+                                <div style="display:flex; gap:4px; margin-bottom:8px;">
+                                    <button class="chat-ia-periodo-btn" data-periodo="hoy" style="flex:1; padding:4px 0; border:1px solid #cbd5e1; border-radius:6px; font-size:11px; cursor:pointer; background:#f1f5f9; color:#334155;">Hoy</button>
+                                    <button class="chat-ia-periodo-btn" data-periodo="semana" style="flex:1; padding:4px 0; border:1px solid #cbd5e1; border-radius:6px; font-size:11px; cursor:pointer; background:#f1f5f9; color:#334155;">Semana</button>
+                                    <button class="chat-ia-periodo-btn" data-periodo="mes" style="flex:1; padding:4px 0; border:1px solid #cbd5e1; border-radius:6px; font-size:11px; cursor:pointer; background:#2176AC; color:#fff;">Mes</button>
+                                </div>
+                                <div id="chat-ia-uso-contenido">Cargando…</div>
+                            </div>
+                            <div id="chat-ia-historial-lista" style="flex:1; overflow-y:auto; padding:14px; font-size:13px; color:#94a3b8;">
+                                Cargando historial…
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Panel de gasto por usuario: solo lo puede abrir atoledo@tesicnor.com
+                         (el botón que lo abre ya está oculto para cualquier otro usuario, y el
+                         acceso a los datos también está restringido en firestore.rules). -->
+                    <div id="chat-ia-panel-admin" style="display:none; flex-direction:column; height:100%; background:#f8fafc;">
+                        <div style="display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid #e2e8f0; background:#fff;">
+                            <button id="chat-ia-admin-volver-btn" class="btn-secondary" style="padding:6px 12px; font-size:13px;">← Volver al chat</button>
+                            <h3 style="margin:0; font-size:15px; color:#0f172a;">Gasto por usuario — Chat IA</h3>
+                            <div style="display:flex; gap:4px; margin-left:auto;">
+                                <button class="chat-ia-admin-periodo-btn" data-periodo="hoy" style="padding:5px 14px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; cursor:pointer; background:#f1f5f9; color:#334155;">Hoy</button>
+                                <button class="chat-ia-admin-periodo-btn" data-periodo="semana" style="padding:5px 14px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; cursor:pointer; background:#f1f5f9; color:#334155;">Semana</button>
+                                <button class="chat-ia-admin-periodo-btn" data-periodo="mes" style="padding:5px 14px; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; cursor:pointer; background:#2176AC; color:#fff;">Mes</button>
+                            </div>
+                        </div>
+                        <div id="chat-ia-admin-contenido" style="flex:1; min-height:0; overflow-y:auto; padding:20px;">
+                            Cargando…
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Vista: Proyectos IA -->
+                <div id="view-proyectos-ia" class="app-view"
+                    style="display: none; height: calc(100vh - 60px); overflow-y: auto; padding: 20px 24px 24px; box-sizing: border-box; background-color: #f8fafc;">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px; flex-wrap:wrap;">
+                        <button class="proyectos-ia-filtro-btn" data-filtro="mios" style="padding:6px 16px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; cursor:pointer; background:#2176AC; color:#fff;">Mis proyectos</button>
+                        <button class="proyectos-ia-filtro-btn" data-filtro="publicos" style="padding:6px 16px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; cursor:pointer; background:#f1f5f9; color:#334155;">Públicos del equipo</button>
+                        <button id="proyectos-ia-nuevo-btn" class="btn-primary" style="margin-left:auto; padding:8px 16px;">+ Nuevo proyecto</button>
+                    </div>
+                    <div id="proyectos-ia-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px;">
+                        Cargando…
+                    </div>
+                </div>
+
                 <!-- Vista: Dashboard -->
                 <div id="view-dashboard" class="app-view"
                     style="display: none; height: calc(100vh - 60px); overflow-y: auto; padding: 8px 24px 24px; box-sizing: border-box; background-color: #f8fafc;">
@@ -11992,9 +13712,9 @@
 
                             <div class="chart-box" style="flex: 1; min-height: 150px; overflow: hidden; display: flex; flex-direction: column; padding: 8px;">
                                 <div id="gantt-wrapper" style="flex: 1; border: 1px solid #f1f5f9; border-radius: 4px; position: relative; overflow: hidden;">
-                                    <div id="gantt-sticky-header" style="position: sticky; top: 0; z-index: 3; background: #fff; min-width: 1000px; height: 32px; border-bottom: 1px solid #e2e8f0;"></div>
-                                    <div style="overflow: auto; height: calc(100% - 32px); width: 100%;">
-                                        <div id="gantt-scroll-container" style="min-width: 1000px; position: relative;">
+                                    <div id="gantt-sticky-header" style="position: sticky; top: 0; z-index: 3; background: #fff; width: 100%; height: 32px; border-bottom: 1px solid #e2e8f0; overflow: hidden;"></div>
+                                    <div id="gantt-scroll-outer" style="overflow: auto; height: calc(100% - 32px); width: 100%;">
+                                        <div id="gantt-scroll-container" style="min-width: 100%; position: relative;">
                                             <canvas id="chart-pro-gantt"></canvas>
                                         </div>
                                     </div>
@@ -12071,6 +13791,11 @@
                                         </button>
                                         <div id="dd-mensual-srv-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:180px;max-height:260px;overflow-y:auto;"></div>
                                     </div>
+                                </div>
+                                <div class="filter-group"><label>Equipo</label>
+                                    <select id="sel-mensual-equipo" style="height:36px;min-width:140px;background:#fff;color:#334155;border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;font-size:13px;">
+                                        <option value="">Todos</option>
+                                    </select>
                                 </div>
                                 <button id="btn-update-mensual" class="btn-primary" style="height: 36px;">Aplicar</button>
                                 <button id="btn-clear-mensual" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
@@ -12499,6 +14224,11 @@
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <input type="text" id="input-tec-pila" placeholder="Nombre de pila"
                                         style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                    <select id="input-tec-equipo"
+                                        style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
+                                        <option value="">Equipo</option>
+                                        <option value="__crear_equipo__">+ Crear nuevo equipo...</option>
+                                    </select>
                                     <input type="text" id="input-tec-id" placeholder="Nº Téc. (ERP)"
                                         style="flex: 0.7; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px;">
                                     <input type="email" id="input-tec-email" placeholder="Email"
@@ -12536,6 +14266,9 @@
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 100px;">
                                                     Nombre Pila</th>
+                                                <th
+                                                    style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 120px;">
+                                                    Equipo</th>
                                                 <th
                                                     style="padding: 6px 12px; font-size: 12px; font-weight: 600; color: #64748b; text-align: center; width: 60px;">
                                                     Nº Téc.</th>
@@ -12838,8 +14571,8 @@
                         </ul></details>
                         <details style="margin-bottom:14px;"><summary style="font-weight:600;font-size:14px;color:#334155;cursor:pointer;padding:4px 0;">Informe de Rendimiento <span style="font-size:11px;color:#94a3b8;">(admin, edición)</span></summary>
                         <ul style="margin:10px 0 0 16px;font-size:13px;color:#475569;line-height:1.8;">
-                            <li><strong>Facturado y por facturar mensual</strong>: gráfico de barras de los últimos 12 meses (líneas ANUAL/PUNTUAL), con filtros de Año, Técnico y Servicio y una tarjeta con el Facturado Total y Medio mensual (se recalcula según los filtros aplicados). El filtro de Año muestra los años de los que hay registros y por defecto solo muestra el año en curso. Facturado = Presupuesto (M) de las líneas con fecha de facturación ese mes. Por facturar = horas registradas en líneas sin fecha de facturación × coste por hora estimada, con un tope por línea igual a su Presupuesto (M)</li>
-                            <li><strong>Productividad por técnico</strong>: barras de facturado / por facturar / pendiente por cada técnico (solo técnicos "Prod"), con filtros de año y mes. Facturado = en cada línea facturada, (Presupuesto M - Gastos N) se reparte entre los técnicos que metieron horas en ella, proporcionalmente a las horas de cada uno sobre el total de horas de la línea. Por facturar = horas de líneas sin facturar × coste por hora estimada, con un tope de horas por línea igual a sus Horas Disponibles. Pendiente = Asignado (Presupuesto de las líneas de las que es titular T1) menos Facturado y Por facturar</li>
+                            <li><strong>Facturado y por facturar mensual</strong>: gráfico de barras de los últimos 12 meses (líneas ANUAL/PUNTUAL), con filtros de Año, Técnico, Servicio y Equipo (selección única) y una tarjeta con el Facturado Total y Medio mensual (se recalcula según los filtros aplicados). El filtro de Año muestra los años de los que hay registros y por defecto solo muestra el año en curso. Facturado = en cada línea facturada ese mes, el Presupuesto (M) se reparte entre los técnicos que metieron horas en ella, proporcionalmente a las horas de cada uno sobre el total de horas de la línea (histórico completo); sin filtro de técnico/equipo es la suma del Presupuesto (M) de todas las líneas facturadas ese mes. El filtro de Equipo limita el reparto a los técnicos de ese equipo (campo "Equipo" en Configuración > Técnicos), aunque hayan trabajado líneas de otros equipos; al pasar el cursor por una barra se ve el desglose de lo facturado ese mes por servicio, para distinguir su facturación propia de la de otras áreas. Por facturar = horas registradas en líneas sin fecha de facturación × coste por hora estimada, con un tope por línea igual a su Presupuesto (M)</li>
+                            <li><strong>Productividad por técnico</strong>: barras de facturado / por facturar / pendiente por cada técnico (solo técnicos "Prod"), con filtros de año y mes. Facturado = en cada línea facturada, (Presupuesto M - Gastos N) se reparte entre los técnicos que metieron horas en ella, proporcionalmente a las horas de cada uno sobre el total de horas RESUELTAS de la línea (horas de trabajadores que ya no resuelven a un técnico actual no diluyen el reparto); si la línea no tiene ninguna hora atribuible a un técnico conocido, el importe se imputa entero al técnico titular (Ejecutor T1/Responsable), igual que el Asignado. Por facturar = horas de líneas sin facturar × coste por hora estimada, con un tope de horas por línea igual a sus Horas Disponibles. Pendiente = Asignado (Presupuesto de las líneas de las que es titular T1) menos Facturado y Por facturar</li>
                             <li><strong>Fact/mes</strong>: dato de facturación media mensual por técnico. Solo visible para admin tras pulsar el botón <em>Detalle</em> (junto a "Borrar filtros"). Está oculto por defecto.</li>
                             <li><strong>Distribución interno vs productivo</strong>: horas internas frente a horas productivas por técnico (basado en partes)</li>
                         </ul></details>
@@ -13083,6 +14816,78 @@
                 <button id="modal-btn-aceptar-ofe"
                     style="padding: 8px 16px; border: none; background: #2176AC; color: white; border-radius: 6px; cursor: pointer;">Crear
                     Oferta</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Nuevo Proyecto IA -->
+    <div id="modal-nuevo-proyecto-ia"
+        style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
+        <div style="background-color: white; padding: 24px; border-radius: 8px; width: 440px; max-width: 90vw; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">Nuevo proyecto</h2>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Nombre *</label>
+                <input type="text" id="modal-proy-nombre"
+                    style="width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;" required>
+            </div>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Descripción</label>
+                <textarea id="modal-proy-descripcion" rows="3"
+                    style="width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit;"></textarea>
+            </div>
+            <div style="margin-bottom: 24px;">
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Visibilidad</label>
+                <select id="modal-proy-visibilidad"
+                    style="width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                    <option value="privado" selected>🔒 Privado (solo yo)</option>
+                    <option value="publico">🌐 Público (todo el equipo)</option>
+                </select>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                <button id="modal-btn-cancelar-proy"
+                    style="padding: 8px 16px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; cursor: pointer; color: #475569;">Cancelar</button>
+                <button id="modal-btn-aceptar-proy"
+                    style="padding: 8px 16px; border: none; background: #2176AC; color: white; border-radius: 6px; cursor: pointer;">Crear proyecto</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Configuración de Proyecto IA (solo propietario) -->
+    <div id="modal-config-proyecto-ia"
+        style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
+        <div style="background-color: white; padding: 24px; border-radius: 8px; width: 440px; max-width: 90vw; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <h2 style="margin-top: 0; margin-bottom: 16px; font-size: 18px; color: #0f172a;">Configuración del proyecto</h2>
+            <div style="margin-bottom: 16px;">
+                <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Visibilidad</label>
+                <select id="modal-config-proy-visibilidad"
+                    style="width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                    <option value="privado">🔒 Privado (solo yo)</option>
+                    <option value="publico">🌐 Público (todo el equipo)</option>
+                </select>
+            </div>
+            <div id="modal-config-proy-publico-opciones" style="display: none;">
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #334155;">Modo de colaboración</label>
+                    <select id="modal-config-proy-modo"
+                        style="width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px;">
+                        <option value="individual">Cada técnico su propio chat</option>
+                        <option value="grupal">Chat compartido (canal de equipo)</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 24px; display: flex; align-items: center; gap: 8px;">
+                    <input type="checkbox" id="modal-config-proy-permitir-edicion" style="width: 16px; height: 16px;">
+                    <label for="modal-config-proy-permitir-edicion" style="font-size: 13px; color: #334155;">Permitir que otros miembros editen instrucciones y contexto</label>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+                <button id="modal-btn-borrar-proy"
+                    style="padding: 8px 16px; border: 1px solid #fca5a5; background: white; border-radius: 6px; cursor: pointer; color: #ef4444;">Eliminar proyecto</button>
+                <div style="display: flex; gap: 12px;">
+                    <button id="modal-btn-cancelar-config-proy"
+                        style="padding: 8px 16px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; cursor: pointer; color: #475569;">Cancelar</button>
+                    <button id="modal-btn-aceptar-config-proy"
+                        style="padding: 8px 16px; border: none; background: #2176AC; color: white; border-radius: 6px; cursor: pointer;">Guardar</button>
+                </div>
             </div>
         </div>
     </div>
