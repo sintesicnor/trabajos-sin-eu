@@ -7616,17 +7616,17 @@
                 const cy = String(new Date().getFullYear());
                 Array.from(yOfe.options).forEach(o => { if (o.value === cy) o.selected = true; });
             }
-            if (yPro && yPro.children.length === 0) yPro.innerHTML = '<option value="">Todos</option>' + proYHtml;
+            if (yPro && yPro.children.length === 0) yPro.innerHTML = proYHtml;
 
             // 2. Opciones de técnicos y servicio
-            const tecOpts = '<option value="">Todos</option>' + listaTecnicos.filter(t => t.prod !== false).map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
+            const tecOpts = listaTecnicos.filter(t => t.prod !== false).map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
             if (rble && rble.children.length === 0) rble.innerHTML = tecOpts;
             if (t1 && t1.children.length === 0) t1.innerHTML = tecOpts;
             if (t2 && t2.children.length === 0) t2.innerHTML = tecOpts;
             if (t3 && t3.children.length === 0) t3.innerHTML = tecOpts;
 
             const srvOpts = listaTiposServicio.map(s => `<option value="${s}">${s}</option>`).join('');
-            if (srv && srv.children.length === 0) srv.innerHTML = '<option value="">Todos</option>' + srvOpts;
+            if (srv && srv.children.length === 0) srv.innerHTML = srvOpts;
 
             // Agente comercial y Servicio del informe de ofertas — dinámicos desde datosOfertasMemoria
             const agenteOfe = document.getElementById('filt-ofe-agente');
@@ -10465,9 +10465,10 @@
         });
 
         document.getElementById('btn-clear-dash-pro')?.addEventListener('click', () => {
-            ['filt-pro-year', 'filt-pro-month', 'filt-pro-rble', 'filt-pro-t1', 'filt-pro-t2', 'filt-pro-t3', 'filt-pro-srv', 'filt-pro-vb'].forEach(id => {
-                const el = document.getElementById(id); if (el) el.selectedIndex = 0;
+            ['filt-pro-year', 'filt-pro-month', 'filt-pro-rble', 'filt-pro-t1', 'filt-pro-t2', 'filt-pro-t3', 'filt-pro-srv'].forEach(id => {
+                const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
             });
+            const vb = document.getElementById('filt-pro-vb'); if (vb) vb.selectedIndex = 0;
             window._ganttMonthFilter = null;
             cargarDashboard();
         });
@@ -12829,6 +12830,11 @@
             max-width: 130px;
             border-radius: var(--radius);
         }
+        #dash-pro-filtros .filter-group .filter-wrap > .multi-select {
+            min-width: 0;
+            width: auto;
+            max-width: 110px;
+        }
 
         .dash-tab {
             padding: 10px 20px;
@@ -13693,13 +13699,13 @@
                     <div id="panel-dash-produccion" style="display: block;">
                         <div id="dash-pro-filtros"
                             style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: nowrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año</label><select id="filt-pro-year" class="multi-select"></select></div>
-                            <div class="filter-group"><label>Mes</label><select id="filt-pro-month" class="multi-select"><option value="">Todos</option><option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option></select></div>
-                            <div class="filter-group"><label>Téc. Rble.</label><select id="filt-pro-rble" class="multi-select"></select></div>
-                            <div class="filter-group"><label>Ejecutor (T1)</label><select id="filt-pro-t1" class="multi-select"></select></div>
-                            <div class="filter-group"><label>T2 (Apoyo AM)</label><select id="filt-pro-t2" class="multi-select"></select></div>
-                            <div class="filter-group"><label>T3 (Apoyo AN)</label><select id="filt-pro-t3" class="multi-select"></select></div>
-                            <div class="filter-group"><label>Servicio</label><select id="filt-pro-srv" class="multi-select"></select></div>
+                            <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-pro-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-year').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Mes</label><div class="filter-wrap"><select id="filt-pro-month" class="multi-select" multiple><option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-month').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Téc. Rble.</label><div class="filter-wrap"><select id="filt-pro-rble" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-rble').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Ejecutor (T1)</label><div class="filter-wrap"><select id="filt-pro-t1" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t1').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>T2 (Apoyo AM)</label><div class="filter-wrap"><select id="filt-pro-t2" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t2').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>T3 (Apoyo AN)</label><div class="filter-wrap"><select id="filt-pro-t3" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t3').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Servicio</label><div class="filter-wrap"><select id="filt-pro-srv" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-srv').selectedIndex=-1;">✕</button></div></div>
                             <div class="filter-group"><label>VB Cliente</label><select id="filt-pro-vb" class="multi-select"><option value="">Todos</option><option value="si">Si (Terminados)</option><option value="no" selected>No</option></select></div>
                             <div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">
                                 <button id="btn-update-dash-pro" class="btn-primary" style="height: 38px;">Aplicar</button>
