@@ -1725,7 +1725,7 @@
                             onmouseout="hideHorasTooltip()">
                             ${totalHoras > 0 ? formatHours(totalHoras) : ''}
                         </td>
-                        <td data-field="pct_uso" style="background-color: ${pctColor}; color: ${pctTextColor}; text-align: center; font-weight: 600; text-shadow: 0 1px 1px rgba(0,0,0,0.1);">${pctText}</td>
+                        <td data-field="pct_uso" data-raw="${(pctText !== '-' && pctText !== '∞%') ? pctUso : ''}" style="background-color: ${pctColor}; color: ${pctTextColor}; text-align: center; font-weight: 600; text-shadow: 0 1px 1px rgba(0,0,0,0.1);">${pctText}</td>
                         ${techHtml}
                         <td data-field="fecha_ap" style="background-color: #fce7f3; color: #334155;">${escapeHTML(formatearFechaDisplay(data['fecha_ap']))}</td>
                         <td data-field="visto_vb_cliente" style="background-color: #fce7f3; color: #334155;">${escapeHTML(data['visto_vb_cliente'] || '')}</td>
@@ -3915,6 +3915,7 @@
             const tbody = document.getElementById('table-body');
             if (!tbody) return;
             let presupuesto = 0, realizada = 0, gastos = 0, horasDisp = 0;
+            let sumPctUso = 0, countPctUso = 0;
             const t1Set = new Set();
             Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
                 if (tr.style.display === 'none') return;
@@ -3924,10 +3925,12 @@
                 const fAr    = (tr.querySelector('td[data-field="fecha_ar"]')?.textContent.trim() || '');
                 const vb     = (tr.querySelector('td[data-field="visto_vb_cliente"]')?.textContent.trim().toLowerCase() || '');
                 const t1Text = (tr.querySelector('td[data-field="ejecutor_t1"]')?.textContent.trim() || '');
+                const pctRaw = (tr.querySelector('td[data-field="pct_uso"]')?.dataset.raw || '').trim();
                 presupuesto += presup;
                 if (fAr) realizada += presup;
                 gastos += gast;
                 if (vb !== 'si') horasDisp += hDisp;
+                if (pctRaw !== '') { sumPctUso += parseFloat(pctRaw); countPctUso++; }
                 if (t1Text) {
                     const tecObj = listaTecnicos.find(t =>
                         t.acronimo === t1Text ||
@@ -3938,6 +3941,7 @@
             });
             const nT1 = t1Set.size;
             const horasT1 = nT1 > 0 ? horasDisp / nT1 : 0;
+            const avgPctUso = countPctUso > 0 ? sumPctUso / countPctUso : 0;
             const fmt  = v => v !== 0 ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:0,maximumFractionDigits:0}).format(Math.round(v)) + '€' : '—';
             const fmtH = v => v !== 0 ? new Intl.NumberFormat('es-ES', {minimumFractionDigits:0,maximumFractionDigits:1}).format(v) + 'h' : '—';
             const elPres = document.getElementById('sum-presupuesto');
@@ -3945,11 +3949,13 @@
             const elG    = document.getElementById('sum-gastos');
             const elH    = document.getElementById('sum-horas-disp');
             const elT1   = document.getElementById('sum-horas-t1');
+            const elPct  = document.getElementById('sum-pct-uso');
             if (elPres) elPres.textContent = fmt(presupuesto);
             if (elR)    elR.textContent    = fmt(realizada);
             if (elG)    elG.textContent    = fmt(gastos);
             if (elH)    elH.textContent    = fmtH(horasDisp);
             if (elT1)   elT1.textContent   = nT1 > 0 ? fmtH(horasT1) + ' (' + nT1 + ' T1)' : '—';
+            if (elPct)  elPct.textContent  = countPctUso > 0 ? avgPctUso.toFixed(1) + '%' : '—';
         }
 
         async function mostrarPapelera() {
@@ -12770,6 +12776,7 @@
         .admin-summary-card.sc-gastos      { border-left: 3px solid #ef4444; }
         .admin-summary-card.sc-horas       { border-left: 3px solid #3b82f6; }
         .admin-summary-card.sc-t1          { border-left: 3px solid #8b5cf6; }
+        .admin-summary-card.sc-pct-uso     { border-left: 3px solid #F38E00; }
 
         /* ── Progress Bar ── */
         .progress-container {
@@ -13373,6 +13380,10 @@
                         <div class="admin-summary-card sc-t1">
                             <span class="sc-label">Horas disp./T1</span>
                             <span class="sc-value" id="sum-horas-t1">—</span>
+                        </div>
+                        <div class="admin-summary-card sc-pct-uso">
+                            <span class="sc-label">% Uso medio</span>
+                            <span class="sc-value" id="sum-pct-uso">—</span>
                         </div>
                     </div>
                 </div>
