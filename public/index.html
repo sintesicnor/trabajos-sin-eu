@@ -8218,6 +8218,7 @@
 
             let factPdte = 0; let hrsPdte = 0;
             let factRealizada = 0;
+            let sumPctUso = 0; let countPctUso = 0;
             const tecHorasPdte = {};
             const tecFactPdte = {};
             const srvFactPdte = {};
@@ -8330,6 +8331,11 @@
                 let pdteFila = hrsDisp - hTotalCalc;
                 if (pdteFila > 0) hrsPdte += pdteFila;
 
+                if (hrsDisp > 0) {
+                    sumPctUso += (hTotalCalc / hrsDisp) * 100;
+                    countPctUso++;
+                }
+
                 // Reparto simplificado para KPIs de técnicos
                 let ejecutores = [];
                 if (prod.ejecutor_t1) ejecutores.push(prod.ejecutor_t1);
@@ -8405,6 +8411,17 @@
             document.getElementById('kpi-pro-fact').textContent = fmtE.format(factPdte);
             document.getElementById('kpi-pro-fact-realizada').textContent = fmtE.format(factRealizada);
             document.getElementById('kpi-pro-hrs').textContent = fmtN.format(Math.round(hrsPdte)) + ' h';
+
+            const avgPctUso = countPctUso > 0 ? sumPctUso / countPctUso : 0;
+            const elPctUso = document.getElementById('kpi-pro-pct-uso');
+            if (elPctUso) {
+                elPctUso.textContent = fmtN.format(Math.round(avgPctUso)) + ' %';
+                let pctUsoColor = '#10b981';
+                if (avgPctUso > 95) pctUsoColor = '#ef4444';
+                else if (avgPctUso > 75) pctUsoColor = '#f97316';
+                else if (avgPctUso > 50) pctUsoColor = '#eab308';
+                elPctUso.style.color = pctUsoColor;
+            }
 
             const boxTec = document.getElementById('kpi-pro-lista-tec');
             boxTec.innerHTML = Object.keys(tecHorasPdte).sort((a, b) => tecHorasPdte[b] - tecHorasPdte[a])
@@ -12260,6 +12277,8 @@
 
         .sidebar-nav {
             flex: 1;
+            min-height: 0;
+            overflow-y: auto;
             padding: 0 12px;
             display: flex;
             flex-direction: column;
@@ -13733,18 +13752,22 @@
 
                         </div>
 
-                        <div id="dash-pro-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
-                            <div class="kpi-card">
+                        <div id="dash-pro-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                            <div class="kpi-card" style="padding: 10px 14px;">
                                 <div class="kpi-title">Facturación Pendiente (sin VB)</div>
                                 <div class="kpi-value" id="kpi-pro-fact" style="color: #2176AC;">0 €</div>
                             </div>
-                            <div class="kpi-card">
+                            <div class="kpi-card" style="padding: 10px 14px;">
                                 <div class="kpi-title">Facturación Realizada</div>
                                 <div class="kpi-value" id="kpi-pro-fact-realizada" style="color: #10b981;">0 €</div>
                             </div>
-                            <div class="kpi-card">
+                            <div class="kpi-card" style="padding: 10px 14px;">
                                 <div class="kpi-title">Total Horas Pendientes</div>
                                 <div class="kpi-value" id="kpi-pro-hrs" style="color: #F38E00;">0 h</div>
+                            </div>
+                            <div class="kpi-card" style="padding: 10px 14px;">
+                                <div class="kpi-title">Promedio % Uso</div>
+                                <div class="kpi-value" id="kpi-pro-pct-uso" style="color: #10b981;">0 %</div>
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Horas Pdtes. por Técnico</div>
