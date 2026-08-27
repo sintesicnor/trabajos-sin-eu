@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gestor-sin-v1.72';
+const CACHE_NAME = 'gestor-sin-v1.73';
 
 const LOCAL_ASSETS = [
     '/',
@@ -16,6 +16,8 @@ const CDN_ASSETS = [
     'https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js',
     'https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js',
     'https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js',
+    'https://cdn.jsdelivr.net/npm/marked@15/marked.min.js',
+    'https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js',
 ];
 
 const BYPASS_HOSTS = [

@@ -1,0 +1,73 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "chats_ia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usuario_uid", "order": "ASCENDING" },
+        { "fieldPath": "fecha_actualizacion", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mensajes",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "usuario_uid", "order": "ASCENDING" },
+        { "fieldPath": "rol", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mensajes",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "usuario_uid", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "mensajes",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "rol", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chats_ia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "proyecto_id", "order": "ASCENDING" },
+        { "fieldPath": "usuario_uid", "order": "ASCENDING" },
+        { "fieldPath": "fecha_actualizacion", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chats_ia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "proyecto_id", "order": "ASCENDING" },
+        { "fieldPath": "proyecto_visibilidad", "order": "ASCENDING" },
+        { "fieldPath": "proyecto_modo_colaboracion", "order": "ASCENDING" },
+        { "fieldPath": "fecha_actualizacion", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "proyectos_ia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "propietario_uid", "order": "ASCENDING" },
+        { "fieldPath": "fecha_actualizacion", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "proyectos_ia",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "visibilidad", "order": "ASCENDING" },
+        { "fieldPath": "fecha_actualizacion", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -704,9 +704,6 @@
             const btnSubirProd = document.getElementById('btn-subir-produccion');
             const btnSubirOfe = document.getElementById('btn-subir-ofertas');
             const btnExport = document.getElementById('btn-export');
-            const btnDeshacer = document.getElementById('btn-deshacer');
-            const btnSyncSpOfe = document.getElementById('btn-sync-sp-ofertas');
-            const btnSyncSpProd = document.getElementById('btn-sync-sp-produccion');
 
             const canCreate = tienePermiso('crear_trabajo');
             const canEditOfe = tienePermiso('editar_ofertas');
@@ -715,24 +712,20 @@
 
             const hideAll = () => {
                 [btnNuevoTrabajo, btnNuevaOferta, btnNuevoSuministro, btnSubirSuministro,
-                 btnDeshacer, btnSubirProd, btnSubirOfe, btnExport, btnSyncSpOfe, btnSyncSpProd]
+                 btnSubirProd, btnSubirOfe, btnExport]
                     .forEach(b => { if (b) b.style.display = 'none'; });
             };
 
             if (activeViewId === 'view-produccion') {
                 hideAll();
                 if (btnNuevoTrabajo) btnNuevoTrabajo.style.display = canCreate ? 'flex' : 'none';
-                if (btnDeshacer) btnDeshacer.style.display = 'flex';
                 if (btnSubirProd) btnSubirProd.style.display = canImport ? 'inline-flex' : 'none';
                 if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
-                if (btnSyncSpProd) btnSyncSpProd.style.display = canImport ? 'inline-flex' : 'none';
             } else if (activeViewId === 'view-ofertas') {
                 hideAll();
                 if (btnNuevaOferta) btnNuevaOferta.style.display = canEditOfe ? 'flex' : 'none';
-                if (btnDeshacer) btnDeshacer.style.display = 'flex';
                 if (btnSubirOfe) btnSubirOfe.style.display = canEditOfe ? 'inline-flex' : 'none';
                 if (btnExport) btnExport.style.display = canExport ? 'inline-flex' : 'none';
-                if (btnSyncSpOfe) btnSyncSpOfe.style.display = canImport ? 'inline-flex' : 'none';
             } else if (activeViewId === 'view-suministro') {
                 hideAll();
                 if (btnNuevoSuministro) btnNuevoSuministro.style.display = canCreate ? 'flex' : 'none';
@@ -1431,39 +1424,9 @@
             }
         });
 
-        // ═══ SYNC DESDE SHAREPOINT ═══
-        // La escritura se delega al servidor (syncSharePointToFirestore, admin SDK)
-        // para evitar errores de WebChannel 400 al escribir desde el navegador.
-        async function sincronizarDesdeSharePoint() {
-            const btnOfe  = document.getElementById('btn-sync-sp-ofertas');
-            const btnProd = document.getElementById('btn-sync-sp-produccion');
-            const spinner = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>';
-            const txtOfe  = btnOfe  ? btnOfe.innerHTML  : '';
-            const txtProd = btnProd ? btnProd.innerHTML : '';
-            const setBusy = (busy, label) => {
-                if (btnOfe)  { btnOfe.disabled  = busy; btnOfe.innerHTML  = busy ? spinner + ' ' + label : txtOfe;  }
-                if (btnProd) { btnProd.disabled = busy; btnProd.innerHTML = busy ? spinner + ' ' + label : txtProd; }
-            };
-            if (!confirm('¿Sincronizar datos de SharePoint a Firestore?\n(El Excel tiene prioridad. Los registros no incluidos no se tocarán.)')) return;
-            setBusy(true, 'Sincronizando…');
-            try {
-                const { getFunctions, httpsCallable } = await import('https://www.gstatic.com/firebasejs/10.8.1/firebase-functions.js');
-                const fns      = getFunctions(app, 'us-central1');
-                const callable = httpsCallable(fns, 'syncSharePointToFirestore', { timeout: 300000 });
-                const result   = await callable({});
-                const { ofertas: countOfe = 0, produccion: countProd = 0 } = result.data;
-                alert(`✅ Sincronización completada:\n  • ${countOfe} oferta(s) actualizadas/creadas\n  • ${countProd} producción(es) actualizadas/creadas`);
-                await Promise.all([cargarProduccion(), cargarOfertas({ fromServer: true })]);
-            } catch (err) {
-                console.error('Error sync SharePoint:', err);
-                alert('❌ Error al sincronizar desde SharePoint: ' + (err.message || err));
-            } finally {
-                setBusy(false, '');
-            }
-        }
-
-        document.getElementById('btn-sync-sp-ofertas')?.addEventListener('click', sincronizarDesdeSharePoint);
-        document.getElementById('btn-sync-sp-produccion')?.addEventListener('click', sincronizarDesdeSharePoint);
+        // Botón manual "Sincronizar" (forzaba syncSharePointToFirestore desde el navegador)
+        // eliminado a petición expresa del usuario (2026-08-27): la sincronización Excel→web
+        // sigue funcionando igual vía scheduledSyncFromSharePoint (automática, cada 30 min).
 
         // Función para cargar datos de Firestore
         let isVistaHistorico = false;
@@ -3958,57 +3921,10 @@
             if (elPct)  elPct.textContent  = countPctUso > 0 ? avgPctUso.toFixed(1) + '%' : '—';
         }
 
-        async function mostrarPapelera() {
-            try {
-                const papSnap = await getDocs(collection(db, 'produccion'));
-                const deleted = papSnap.docs.filter(d => d.data().deleted === true);
-                const modalId = 'modal-papelera-' + Date.now();
-                const rowsHtml = deleted.length === 0
-                    ? '<p style="color:#64748b;font-size:13px;text-align:center;padding:20px;">No hay filas borradas.</p>'
-                    : deleted.map(d => {
-                        const data = d.data();
-                        const dt = data.deletedAt?.toDate ? data.deletedAt.toDate().toLocaleDateString('es-ES') : '';
-                        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;">
-                            <span><strong>${escapeHTML(data.num_trabajo || d.id)}</strong> — ${escapeHTML(data.cliente || '')} ${escapeHTML(data.servicio || '')} <span style="color:#94a3b8;font-size:11px;">${dt}</span></span>
-                            <div style="display:flex;gap:6px;">
-                                <button data-docid="${d.id}" class="pap-restaurar btn-secondary" style="padding:4px 10px;font-size:12px;cursor:pointer;">↩ Restaurar</button>
-                                <button data-docid="${d.id}" class="pap-eliminar" style="padding:4px 10px;font-size:12px;cursor:pointer;background:#fee2e2;border:1px solid #fca5a5;border-radius:4px;color:#ef4444;">⛔ Eliminar</button>
-                            </div>
-                        </div>`;
-                    }).join('');
-                document.body.insertAdjacentHTML('beforeend', `
-                    <div id="${modalId}" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
-                        <div style="background:white;border-radius:12px;width:min(700px,95vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
-                            <div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
-                                <h3 style="margin:0;font-size:15px;">🗑️ Papelera (${deleted.length} filas borradas)</h3>
-                                <button onclick="document.getElementById('${modalId}').remove()" style="background:none;border:none;cursor:pointer;font-size:18px;color:#64748b;">✕</button>
-                            </div>
-                            <div style="overflow-y:auto;flex:1;">${rowsHtml}</div>
-                        </div>
-                    </div>
-                `);
-                const modal = document.getElementById(modalId);
-                modal.querySelectorAll('.pap-restaurar').forEach(btn => {
-                    btn.onclick = async () => {
-                        if (!confirm('¿Restaurar esta fila?')) return;
-                        try {
-                            await updateDoc(doc(db, 'produccion', btn.dataset.docid), { deleted: false, deletedAt: null });
-                            btn.closest('div[style]').remove();
-                            cargarProduccion();
-                        } catch (err) { alert('Error al restaurar: ' + err.message); }
-                    };
-                });
-                modal.querySelectorAll('.pap-eliminar').forEach(btn => {
-                    btn.onclick = async () => {
-                        if (!confirm('¿Eliminar definitivamente? Esta acción NO se puede deshacer.')) return;
-                        try {
-                            await deleteDoc(doc(db, 'produccion', btn.dataset.docid));
-                            btn.closest('div[style]').remove();
-                        } catch (err) { alert('Error al eliminar: ' + err.message); }
-                    };
-                });
-            } catch (err) { alert('Error al abrir papelera: ' + err.message); }
-        }
+        // Papelera (mostrarPapelera) eliminada a petición expresa del usuario (2026-08-27):
+        // ya no se edita en Ofertas/Producción desde la web, así que el borrado recuperable
+        // no tenía utilidad. El borrado de filas ahora es siempre definitivo (ver menú de
+        // doble clic sobre Nº de Trabajo).
 
         async function setupTableHeaders() {
             // Leer configuración de nombres desde Firebase
@@ -5834,8 +5750,6 @@
                     if (adminBar) adminBar.style.display = isAdmin ? 'flex' : 'none';
                     const prodTblCont = document.getElementById('prod-table-container');
                     if (prodTblCont) prodTblCont.style.height = isAdmin ? 'calc(100vh - 188px)' : 'calc(100vh - 160px)';
-                    const btnPap = document.getElementById('btn-papelera');
-                    if (btnPap) btnPap.style.display = isAdmin ? 'inline-flex' : 'none';
                     if (isAdmin) actualizarSumarioAdmin();
                     const btnDetalleProd = document.getElementById('btn-detalle-productividad');
                     if (btnDetalleProd) btnDetalleProd.style.display = isAdmin ? 'inline-flex' : 'none';
@@ -6204,7 +6118,9 @@
             const historySidebar = document.getElementById('history-sidebar');
             if (btnHistorialGlobal && historySidebar) {
                 btnHistorialGlobal.addEventListener('click', () => {
-                    historySidebar.style.display = historySidebar.style.display === 'none' ? 'block' : 'none';
+                    const abriendo = historySidebar.style.display === 'none';
+                    historySidebar.style.display = abriendo ? 'block' : 'none';
+                    if (abriendo) cargarHistorial();
                 });
             }
             // Botón para plegar historial (flecha arriba)
@@ -6865,7 +6781,6 @@
                         menu.style.cssText = `position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15);padding:8px;min-width:230px;left:${Math.min(rect.left, window.innerWidth - 250)}px;top:-9999px;visibility:hidden;`;
                         menu.innerHTML = `
                             <div style="padding:4px 8px 6px;font-size:11px;font-weight:600;color:#64748b;border-bottom:1px solid #f1f5f9;margin-bottom:6px;">Trabajo Nº ${escapeHTML(numTrabajo)}</div>
-                            <button id="_mnu-borrar" style="width:100%;text-align:left;padding:7px 10px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent;" onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='transparent'">🗑️ Borrar fila <span style="font-size:10px;color:#64748b;">(recuperable)</span></button>
                             <button id="_mnu-eliminar" style="width:100%;text-align:left;padding:7px 10px;border:none;border-radius:6px;cursor:pointer;font-size:13px;background:transparent;color:#ef4444;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='transparent'">⛔ Eliminar definitivamente</button>
                         `;
                         document.body.appendChild(menu);
@@ -6876,15 +6791,6 @@
                         menu.style.visibility = '';
                         const closeMenu = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', closeMenu); } };
                         setTimeout(() => document.addEventListener('click', closeMenu), 0);
-                        menu.querySelector('#_mnu-borrar').onclick = async () => {
-                            menu.remove();
-                            if (!confirm(`¿Borrar la fila del trabajo Nº ${numTrabajo}?\nPodrás recuperarla desde la Papelera.`)) return;
-                            try {
-                                await updateDoc(doc(db, colDel, docId), { deleted: true, deletedAt: serverTimestamp() });
-                                tr.remove();
-                                actualizarSumarioAdmin();
-                            } catch (err) { manejarErrorFirebase(err, "Error al borrar la fila."); }
-                        };
                         menu.querySelector('#_mnu-eliminar').onclick = async () => {
                             menu.remove();
                             if (!confirm(`¿Eliminar definitivamente el trabajo Nº ${numTrabajo}?\n\nEsta acción NO se puede deshacer.`)) return;
@@ -11074,27 +10980,17 @@
         // Lógica de Historial y Deshacer
         // ============================================
 
+        // Historial: solo consulta (no admite seleccionar ni restaurar) a petición expresa
+        // del usuario (2026-08-27). El clic en una fila abre el detalle/diff (_mostrarDetalleHistorial),
+        // que es puramente visual.
         async function cargarHistorial() {
             const tbodyHistorial = document.getElementById('tbody-historial');
             if (!tbodyHistorial) return;
 
-            tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">Cargando historial...</td></tr>';
+            tbodyHistorial.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #64748b;">Cargando historial...</td></tr>';
 
-            // Reset detalle y selección
             const detallePanel = document.getElementById('historial-detalle-panel');
             if (detallePanel) detallePanel.style.display = 'none';
-            const btnRestaurarSel = document.getElementById('btn-restaurar-seleccionados');
-            if (btnRestaurarSel) { btnRestaurarSel.style.display = 'none'; btnRestaurarSel.textContent = 'Restaurar (0)'; }
-            const checkAll = document.getElementById('check-historial-all');
-            if (checkAll) checkAll.checked = false;
-
-            function _actualizarBotonRestaurar() {
-                const checks = tbodyHistorial.querySelectorAll('input[type="checkbox"]:checked');
-                if (btnRestaurarSel) {
-                    btnRestaurarSel.style.display = checks.length > 0 ? 'inline-block' : 'none';
-                    btnRestaurarSel.textContent = `Restaurar (${checks.length})`;
-                }
-            }
 
             try {
                 // Últimos 30 días
@@ -11106,7 +11002,7 @@
                 const snapshot = await getDocs(q);
 
                 if (snapshot.empty) {
-                    tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b;">No hay registros recientes.</td></tr>';
+                    tbodyHistorial.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #64748b;">No hay registros recientes.</td></tr>';
                     return;
                 }
 
@@ -11119,22 +11015,6 @@
                     const fechaObj = new Date(data.fecha);
                     const fechaFormat = fechaObj.toLocaleDateString('es-ES') + ' ' + fechaObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-                    // Celda de checkbox
-                    const tdCheck = document.createElement('td');
-                    tdCheck.style.cssText = 'padding: 6px 8px; text-align: center; width: 32px;';
-                    const chk = document.createElement('input');
-                    chk.type = 'checkbox';
-                    chk.dataset.id = docSnap.id;
-                    chk.dataset.coleccion = data.coleccion;
-                    chk.dataset.docid = data.docId;
-                    chk.dataset.campo = data.campo;
-                    chk.dataset.valorAnterior = data.valorAnterior;
-                    tdCheck.appendChild(chk);
-                    tr.appendChild(tdCheck);
-                    chk.addEventListener('change', _actualizarBotonRestaurar);
-                    chk.addEventListener('click', e => e.stopPropagation());
-
-                    // Celdas de datos (resumidas en 3 columnas)
                     const tdFecha = document.createElement('td');
                     tdFecha.style.cssText = 'padding: 6px 8px; font-size: 12px;';
                     tdFecha.innerHTML = `<div style="font-weight:600;">${fechaFormat}</div><div style="color:#64748b;font-size:11px;">${data.coleccion} · ${data.docId}</div>`;
@@ -11153,30 +11033,13 @@
 
                     tbodyHistorial.appendChild(tr);
 
-                    // Restaurar individual (click en fila abre detalle; doble click restaura)
+                    // Clic en fila: abre el detalle/diff (solo lectura)
                     tr.addEventListener('click', () => _mostrarDetalleHistorial(data));
-                    tr.addEventListener('dblclick', async (e) => {
-                        e.stopPropagation();
-                        if (confirm(`¿Restaurar el campo '${data.campo}' al valor anterior ('${data.valorAnterior}')?`)) {
-                            try {
-                                await updateDoc(doc(db, data.coleccion, data.docId), {
-                                    [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior,
-                                    _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
-                                });
-                                alert("Valor restaurado con éxito. La reversión quedará registrada en el historial.");
-                                cargarHistorial();
-                                if (data.coleccion === 'produccion') cargarProduccion();
-                                if (data.coleccion === 'ofertas') cargarOfertas();
-                            } catch (err) {
-                                manejarErrorFirebase(err, "Error al restaurar el valor.");
-                            }
-                        }
-                    });
                 });
 
             } catch (err) {
                 console.error("Error cargando historial: ", err);
-                tbodyHistorial.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #ef4444;">Error cargando historial</td></tr>';
+                tbodyHistorial.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #ef4444;">Error cargando historial</td></tr>';
             }
         }
 
@@ -11299,96 +11162,16 @@
             despuesEl.appendChild(buildSection(false));
         }
 
-        // Evento global para botón Deshacer (última acción)
-        // Se define listener aquí en el script global de init
+        // Botón Deshacer y selección/restauración masiva del historial eliminados a petición
+        // expresa del usuario (2026-08-27): el Historial pasa a ser solo de consulta (ver
+        // cargarHistorial más arriba). Se mantiene el listener global de inicialización para
+        // el refresco manual y el cierre de paneles de detalle, que son de solo visualización.
         document.addEventListener('DOMContentLoaded', () => {
-            const btnDeshacer = document.getElementById('btn-deshacer');
-            if (btnDeshacer) {
-                btnDeshacer.addEventListener('click', async () => {
-                    try {
-                        const q = query(collection(db, "historial"), orderBy("fecha", "desc"), limit(1));
-                        const snapshot = await getDocs(q);
-
-                        if (snapshot.empty) {
-                            alert("No hay acciones recientes para deshacer.");
-                            return;
-                        }
-
-                        const ultimoRegistroDoc = snapshot.docs[0];
-                        const data = ultimoRegistroDoc.data();
-
-                        // Validar que el registro tiene la estructura esperada
-                        if (!data.coleccion || !data.docId || !data.campo) {
-                            alert("El último registro del historial no tiene el formato correcto y no puede deshacerse.");
-                            return;
-                        }
-
-                        // Los borrados de fila no se registran en historial — indicar al usuario
-                        if (data.campo === 'deleted') {
-                            alert("El borrado de filas no se puede deshacer desde aquí.\n\nPara restaurar una fila borrada usa el botón 🗑️ Papelera.");
-                            return;
-                        }
-
-                        if (confirm(`¿Deshacer la última acción?\n\nTabla: ${data.coleccion}\nCampo: ${data.campo}\nValor actual: ${data.valorNuevo}\nSe restaurará a: ${data.valorAnterior}`)) {
-                            await updateDoc(doc(db, data.coleccion, data.docId), {
-                                [data.campo]: data.valorAnterior === '-' ? '' : data.valorAnterior,
-                                _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
-                            });
-
-                            alert("Deshecho correctamente. La reversión quedará registrada en el historial.");
-                            if (data.coleccion === 'produccion') cargarProduccion();
-                            if (data.coleccion === 'ofertas') cargarOfertas();
-                            cargarHistorial();
-                        }
-                    } catch (e) {
-                        if (e && e.code === 'not-found') {
-                            alert("❌ El documento al que hace referencia el historial ya no existe en la base de datos.");
-                        } else {
-                            manejarErrorFirebase(e, "Error al intentar deshacer la acción.");
-                        }
-                    }
-                });
-            }
-
             // Refrescar historial manual
             const btnRefrescarHistorial = document.getElementById('btn-refrescar-historial');
             if (btnRefrescarHistorial) {
                 btnRefrescarHistorial.addEventListener('click', () => cargarHistorial());
             }
-
-            // Seleccionar todos / ninguno en historial
-            document.getElementById('check-historial-all')?.addEventListener('change', function() {
-                const checks = document.querySelectorAll('#tbody-historial input[type="checkbox"]');
-                checks.forEach(c => { c.checked = this.checked; });
-                const btnRest = document.getElementById('btn-restaurar-seleccionados');
-                if (btnRest) {
-                    const n = this.checked ? checks.length : 0;
-                    btnRest.style.display = n > 0 ? 'inline-block' : 'none';
-                    btnRest.textContent = `Restaurar (${n})`;
-                }
-            });
-
-            // Restaurar múltiples seleccionados
-            document.getElementById('btn-restaurar-seleccionados')?.addEventListener('click', async function() {
-                const checks = Array.from(document.querySelectorAll('#tbody-historial input[type="checkbox"]:checked'));
-                if (!checks.length) return;
-                if (!confirm(`¿Restaurar ${checks.length} campo(s) a sus valores anteriores?`)) return;
-                let ok = 0, err = 0;
-                for (const chk of checks) {
-                    try {
-                        const val = chk.dataset.valorAnterior;
-                        await updateDoc(doc(db, chk.dataset.coleccion, chk.dataset.docid), {
-                            [chk.dataset.campo]: val === '-' ? '' : val,
-                            _usuario_edicion: auth.currentUser ? auth.currentUser.email : 'Desconocido'
-                        });
-                        ok++;
-                    } catch (e) { err++; }
-                }
-                alert(`Restaurados: ${ok}${err ? ` · Errores: ${err}` : ''}`);
-                cargarHistorial();
-                cargarProduccion();
-                cargarOfertas();
-            });
 
             // Cerrar panel de detalle de historial
             document.getElementById('btn-cerrar-detalle-historial')?.addEventListener('click', () => {
@@ -12015,11 +11798,6 @@
                 btnBorrarFiltros.addEventListener('click', limpiarFiltrosActivos);
             }
 
-            // Botón "Papelera" — muestra filas borradas (admin)
-            const btnPapelera = document.getElementById('btn-papelera');
-            if (btnPapelera) {
-                btnPapelera.addEventListener('click', mostrarPapelera);
-            }
 
             // Genera una contraseña aleatoria segura (no la conoce nadie; el técnico
             // establece la suya propia vía el correo de restablecimiento)
@@ -13268,12 +13046,7 @@
                     <span onclick="document.getElementById('input-file-suministro').click()">Importar</span>
                 </button>
 
-                <button id="btn-papelera" class="btn-secondary" title="Papelera — filas borradas (recuperables)" style="display: none; padding: 8px 12px; font-size: 13px;">🗑️</button>
-                <button id="btn-deshacer" class="btn-secondary" title="Deshacer" style="display: none; padding: 10px;">
-                    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                    </svg>
-                </button>
+                <!-- Botones Papelera y Deshacer eliminados a petición expresa del usuario (2026-08-27) -->
 
                 <!-- Importar Producción — eliminado; la sync se hace via SharePoint -->
                 <input type="file" id="csv-import-produccion" accept=".csv,.xlsx,.xls" style="display:none;" />
@@ -13285,17 +13058,9 @@
                     <input type="file" id="csv-import-ofertas" accept=".csv,.xlsx,.xls" style="display:none;" />
                 </label>
 
-                <!-- Sync desde SharePoint — Ofertas -->
-                <button id="btn-sync-sp-ofertas" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;" title="Leer Ofertas desde Excel de SharePoint y actualizar Firestore">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>
-                    Sincronizar
-                </button>
-
-                <!-- Sync desde SharePoint — Producción -->
-                <button id="btn-sync-sp-produccion" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;" title="Leer Producción desde Excel de SharePoint y actualizar Firestore">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0078d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.45"/></svg>
-                    Sincronizar
-                </button>
+                <!-- Botones "Sincronizar" (Ofertas/Producción) eliminados a petición expresa del
+                     usuario (2026-08-27): la sincronización Excel→web sigue siendo automática
+                     (scheduledSyncFromSharePoint, cada 30 min), solo se quitó el disparo manual. -->
 
                 <!-- Exportar -->
                 <button id="btn-export" class="btn-secondary" style="display: none; padding: 8px 14px; font-size: 13px; align-items: center; gap: 6px;">
@@ -14570,12 +14335,11 @@
                     </div>
 
                     <div class="config-panel" style="margin-bottom:24px;">
-                        <h2 class="config-section-title">🗑️ Borrado y Recuperación de Filas</h2>
+                        <h2 class="config-section-title">🗑️ Borrado de Filas</h2>
                         <ul style="font-size:13px;color:#475569;line-height:1.9;margin:0 0 0 16px;">
-                            <li><strong>Borrar fila (recuperable)</strong>: doble clic en el Nº de Trabajo → menú → 🗑️ Borrar fila. La fila queda oculta con <code>deleted: true</code> pero sigue existiendo en Firestore.</li>
-                            <li><strong>Restaurar</strong>: botón 🗑️ <em>Papelera</em> en la barra de herramientas (solo admin) → lista de filas borradas → ↩ Restaurar.</li>
-                            <li><strong>Eliminar definitivamente</strong>: desde el mismo menú de doble clic o desde la Papelera. <span style="color:#ef4444;font-weight:500;">Esta acción no se puede deshacer.</span></li>
-                            <li><strong>Botón Deshacer</strong> (↩): deshace únicamente la última <em>edición de campo</em> registrada en el historial. No sirve para restaurar filas borradas; usa la Papelera para eso.</li>
+                            <li><strong>Eliminar definitivamente</strong>: doble clic en el Nº de Trabajo → menú → ⛔ Eliminar definitivamente. <span style="color:#ef4444;font-weight:500;">Esta acción no se puede deshacer.</span></li>
+                            <li>Los botones Papelera y Deshacer se retiraron (2026-08-27): ya no se edita en Ofertas/Producción desde la web, así que el borrado recuperable no tenía utilidad.</li>
+                            <li>El <strong>Historial</strong> (panel lateral) sigue disponible para consultar qué cambió y cuándo, incluidos los cambios que trae la sincronización automática desde el Excel — pero solo para visualizar, ya no permite seleccionar ni restaurar valores.</li>
                         </ul>
                     </div>
 
@@ -14663,7 +14427,6 @@
         <div
             style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; position: sticky; top: 0; background: #f8fafc; padding-top: 0px; z-index: 20; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
             <h2 class="config-section-title" style="margin-bottom: 0; border: none; padding: 0; white-space: nowrap;">Histórico de Cambios</h2>
-            <button id="btn-restaurar-seleccionados" class="btn-secondary" style="display:none; padding: 4px 10px; margin-right: 6px; font-size: 12px; background:#f59e0b; color:#fff; border:none; border-radius:4px; cursor:pointer;">Restaurar (0)</button>
             <button id="btn-refrescar-historial" class="btn-secondary"
                 style="padding: 6px 12px; margin-right: 8px;">Refrescar</button>
             <button id="btn-close-history" style="padding: 6px 12px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; font-size: 16px; color: #475569;" title="Cerrar historial">&#9650;</button>
@@ -14672,7 +14435,6 @@
             <table class="data-table" style="min-width: 100%; border-collapse: collapse;">
                 <thead style="background: #f1f5f9; position: sticky; top: 0; box-shadow: 0 1px 0 #e2e8f0; z-index: 10;">
                     <tr>
-                        <th style="padding: 8px; width: 32px; text-align: center;"><input type="checkbox" id="check-historial-all" title="Seleccionar todos"></th>
                         <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Fecha / Info</th>
                         <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Usuario</th>
                         <th style="padding: 8px 12px; font-size: 13px; font-weight: 600; color: #475569;">Modificación</th>
@@ -14680,7 +14442,7 @@
                 </thead>
                 <tbody id="tbody-historial">
                     <tr>
-                        <td colspan="4" style="padding: 12px; text-align: center; color: #64748b;">Cargando historial...</td>
+                        <td colspan="3" style="padding: 12px; text-align: center; color: #64748b;">Cargando historial...</td>
                     </tr>
                 </tbody>
             </table>

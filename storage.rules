@@ -1,0 +1,84 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function estaAutenticado() {
+      return request.auth != null;
+    }
+
+    // Mismo patron que isAdminSIN() en firestore.rules, pero las Storage
+    // Rules no pueden llamar funciones definidas en firestore.rules: se
+    // consulta Firestore directamente vía firestore.get()/firestore.exists().
+    function isAdminSIN() {
+      return estaAutenticado()
+        && request.auth.token.email != null
+        && firestore.exists(/databases/(default)/documents/usuarios/$(request.auth.token.email))
+        && firestore.get(/databases/(default)/documents/usuarios/$(request.auth.token.email)).data.rol == 'admin';
+    }
+
+    // Lista cerrada de tipos de archivo permitidos como adjunto de Chat IA:
+    // documentos e imagenes habituales de oficina. Deliberadamente NO se
+    // permite HTML, SVG, JS ni ejecutables — sin eso, un adjunto subido por
+    // un tecnico podria acabar sirviendose/ejecutandose como contenido activo
+    // del propio dominio de Storage.
+    function tipoPermitido() {
+      return request.resource.contentType in [
+        'application/pdf',
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+        'text/plain', 'text/csv', 'text/markdown',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ];
+    }
+
+    // Adjuntos del Chat IA: cada tecnico solo sube/lee/borra los suyos;
+    // admin puede leer cualquiera (igual que el resto de la app). Limite de
+    // 20 MB por archivo.
+    match /chat_ia_adjuntos/{uid}/{chatId}/{fileName} {
+      allow read: if estaAutenticado() && (request.auth.uid == uid || isAdminSIN());
+      allow write: if estaAutenticado()
+        && request.auth.uid == uid
+        && request.resource.size < 20 * 1024 * 1024
+        && tipoPermitido();
+      allow delete: if estaAutenticado() && (request.auth.uid == uid || isAdminSIN());
+    }
+
+    // Archivos de "contexto" (conocimiento) de un Proyecto IA — ver
+    // proyectos_ia en firestore.rules para el modelo completo. Mismo patron
+    // que isAdminSIN() arriba: como Storage Rules no puede llamar funciones
+    // de firestore.rules, se consulta el documento del proyecto directamente.
+    function _datosProyectoIA(proyectoId) {
+      return firestore.get(/databases/(default)/documents/proyectos_ia/$(proyectoId)).data;
+    }
+    function _accesoProyectoIA(proyectoId) {
+      return estaAutenticado() && (
+        _datosProyectoIA(proyectoId).propietario_uid == request.auth.uid
+        || _datosProyectoIA(proyectoId).visibilidad == 'publico'
+      );
+    }
+    function _puedeEditarProyectoIA(proyectoId) {
+      return estaAutenticado() && (
+        _datosProyectoIA(proyectoId).propietario_uid == request.auth.uid
+        || (_datosProyectoIA(proyectoId).visibilidad == 'publico'
+            && _datosProyectoIA(proyectoId).permitir_edicion_miembros == true)
+      );
+    }
+
+    match /proyectos_ia_contexto/{proyectoId}/{fileName} {
+      allow read: if _accesoProyectoIA(proyectoId) || isAdminSIN();
+      allow write: if _puedeEditarProyectoIA(proyectoId)
+        && request.resource.size < 20 * 1024 * 1024
+        && tipoPermitido();
+      allow delete: if _puedeEditarProyectoIA(proyectoId) || isAdminSIN();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

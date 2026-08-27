@@ -28,6 +28,15 @@ service cloud.firestore {
         && getRolSIN() == 'admin';
     }
 
+    // Panel de gasto por usuario del Chat IA: acceso restringido a esta
+    // persona en concreto (no al rol admin en general), a peticion expresa
+    // del usuario. Comparacion directa contra request.auth.token.email, sin
+    // get() — necesario para que las consultas "list" sobre todos los
+    // usuarios (sin filtrar por usuario_uid) sean provables por Firestore.
+    function esControladorGastoChatIA() {
+      return estaAutenticado() && request.auth.token.email == 'atoledo@tesicnor.com';
+    }
+
     match /produccion/{trabajoId} {
       allow read, write: if estaAutenticado();
     }
@@ -87,6 +96,198 @@ service cloud.firestore {
       allow read, write: if estaAutenticado();
     }
 
+    // Chat IA: cada tecnico solo ve/gestiona sus propias conversaciones; admin
+    // puede leer cualquiera. Los mensajes 'assistant' (con coste/tokens) solo
+    // los escribe la Cloud Function (Admin SDK, que ignora estas reglas) — el
+    // cliente solo puede crear mensajes con rol == 'user'.
+    //
+    // Proyectos IA (ver bloque proyectos_ia mas abajo): un chat puede llevar
+    // ademas proyecto_id + una foto (proyecto_visibilidad/proyecto_modo_colaboracion)
+    // del proyecto al que pertenece, tomada en el momento de crear el chat.
+    // Esa foto es la que permite que un chat "grupal" de un proyecto publico
+    // sea legible/escribible por cualquier tecnico sin tener que hacer get()
+    // en una consulta "list" (ver el porque en el comentario de mas abajo,
+    // sobre collectionGroup('mensajes')). Si el propietario cambia despues la
+    // visibilidad/modo del proyecto, la Cloud Function reetiquetarChatsAlCambiarProyecto
+    // re-escribe esa foto en los chats existentes.
+    match /chats_ia/{chatId} {
+      // Comprueba que, si el chat que se esta creando declara pertenecer a un
+      // proyecto, quien lo crea tiene acceso a ese proyecto (dueño o proyecto
+      // publico) y que la foto de visibilidad/modo que lleva el chat coincide
+      // con la del proyecto real — evita que el cliente "invente" un chat
+      // grupal de un proyecto ajeno o privado.
+      function _creacionChatDeProyectoValida(datosChat) {
+        return !('proyecto_id' in datosChat) || datosChat.proyecto_id == null
+          || _proyectoAccesibleYCoherente(datosChat);
+      }
+      function _proyectoAccesibleYCoherente(datosChat) {
+        let proyecto = get(/databases/$(database)/documents/proyectos_ia/$(datosChat.proyecto_id)).data;
+        return (proyecto.propietario_uid == request.auth.uid || proyecto.visibilidad == 'publico')
+          && datosChat.proyecto_visibilidad == proyecto.visibilidad
+          && datosChat.proyecto_modo_colaboracion == proyecto.modo_colaboracion;
+      }
+      // Chat "grupal" de un proyecto publico: cualquier tecnico puede leerlo/
+      // escribirlo, igual que ya ocurre con el resto de colecciones de la app
+      // cuando algo se marca como visible para todo el equipo.
+      function _chatEsGrupalDeProyectoPublico() {
+        return resource.data.get('proyecto_visibilidad', '') == 'publico'
+          && resource.data.get('proyecto_modo_colaboracion', '') == 'grupal';
+      }
+      // proyecto_id/proyecto_visibilidad/proyecto_modo_colaboracion son la
+      // foto tomada al crear el chat: nadie los reescribe desde el cliente
+      // despues (solo la Cloud Function de reetiquetado, via Admin SDK).
+      function _camposProyectoChatSinCambios() {
+        let cambiados = request.resource.data.diff(resource.data).affectedKeys();
+        return !('proyecto_id' in cambiados) && !('proyecto_visibilidad' in cambiados)
+          && !('proyecto_modo_colaboracion' in cambiados);
+      }
+
+      // get (documento suelto) y list (consultas) separados a propósito: sin
+      // esto, el "|| isAdminSIN()" de abajo dejaría a CUALQUIER admin listar
+      // los chats de todos los usuarios sin filtrar, no solo a
+      // esControladorGastoChatIA() — lo cual iría más allá de lo pedido
+      // (esta sección es solo para atoledo@tesicnor.com). isAdminSIN() se
+      // mantiene para leer un chat suelto (uso ya existente antes de esto).
+      allow get: if estaAutenticado() && (
+        resource.data.usuario_uid == request.auth.uid || isAdminSIN() || esControladorGastoChatIA()
+        || _chatEsGrupalDeProyectoPublico()
+      );
+      allow list: if estaAutenticado() && (
+        resource.data.usuario_uid == request.auth.uid || esControladorGastoChatIA()
+        || _chatEsGrupalDeProyectoPublico()
+      );
+      allow create: if estaAutenticado()
+        && request.resource.data.usuario_uid == request.auth.uid
+        && _creacionChatDeProyectoValida(request.resource.data);
+      allow update: if estaAutenticado()
+        && (resource.data.usuario_uid == request.auth.uid || _chatEsGrupalDeProyectoPublico())
+        && _camposProyectoChatSinCambios();
+      allow delete: if estaAutenticado() && (
+        resource.data.usuario_uid == request.auth.uid || isAdminSIN()
+        || (resource.data.proyecto_id != null
+            && get(/databases/$(database)/documents/proyectos_ia/$(resource.data.proyecto_id)).data.propietario_uid == request.auth.uid)
+      );
+
+      match /mensajes/{mensajeId} {
+        // Un unico get() sobre el padre fijo chats_ia/$(chatId) — no es una
+        // consulta collectionGroup, asi que no tiene el problema de
+        // provabilidad del comentario de abajo; mismo patron que
+        // chatSessions/{sessionId}/messages en APP 2 (Tesic Lex), mas abajo
+        // en este mismo archivo.
+        function _chatPadreEsGrupalDeProyectoPublico() {
+          let datosChat = get(/databases/$(database)/documents/chats_ia/$(chatId)).data;
+          return datosChat.get('proyecto_visibilidad', '') == 'publico'
+            && datosChat.get('proyecto_modo_colaboracion', '') == 'grupal';
+        }
+        allow read: if estaAutenticado() && (
+          resource.data.usuario_uid == request.auth.uid || _chatPadreEsGrupalDeProyectoPublico()
+        );
+        allow create: if estaAutenticado()
+          && request.resource.data.usuario_uid == request.auth.uid
+          && request.resource.data.rol == 'user';
+        allow update, delete: if false;
+      }
+    }
+
+    // Regla dedicada para collectionGroup('mensajes') (panel de uso/coste):
+    // la regla anidada de arriba solo aplica a consultas dentro de una
+    // conversacion concreta (chats_ia/{chatId}/mensajes) — Firestore NO la
+    // usa para consultas collectionGroup(), que necesitan una regla propia
+    // con el comodin {path=**}. Tampoco lleva isAdminSIN(): una condicion OR
+    // con una llamada get() rompe la verificacion de consultas "list" y las
+    // deniega enteras; todo mensaje de una conversacion lleva el usuario_uid
+    // de su dueno, asi que la igualdad simple ya cubre el caso de uso real.
+    // (Los chats grupales de proyecto tampoco pasan por aqui: el panel de
+    // coste es un uso interno aparte, sin relacion con Proyectos IA.)
+    match /{path=**}/mensajes/{mensajeId} {
+      allow read: if estaAutenticado() && resource.data.usuario_uid == request.auth.uid;
+      // Regla aparte para el panel de gasto por usuario: sin esto, su
+      // consulta sobre TODOS los usuarios (sin filtrar por usuario_uid) no
+      // seria provable y Firestore la denegaria entera.
+      allow read: if esControladorGastoChatIA();
+    }
+
+    // Proyectos IA: agrupan varias conversaciones de chats_ia bajo unas
+    // instrucciones/contexto/memoria compartidos (ver chatConIA en
+    // functions/index.js para como se combinan en el system prompt).
+    // "publico" en esta app ya significa en el resto de colecciones
+    // "cualquier usuario autenticado" (no existe un sistema de membresia en
+    // ningun otro sitio) — se mantiene esa misma semantica aqui: un proyecto
+    // publico es visible/usable por cualquier tecnico, sin lista de
+    // miembros propia.
+    match /proyectos_ia/{proyectoId} {
+      function _esPropietarioProyecto() {
+        return resource.data.propietario_uid == request.auth.uid;
+      }
+      // Contenido editable (nombre/descripcion/instrucciones/contexto): el
+      // propietario siempre, y cualquier miembro si el proyecto es publico y
+      // el propietario ha activado permitir_edicion_miembros.
+      function _puedeEditarContenidoProyecto() {
+        return _esPropietarioProyecto()
+          || (resource.data.visibilidad == 'publico' && resource.data.permitir_edicion_miembros == true);
+      }
+      // propietario_uid/propietario_email son inmutables tras la creacion,
+      // para cualquiera (incluido el propio propietario) — no hay transferencia
+      // de propiedad.
+      function _propietarioInmutable() {
+        let cambiados = request.resource.data.diff(resource.data).affectedKeys();
+        return !('propietario_uid' in cambiados) && !('propietario_email' in cambiados);
+      }
+      // Configuracion de gobierno (visibilidad/modo de colaboracion/permiso
+      // de edicion a miembros): solo el propietario puede cambiarla, aunque
+      // un miembro con permitir_edicion_miembros==true pueda editar el resto
+      // del contenido en la misma pasada.
+      function _configuracionSoloPropietario() {
+        let cambiados = request.resource.data.diff(resource.data).affectedKeys();
+        return _esPropietarioProyecto() || (
+          !('visibilidad' in cambiados) && !('modo_colaboracion' in cambiados)
+          && !('permitir_edicion_miembros' in cambiados)
+        );
+      }
+      // memoria/num_mensajes_total: solo los escribe la Cloud Function
+      // (Admin SDK, que ignora estas reglas) — nadie los toca desde el cliente,
+      // ni siquiera el propietario, para que no se puedan falsificar.
+      function _memoriaSoloAdminSdk() {
+        let cambiados = request.resource.data.diff(resource.data).affectedKeys();
+        return !('memoria' in cambiados) && !('memoria_actualizada' in cambiados)
+          && !('num_mensajes_total' in cambiados)
+          && !('memoria_num_mensajes_en_ultima_actualizacion' in cambiados);
+      }
+
+      allow get: if estaAutenticado() && (
+        resource.data.visibilidad == 'publico' || _esPropietarioProyecto() || isAdminSIN()
+      );
+      allow list: if estaAutenticado() && (
+        resource.data.propietario_uid == request.auth.uid || resource.data.visibilidad == 'publico'
+      );
+      // Nota: NO se valida propietario_email contra request.auth.token.email
+      // — a diferencia del uid, el email de sesión puede no coincidir en
+      // mayusculas/minusculas con el que ve el cliente (visto en cuentas
+      // Microsoft), y aqui es solo un campo denormalizado para mostrar "creado
+      // por" sin necesitar un get() — mismo criterio que usuario_email en
+      // chats_ia, que tampoco se valida. La propiedad real la protege
+      // exclusivamente propietario_uid.
+      allow create: if estaAutenticado()
+        && request.resource.data.propietario_uid == request.auth.uid
+        && request.resource.data.visibilidad in ['privado', 'publico']
+        && request.resource.data.modo_colaboracion in ['individual', 'grupal']
+        && request.resource.data.permitir_edicion_miembros is bool
+        && request.resource.data.instrucciones.size() <= 8000
+        && request.resource.data.contexto_texto.size() <= 20000
+        && request.resource.data.contexto_archivos.size() <= 5
+        && request.resource.data.memoria == ''
+        && request.resource.data.num_mensajes_total == 0;
+      allow update: if estaAutenticado()
+        && _puedeEditarContenidoProyecto()
+        && _propietarioInmutable()
+        && _configuracionSoloPropietario()
+        && _memoriaSoloAdminSdk()
+        && request.resource.data.instrucciones.size() <= 8000
+        && request.resource.data.contexto_texto.size() <= 20000
+        && request.resource.data.contexto_archivos.size() <= 5;
+      allow delete: if estaAutenticado() && (_esPropietarioProyecto() || isAdminSIN());
+    }
+
 
     // =========================================================================
     // APP 2: TESIC LEX
@@ -119,6 +320,11 @@ service cloud.firestore {
     }
 
     match /sections/{sectionId} {
+      allow read: if isTecnico();
+      allow create, update, delete: if isResponsable();
+    }
+
+    match /sectionIcons/{iconId} {
       allow read: if isTecnico();
       allow create, update, delete: if isResponsable();
     }
@@ -202,6 +408,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Tabla de salud de conectores del buscador de Tesic Lex; escrita por
+    // comprobarEstadoFuentes / comprobarEstadoFuentesDiario (Cloud Functions).
+    match /fuentesEstado/{docId} {
+      allow read: if isTecnico();
+      allow write: if false;
+    }
+
     match /evaClients/{docId} {
       allow read, write: if isAdmin();
     }
@@ -239,32 +452,25 @@ service cloud.firestore {
 
     // =========================================================================
     // APP 3: CONTROL HORARIO (prefijo ch_)
+    // Acceso restringido al usuario admin único. Las Cloud Functions usan
+    // Admin SDK y bypasan estas reglas.
     // =========================================================================
 
     function isChAdmin() {
-      let adminsDoc = get(/databases/$(database)/documents/ch_config/admins);
       return estaAutenticado()
-        && adminsDoc.data != null
-        && request.auth.token.email in adminsDoc.data.emails;
+             && request.auth.token.email == 'atoledo@tesicnor.com';
     }
 
     match /ch_config/{configId} {
-      allow read: if estaAutenticado();
-      allow write: if isChAdmin();
+      allow read, write: if isChAdmin();
     }
 
     match /ch_trabajadores/{trabajadorId} {
-      allow read: if isChAdmin()
-               || (estaAutenticado()
-                   && resource.data.email == request.auth.token.email)
-               || (estaAutenticado()
-                   && resource.data.responsable_email == request.auth.token.email);
-      allow write: if isChAdmin();
+      allow read, write: if isChAdmin();
     }
 
     match /ch_calendarios/{calId} {
-      allow read: if estaAutenticado();
-      allow write: if isChAdmin();
+      allow read, write: if isChAdmin();
     }
 
     match /ch_envios_log/{logId} {
@@ -273,9 +479,7 @@ service cloud.firestore {
     }
 
     match /ch_auditoria/{auditId} {
-      allow read: if isChAdmin();
-      allow create: if estaAutenticado();
-      allow update, delete: if false;
+      allow read, write: if isChAdmin();
     }
 
 

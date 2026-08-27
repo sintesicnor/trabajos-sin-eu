@@ -75,5 +75,9 @@ node_modules/
 # service account keys / credentials
 keys/
 
+# Excel exports and local scripts with embedded SQL credentials — never commit
+data/
+scratch/
+
 # dataconnect generated files
 .dataconnect
