@@ -5611,6 +5611,9 @@
 
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
+                    // Rol ya resuelto en una ejecución anterior de esta sesión (si la hay), para no perderlo
+                    // si esta ejecución falla a mitad de camino por un error puntual (ver catch más abajo)
+                    const rolPrevioValido = currentUserRole;
                     try {
                         // 0+permisos en paralelo: técnicos y permisos_roles no dependen entre sí
                         const [tecSnap, permDoc] = await Promise.all([
@@ -5660,7 +5663,15 @@
                         }
                     } catch (e) {
                         console.error("Error obteniendo rol", e);
-                        currentUserRole = 'lectura';
+                        // No degradar silenciosamente un rol ya válido de esta sesión por un fallo puntual
+                        // (p.ej. de red) en esta ejecución: mantenerlo y avisar en vez de forzar 'lectura'.
+                        if (rolPrevioValido) {
+                            currentUserRole = rolPrevioValido;
+                            alert("⚠️ No se han podido actualizar tus permisos (error de conexión). Se mantiene tu rol anterior de esta sesión (" + rolPrevioValido + "). Si algo no se ve correctamente, recarga la página.");
+                        } else {
+                            currentUserRole = 'lectura';
+                            alert("⚠️ No se ha podido determinar tu rol de usuario por un error de conexión. Se te ha asignado acceso de solo lectura. Recarga la página para reintentarlo.");
+                        }
                     }
 
                     // Ocultar login y mostrar app principal
