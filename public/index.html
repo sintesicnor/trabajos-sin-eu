@@ -8193,11 +8193,22 @@
                 if (vbFil === 'si' && vbCliente !== 'si') return;
                 if (vbFil === 'no' && vbCliente === 'si') return;
 
+                // Mes seleccionado en la gráfica "Horas Asignadas" (clic sobre una
+                // barra): además de filtrar el Gantt (ver _renderProGantt), las
+                // tarjetas KPI de abajo se restringen al mismo criterio (Fecha Fin)
+                // para que muestren la info de ese mes en concreto. El propio
+                // histograma de barras y la construcción del Gantt NO se filtran
+                // aquí (siguen calculándose con todos los meses / se filtran ya en
+                // el render del Gantt) para no perder el resto de barras/meta.
+                const finMonthStr = extractDateInfo(prod.fecha_fin).m;
+                const finMonth = finMonthStr ? parseInt(finMonthStr, 10) : null;
+                const matchMes = !window._ganttMonthFilter || finMonth === window._ganttMonthFilter;
+
                 const ppto = parseSpanishNum(prod.presupuesto_m) || 0;
                 const gast = parseSpanishNum(prod.gastos_n) || 0;
                 // Facturación realizada: VB Cliente = "Si" y tiene fecha_ap
                 const fechaApStr = (prod.fecha_ap || '').trim();
-                if (vbCliente === 'si' && fechaApStr) {
+                if (matchMes && vbCliente === 'si' && fechaApStr) {
                     factRealizada += ppto;
 
                     // Facturación realizada por técnico (T1)
@@ -8213,7 +8224,7 @@
                     if (srv) srvFactRealizada[srv] = (srvFactRealizada[srv] || 0) + ppto;
                 }
                 // Facturación pendiente: solo presupuesto_m donde VB cliente NO es "Si"
-                if (vbCliente !== 'si') {
+                if (matchMes && vbCliente !== 'si') {
                     factPdte += ppto;
 
                     // Facturación pendiente por técnico (T1)
@@ -8252,9 +8263,9 @@
                 }
 
                 let pdteFila = hrsDisp - hTotalCalc;
-                if (pdteFila > 0) hrsPdte += pdteFila;
+                if (matchMes && pdteFila > 0) hrsPdte += pdteFila;
 
-                if (hrsDisp > 0) {
+                if (matchMes && hrsDisp > 0) {
                     sumPctUso += (hTotalCalc / hrsDisp) * 100;
                     countPctUso++;
                 }
@@ -8264,7 +8275,7 @@
                 if (prod.ejecutor_t1) ejecutores.push(prod.ejecutor_t1);
                 if (prod.apoyo_am) ejecutores.push(prod.apoyo_am);
                 if (prod.apoyo_an) ejecutores.push(prod.apoyo_an);
-                if (ejecutores.length > 0 && pdteFila > 0) {
+                if (matchMes && ejecutores.length > 0 && pdteFila > 0) {
                     let reps = pdteFila / ejecutores.length;
                     ejecutores.forEach(e => {
                         let check = typeof e === 'string' ? e.trim() : e;
@@ -8406,21 +8417,17 @@
                         if (!elements.length) return;
                         const clickedMonth = elements[0].index + 1;
                         window._ganttMonthFilter = window._ganttMonthFilter === clickedMonth ? null : clickedMonth;
-                        if (window._proGanttFull) _renderProGantt(window._proGanttFull, window._ganttMonthFilter);
-                        // Update bar colors
-                        const newColors = Array.from({ length: 12 }, (_, i) => {
-                            if (!window._ganttMonthFilter) return '#F38E00';
-                            return window._ganttMonthFilter === i + 1 ? '#F38E00' : '#F38E0044';
-                        });
-                        chartsObj.proMeses.data.datasets[0].backgroundColor = newColors;
-                        chartsObj.proMeses.update();
+                        // Recalcula todo (Gantt, colores de la barra y tarjetas KPI)
+                        // respetando el nuevo filtro de mes en vez de parchear solo
+                        // el Gantt: así las tarjetas de abajo también reflejan el mes.
+                        cargarDashboardProduccion();
                     },
                     plugins: { tooltip: { callbacks: {
                         // Formato español (punto de miles, coma decimal, un
                         // solo decimal): el tooltip por defecto de Chart.js
                         // usa el número JS tal cual, sin localizar.
                         label: (context) => `Horas Asignadas: ${_formatearHorasEs(context.parsed.y)}h`,
-                        footer: () => 'Clic para filtrar Gantt',
+                        footer: () => 'Clic para filtrar Gantt y tarjetas',
                     } } }
                 }
             });
