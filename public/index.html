@@ -7504,10 +7504,7 @@
         }
 
         function initFiltrosDashboard() {
-            const yOfe = document.getElementById('filt-ofe-year'); const yPro = document.getElementById('filt-pro-year');
-            const rble = document.getElementById('filt-pro-rble'); const t1 = document.getElementById('filt-pro-t1');
-            const t2 = document.getElementById('filt-pro-t2'); const t3 = document.getElementById('filt-pro-t3');
-            const srv = document.getElementById('filt-pro-srv');
+            const yOfe = document.getElementById('filt-ofe-year');
 
             // 1. Rango dinámico de años — solo años con datos reales en cada colección
             const ofeYears = new Set();
@@ -7532,24 +7529,32 @@
             if (proYears.size === 0) proYears.add(new Date().getFullYear());
 
             const ofeYHtml = [...ofeYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
-            const proYHtml = [...proYears].sort().map(y => `<option value="${y}">${y}</option>`).join('');
 
             if (yOfe && yOfe.children.length === 0) {
                 yOfe.innerHTML = ofeYHtml;
                 const cy = String(new Date().getFullYear());
                 Array.from(yOfe.options).forEach(o => { if (o.value === cy) o.selected = true; });
             }
-            if (yPro && yPro.children.length === 0) yPro.innerHTML = proYHtml;
+
+            // Filtros del dashboard de Producción: desplegables cerrados por
+            // defecto (ver poblarMiniDropdownSiVacio), no <select multiple>.
+            const proYItems = [...proYears].sort().map(y => ({ value: String(y), label: String(y) }));
+            poblarMiniDropdownSiVacio('dd-pro-year-panel', 'dd-pro-year-label', proYItems);
+
+            const mesItems = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+                .map((lbl, i) => ({ value: String(i + 1), label: lbl }));
+            poblarMiniDropdownSiVacio('dd-pro-month-panel', 'dd-pro-month-label', mesItems);
 
             // 2. Opciones de técnicos y servicio
-            const tecOpts = listaTecnicos.filter(t => t.prod !== false).map(t => `<option value="${t.acronimo}">${preferenciaTecnicos === 'nombre_pila' && t.nombre_pila ? t.nombre_pila : t.acronimo}</option>`).join('');
-            if (rble && rble.children.length === 0) rble.innerHTML = tecOpts;
-            if (t1 && t1.children.length === 0) t1.innerHTML = tecOpts;
-            if (t2 && t2.children.length === 0) t2.innerHTML = tecOpts;
-            if (t3 && t3.children.length === 0) t3.innerHTML = tecOpts;
+            const tecItems = listaTecnicos.filter(t => t.prod !== false)
+                .map(t => ({ value: t.acronimo, label: (preferenciaTecnicos === 'nombre_pila' && t.nombre_pila) ? t.nombre_pila : t.acronimo }));
+            poblarMiniDropdownSiVacio('dd-pro-rble-panel', 'dd-pro-rble-label', tecItems);
+            poblarMiniDropdownSiVacio('dd-pro-t1-panel', 'dd-pro-t1-label', tecItems);
+            poblarMiniDropdownSiVacio('dd-pro-t2-panel', 'dd-pro-t2-label', tecItems);
+            poblarMiniDropdownSiVacio('dd-pro-t3-panel', 'dd-pro-t3-label', tecItems);
 
-            const srvOpts = listaTiposServicio.map(s => `<option value="${s}">${s}</option>`).join('');
-            if (srv && srv.children.length === 0) srv.innerHTML = srvOpts;
+            const srvItems = listaTiposServicio.map(s => ({ value: s, label: s }));
+            poblarMiniDropdownSiVacio('dd-pro-srv-panel', 'dd-pro-srv-label', srvItems);
 
             // Agente comercial y Servicio del informe de ofertas — dinámicos desde datosOfertasMemoria
             const agenteOfe = document.getElementById('filt-ofe-agente');
@@ -8133,10 +8138,10 @@
             if (elKpis) elKpis.style.display = esRolRestringido ? 'none' : 'grid';
             if (elHorasMes) elHorasMes.style.display = esRolRestringido ? 'none' : '';
 
-            const yFil = getMulti('filt-pro-year'); const mFil = getMulti('filt-pro-month');
-            const rbleFil = getMulti('filt-pro-rble'); const t1Fil = getMulti('filt-pro-t1');
-            const t2Fil = getMulti('filt-pro-t2'); const t3Fil = getMulti('filt-pro-t3');
-            const srvFil = getMulti('filt-pro-srv');
+            const yFil = leerMiniDropdownValues('dd-pro-year-panel'); const mFil = leerMiniDropdownValues('dd-pro-month-panel');
+            const rbleFil = leerMiniDropdownValues('dd-pro-rble-panel'); const t1Fil = leerMiniDropdownValues('dd-pro-t1-panel');
+            const t2Fil = leerMiniDropdownValues('dd-pro-t2-panel'); const t3Fil = leerMiniDropdownValues('dd-pro-t3-panel');
+            const srvFil = leerMiniDropdownValues('dd-pro-srv-panel');
             const vbFil = (document.getElementById('filt-pro-vb')?.value || '').trim().toLowerCase();
 
             let factPdte = 0; let hrsPdte = 0;
@@ -8163,10 +8168,11 @@
                 });
             }
 
-            const matchTec = (val, filArr, selectId) => {
+            const matchTec = (val, filArr, panelId) => {
                 if (filArr.length === 0) return true;
-                const sel = document.getElementById(selectId);
-                if (sel && filArr.length === sel.options.length) return true;
+                const panel = document.getElementById(panelId);
+                const totalOpts = panel ? panel.querySelectorAll('input[type="checkbox"]').length : 0;
+                if (totalOpts > 0 && filArr.length === totalOpts) return true;
                 if (!val) return false;
                 const check = typeof val === 'string' ? val.trim() : val;
                 const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
@@ -8181,10 +8187,10 @@
 
                 if (!esRolRestringido) {
                     if (!checkDateMatch(prod.fecha_inicio, yFil, mFil)) return;
-                    if (!matchTec(prod.responsable_g, rbleFil, 'filt-pro-rble')) return;
-                    if (!matchTec(prod.ejecutor_t1, t1Fil, 'filt-pro-t1')) return;
-                    if (!matchTec(prod.apoyo_am, t2Fil, 'filt-pro-t2')) return;
-                    if (!matchTec(prod.apoyo_an, t3Fil, 'filt-pro-t3')) return;
+                    if (!matchTec(prod.responsable_g, rbleFil, 'dd-pro-rble-panel')) return;
+                    if (!matchTec(prod.ejecutor_t1, t1Fil, 'dd-pro-t1-panel')) return;
+                    if (!matchTec(prod.apoyo_am, t2Fil, 'dd-pro-t2-panel')) return;
+                    if (!matchTec(prod.apoyo_an, t3Fil, 'dd-pro-t3-panel')) return;
                     if (srvFil.length > 0 && !srvFil.includes((prod.tipo_servicio || '').trim())) return;
                 }
 
@@ -10412,9 +10418,12 @@
         });
 
         document.getElementById('btn-clear-dash-pro')?.addEventListener('click', () => {
-            ['filt-pro-year', 'filt-pro-month', 'filt-pro-rble', 'filt-pro-t1', 'filt-pro-t2', 'filt-pro-t3', 'filt-pro-srv'].forEach(id => {
-                const el = document.getElementById(id); if (el) Array.from(el.options).forEach(o => o.selected = false);
-            });
+            [
+                ['dd-pro-year-panel', 'dd-pro-year-label'], ['dd-pro-month-panel', 'dd-pro-month-label'],
+                ['dd-pro-rble-panel', 'dd-pro-rble-label'], ['dd-pro-t1-panel', 'dd-pro-t1-label'],
+                ['dd-pro-t2-panel', 'dd-pro-t2-label'], ['dd-pro-t3-panel', 'dd-pro-t3-label'],
+                ['dd-pro-srv-panel', 'dd-pro-srv-label'],
+            ].forEach(([panelId, labelId]) => limpiarMiniDropdown(panelId, labelId));
             const vb = document.getElementById('filt-pro-vb'); if (vb) vb.selectedIndex = 0;
             window._ganttMonthFilter = null;
             cargarDashboard();
@@ -13512,13 +13521,34 @@
                     <div id="panel-dash-produccion" style="display: block;">
                         <div id="dash-pro-filtros"
                             style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: nowrap; align-items: flex-end;">
-                            <div class="filter-group"><label>Año</label><div class="filter-wrap"><select id="filt-pro-year" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-year').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>Mes</label><div class="filter-wrap"><select id="filt-pro-month" class="multi-select" multiple><option value="1">Ene</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Abr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Ago</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dic</option></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-month').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>Téc. Rble.</label><div class="filter-wrap"><select id="filt-pro-rble" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-rble').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>Ejecutor (T1)</label><div class="filter-wrap"><select id="filt-pro-t1" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t1').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>T2 (Apoyo AM)</label><div class="filter-wrap"><select id="filt-pro-t2" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t2').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>T3 (Apoyo AN)</label><div class="filter-wrap"><select id="filt-pro-t3" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-t3').selectedIndex=-1;">✕</button></div></div>
-                            <div class="filter-group"><label>Servicio</label><div class="filter-wrap"><select id="filt-pro-srv" class="multi-select" multiple></select><button class="btn-clear-filter" title="Limpiar" onclick="document.getElementById('filt-pro-srv').selectedIndex=-1;">✕</button></div></div>
+                            <div class="filter-group"><label>Año</label><div style="position:relative;">
+                                <button type="button" id="dd-pro-year-btn" class="btn-secondary" style="height:36px;min-width:80px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-pro-year-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                <div id="dd-pro-year-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:100px;max-height:260px;overflow-y:auto;"></div>
+                            </div></div>
+                            <div class="filter-group"><label>Mes</label><div style="position:relative;">
+                                <button type="button" id="dd-pro-month-btn" class="btn-secondary" style="height:36px;min-width:90px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-pro-month-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                <div id="dd-pro-month-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:110px;max-height:260px;overflow-y:auto;"></div>
+                            </div></div>
+                            <div class="filter-group"><label>Téc. Rble.</label><div style="position:relative;">
+                                <button type="button" id="dd-pro-rble-btn" class="btn-secondary" style="height:36px;min-width:110px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-pro-rble-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                <div id="dd-pro-rble-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:160px;max-height:260px;overflow-y:auto;"></div>
+                            </div></div>
+                            <div class="filter-group"><label>Ejecutor (T1)</label><div style="position:relative;">
+                                <button type="button" id="dd-pro-t1-btn" class="btn-secondary" style="height:36px;min-width:110px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-pro-t1-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                <div id="dd-pro-t1-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:160px;max-height:260px;overflow-y:auto;"></div>
+                            </div></div>
+                            <div class="filter-group"><label>T2 (Apoyo AM)</label><div style="position:relative;">
+                                <button type="button" id="dd-pro-t2-btn" class="btn-secondary" style="height:36px;min-width:110px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-pro-t2-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                <div id="dd-pro-t2-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:160px;max-height:260px;overflow-y:auto;"></div>
+                            </div></div>
+                            <div class="filter-group"><label>T3 (Apoyo AN)</label><div style="position:relative;">
+                                <button type="button" id="dd-pro-t3-btn" class="btn-secondary" style="height:36px;min-width:110px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-pro-t3-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                <div id="dd-pro-t3-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:160px;max-height:260px;overflow-y:auto;"></div>
+                            </div></div>
+                            <div class="filter-group"><label>Servicio</label><div style="position:relative;">
+                                <button type="button" id="dd-pro-srv-btn" class="btn-secondary" style="height:36px;min-width:110px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-pro-srv-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                <div id="dd-pro-srv-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:180px;max-height:260px;overflow-y:auto;"></div>
+                            </div></div>
                             <div class="filter-group"><label>VB Cliente</label><select id="filt-pro-vb" class="multi-select"><option value="">Todos</option><option value="si">Si (Terminados)</option><option value="no" selected>No</option></select></div>
                             <div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">
                                 <button id="btn-update-dash-pro" class="btn-primary" style="height: 38px;">Aplicar</button>
@@ -13565,23 +13595,23 @@
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Horas Pdtes. por Técnico</div>
-                                <div id="kpi-pro-lista-tec" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
+                                <div id="kpi-pro-lista-tec" style="font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Fact. Pdte. por Técnico</div>
-                                <div id="kpi-pro-fact-tec" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
+                                <div id="kpi-pro-fact-tec" style="font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Fact. Pdte. por Servicio</div>
-                                <div id="kpi-pro-fact-srv" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
+                                <div id="kpi-pro-fact-srv" style="font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Fact. Realizada por Técnico</div>
-                                <div id="kpi-pro-fact-tec-real" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
+                                <div id="kpi-pro-fact-tec-real" style="font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;"></div>
                             </div>
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Fact. Realizada por Servicio</div>
-                                <div id="kpi-pro-fact-srv-real" style="max-height: 90px; overflow-y: auto; font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
+                                <div id="kpi-pro-fact-srv-real" style="font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
                             </div>
                         </div>
                     </div>
