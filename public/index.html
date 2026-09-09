@@ -630,8 +630,13 @@
             // Strip currency symbols, spaces, and non-numeric chars (except digits, comma, dot, minus)
             str = str.replace(/[€$£\s]/g, '').trim();
             if (!str) return 0;
-            // Si ya tiene punto como decimal o es formato inglés/puro
-            if (/^-?\d+\.\d+$/.test(str) && !str.includes(',')) return parseFloat(str);
+            // Punto como decimal (formato inglés) SOLO si va seguido de 1-2
+            // dígitos: un punto seguido de exactamente 3 dígitos es siempre un
+            // separador de miles en formato es-ES (p.ej. "60.000" = 60000,
+            // "1.117" = 1117), nunca un decimal de milésimas. Sin este límite,
+            // "60.000€" se leía como 60 en vez de 60000, encogiendo el
+            // denominador ~1000x e inflando el % de Uso en la misma proporción.
+            if (/^-?\d+\.\d{1,2}$/.test(str) && !str.includes(',')) return parseFloat(str);
             // Quitar puntos de millar, cambiar coma por punto
             str = str.replace(/\./g, '').replace(',', '.');
             const parsed = parseFloat(str);
@@ -8271,7 +8276,10 @@
                 let hrsDisp = 0;
                 if (trDom) {
                     const tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
-                    if (tdCalc) hTotalCalc = parseFloat(tdCalc.textContent) || hHist;
+                    // parseSpanishNum, no parseFloat: la celda usa formato es-ES
+                    // (punto de miles, coma decimal, p.ej. "1.117,3"); parseFloat
+                    // se detiene en la coma y da un valor ~1000 veces menor.
+                    if (tdCalc) hTotalCalc = parseSpanishNum(tdCalc.textContent) || hHist;
                     const tdPpto = trDom.querySelector('td[data-field="presupuesto_m"]');
                     const tdGast = trDom.querySelector('td[data-field="gastos_n"]');
                     const domPpto = (tdPpto ? parseSpanishNum(tdPpto.textContent) : 0) || ppto;
@@ -8368,7 +8376,7 @@
             const avgPctUso = countPctUso > 0 ? sumPctUso / countPctUso : 0;
             const elPctUso = document.getElementById('kpi-pro-pct-uso');
             if (elPctUso) {
-                elPctUso.textContent = fmtN.format(Math.round(avgPctUso)) + ' %';
+                elPctUso.textContent = formatPct(avgPctUso) + ' %';
                 let pctUsoColor = '#10b981';
                 if (avgPctUso > 95) pctUsoColor = '#ef4444';
                 else if (avgPctUso > 75) pctUsoColor = '#f97316';
@@ -8459,14 +8467,30 @@
         // VB Cliente y Facturado (si tiene Fecha Facturación / fecha_ar), y calcula
         // el promedio de % Uso de los trabajos que cumplen el filtro. ═══
         // Campo por el que se agrupan las filas (botón "⊞" en la cabecera de
-        // columna), o null para ver el detalle fila a fila.
+        // columna), o null para ver el detalle fila a fila. Al agrupar NO se
+        // sustituye la tabla por un resumen: se consolidan en una sola fila los
+        // trabajos con el mismo valor en esa columna (promediando el % Uso) y el
+        // resto de columnas se rellenan con los valores únicos de ese grupo, sin
+        // quitar ninguna columna.
         let tablaUsoGroupBy = null;
+        // Campo/dirección de ordenación activos (botón "⇅" de cada cabecera).
+        let tablaUsoSortField = 'pctUso';
+        let tablaUsoSortDir = 'desc';
         const TABLA_USO_GROUP_LABELS = { rble: 'Técnico Rble.', t1: 'T1', tipoServicio: 'Tipo Servicio', grupo: 'Grupo', cliente: 'Cliente' };
+        const TABLA_USO_SORT_FIELDS = ['numTrabajo', 'rble', 't1', 'tipoServicio', 'grupo', 'cliente', 'vb', 'facturado', 'pctUso'];
 
-        function pctUsoBadge(pct, fmtN) {
+        // % Uso siempre con 1 decimal, coma española y SIN separador de miles:
+        // un % de uso nunca debería alcanzar los miles, así que forzar
+        // useGrouping:false evita que un valor anómalo se lea como si el punto
+        // decimal fuera un punto de millar (p.ej. "111.735%" en vez de "111,7%").
+        function formatPct(pct) {
+            return pct.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false });
+        }
+
+        function pctUsoBadge(pct) {
             let color = '#e2e8f0'; let textColor = '#334155'; let label = '—';
             if (pct !== null) {
-                label = fmtN.format(Math.round(pct)) + '%';
+                label = formatPct(pct) + '%';
                 textColor = '#ffffff';
                 if (pct <= 50) color = '#10b981';
                 else if (pct <= 75) { color = '#facc15'; textColor = '#1e293b'; }
@@ -8474,6 +8498,25 @@
                 else color = '#ef4444';
             }
             return { color, textColor, label };
+        }
+
+        // Junta los valores únicos (no vacíos, en orden de aparición) de una
+        // columna dentro de un grupo consolidado, p.ej. ["JMR","JMR","AEL"] -> "JMR, AEL".
+        function tablaUsoUniqueJoin(values) {
+            const vistos = [];
+            values.forEach(v => {
+                const s = (v === null || v === undefined) ? '' : String(v).trim();
+                if (s && !vistos.includes(s)) vistos.push(s);
+            });
+            return vistos.join(', ');
+        }
+
+        function tablaUsoActualizarIconosOrden() {
+            TABLA_USO_SORT_FIELDS.forEach(field => {
+                const el = document.getElementById('sort-uso-' + field);
+                if (!el) return;
+                el.textContent = field === tablaUsoSortField ? (tablaUsoSortDir === 'asc' ? '▲' : '▼') : '⇅';
+            });
         }
 
         function cargarTablaUsoProduccion() {
@@ -8538,7 +8581,10 @@
                 const gast = parseSpanishNum(prod.gastos_n) || 0;
                 if (trDom) {
                     const tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
-                    if (tdCalc) hTotalCalc = parseFloat(tdCalc.textContent) || hHist;
+                    // parseSpanishNum, no parseFloat: la celda usa formato es-ES
+                    // (punto de miles, coma decimal, p.ej. "1.117,3"); parseFloat
+                    // se detiene en la coma y da un valor ~1000 veces menor.
+                    if (tdCalc) hTotalCalc = parseSpanishNum(tdCalc.textContent) || hHist;
                     const tdPpto = trDom.querySelector('td[data-field="presupuesto_m"]');
                     const tdGast = trDom.querySelector('td[data-field="gastos_n"]');
                     const domPpto = (tdPpto ? parseSpanishNum(tdPpto.textContent) : 0) || ppto;
@@ -8572,75 +8618,74 @@
             const avgPct = countPct > 0 ? sumPct / countPct : 0;
             const elAvg = document.getElementById('tabla-uso-promedio');
             if (elAvg) {
-                elAvg.textContent = fmtN.format(Math.round(avgPct)) + ' %';
+                elAvg.textContent = formatPct(avgPct) + ' %';
                 elAvg.style.color = avgPct > 95 ? '#ef4444' : avgPct > 75 ? '#f97316' : avgPct > 50 ? '#eab308' : '#10b981';
             }
             const elCount = document.getElementById('tabla-uso-count');
             if (elCount) elCount.textContent = fmtN.format(rows.length);
 
-            const wrapDetalle = document.getElementById('tabla-uso-detalle-wrap');
-            const wrapGrupo = document.getElementById('tabla-uso-grupo-wrap');
             const banner = document.getElementById('tabla-uso-group-banner');
 
+            // Filas a mostrar: en detalle, una por trabajo; agrupado, una por
+            // valor distinto de la columna elegida — consolidando los trabajos
+            // que comparten ese valor (% Uso = su promedio) sin quitar columnas:
+            // el resto de campos muestra los valores únicos que aportan al grupo.
+            let displayRows;
             if (tablaUsoGroupBy) {
-                // ── Vista agrupada: una fila por valor distinto del campo elegido ──
-                if (wrapDetalle) wrapDetalle.style.display = 'none';
-                if (wrapGrupo) wrapGrupo.style.display = 'block';
                 if (banner) banner.style.display = 'flex';
                 const groupLabelEl = document.getElementById('tabla-uso-group-label');
                 if (groupLabelEl) groupLabelEl.textContent = TABLA_USO_GROUP_LABELS[tablaUsoGroupBy] || tablaUsoGroupBy;
-                const thValor = document.getElementById('tabla-uso-grupo-th-valor');
-                if (thValor) thValor.textContent = TABLA_USO_GROUP_LABELS[tablaUsoGroupBy] || tablaUsoGroupBy;
-
-                const grupoBody = document.getElementById('tabla-uso-grupo-body');
-                if (!grupoBody) return;
-
-                if (rows.length === 0) {
-                    grupoBody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:16px;color:#94a3b8;">Sin resultados para los filtros seleccionados.</td></tr>';
-                    return;
-                }
 
                 const grupos = {};
+                const orden = [];
                 rows.forEach(r => {
                     const key = (r[tablaUsoGroupBy] || '').toString().trim() || '(Sin dato)';
-                    if (!grupos[key]) grupos[key] = { count: 0, sumPct: 0, countPct: 0 };
-                    grupos[key].count++;
-                    if (r.pctUso !== null) { grupos[key].sumPct += r.pctUso; grupos[key].countPct++; }
+                    if (!grupos[key]) { grupos[key] = []; orden.push(key); }
+                    grupos[key].push(r);
                 });
 
-                const claves = Object.keys(grupos).sort((a, b) => {
-                    const avgA = grupos[a].countPct > 0 ? grupos[a].sumPct / grupos[a].countPct : -1;
-                    const avgB = grupos[b].countPct > 0 ? grupos[b].sumPct / grupos[b].countPct : -1;
-                    return avgB - avgA;
+                displayRows = orden.map(key => {
+                    const miembros = grupos[key];
+                    const pctVals = miembros.map(m => m.pctUso).filter(v => v !== null);
+                    const avg = pctVals.length > 0 ? pctVals.reduce((s, v) => s + v, 0) / pctVals.length : null;
+                    return {
+                        numTrabajo: tablaUsoUniqueJoin(miembros.map(m => m.numTrabajo)),
+                        rble: tablaUsoUniqueJoin(miembros.map(m => m.rble)),
+                        t1: tablaUsoUniqueJoin(miembros.map(m => m.t1)),
+                        tipoServicio: tablaUsoUniqueJoin(miembros.map(m => m.tipoServicio)),
+                        grupo: tablaUsoUniqueJoin(miembros.map(m => m.grupo)),
+                        cliente: tablaUsoUniqueJoin(miembros.map(m => m.cliente)),
+                        vb: tablaUsoUniqueJoin(miembros.map(m => m.vb)),
+                        facturado: tablaUsoUniqueJoin(miembros.map(m => m.facturado)),
+                        pctUso: avg,
+                    };
                 });
-
-                grupoBody.innerHTML = claves.map(key => {
-                    const g = grupos[key];
-                    const avg = g.countPct > 0 ? g.sumPct / g.countPct : null;
-                    const badge = pctUsoBadge(avg, fmtN);
-                    return `<tr>
-                                <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(key)}</td>
-                                <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${fmtN.format(g.count)}</td>
-                                <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;font-weight:600;background-color:${badge.color};color:${badge.textColor};">${badge.label}</td>
-                            </tr>`;
-                }).join('');
-                return;
+            } else {
+                if (banner) banner.style.display = 'none';
+                displayRows = rows;
             }
 
-            // ── Vista detalle: una fila por trabajo ──
-            if (wrapDetalle) wrapDetalle.style.display = 'block';
-            if (wrapGrupo) wrapGrupo.style.display = 'none';
-            if (banner) banner.style.display = 'none';
-
-            if (rows.length === 0) {
+            if (displayRows.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:16px;color:#94a3b8;">Sin resultados para los filtros seleccionados.</td></tr>';
+                tablaUsoActualizarIconosOrden();
                 return;
             }
 
-            rows.sort((a, b) => (b.pctUso ?? -1) - (a.pctUso ?? -1));
+            displayRows.sort((a, b) => {
+                let cmp;
+                if (tablaUsoSortField === 'numTrabajo') {
+                    const na = parseInt(a.numTrabajo, 10); const nb = parseInt(b.numTrabajo, 10);
+                    cmp = (!isNaN(na) && !isNaN(nb)) ? na - nb : String(a.numTrabajo).localeCompare(String(b.numTrabajo), 'es');
+                } else if (tablaUsoSortField === 'pctUso') {
+                    cmp = (a.pctUso ?? -1) - (b.pctUso ?? -1);
+                } else {
+                    cmp = String(a[tablaUsoSortField] || '').localeCompare(String(b[tablaUsoSortField] || ''), 'es');
+                }
+                return tablaUsoSortDir === 'asc' ? cmp : -cmp;
+            });
 
-            tbody.innerHTML = rows.map(r => {
-                const badge = pctUsoBadge(r.pctUso, fmtN);
+            tbody.innerHTML = displayRows.map(r => {
+                const badge = pctUsoBadge(r.pctUso);
                 return `<tr>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(String(r.numTrabajo))}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.rble)}</td>
@@ -8649,10 +8694,12 @@
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.grupo)}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.cliente)}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${escapeHTML(r.vb)}</td>
-                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${r.facturado}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${escapeHTML(r.facturado)}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;font-weight:600;background-color:${badge.color};color:${badge.textColor};">${badge.label}</td>
                         </tr>`;
             }).join('');
+
+            tablaUsoActualizarIconosOrden();
         }
 
         function cargarDashboardPartes() {
@@ -10667,6 +10714,21 @@
         document.getElementById('btn-tabla-uso-quitar-grupo')?.addEventListener('click', () => {
             tablaUsoGroupBy = null;
             cargarTablaUsoProduccion();
+        });
+
+        // Botones "⇅" de cabecera: ordenan la tabla "% Uso por Trabajo" por esa columna
+        // (clic de nuevo sobre la misma columna invierte el sentido).
+        document.querySelectorAll('#dash-pro-tabla-uso .btn-sort-col').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const field = btn.dataset.field;
+                if (tablaUsoSortField === field) {
+                    tablaUsoSortDir = tablaUsoSortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    tablaUsoSortField = field;
+                    tablaUsoSortDir = 'asc';
+                }
+                cargarTablaUsoProduccion();
+            });
         });
 
         // ============================================
@@ -12993,8 +13055,8 @@
             overflow-y: auto;
         }
 
-        /* ── Botón "agrupar por esta columna" en la tabla % Uso por Trabajo ── */
-        .btn-group-col {
+        /* ── Botones "agrupar"/"ordenar por esta columna" en la tabla % Uso por Trabajo ── */
+        .btn-group-col, .btn-sort-col {
             border: none;
             background: transparent;
             color: #94a3b8;
@@ -13005,7 +13067,7 @@
             border-radius: 4px;
             vertical-align: middle;
         }
-        .btn-group-col:hover {
+        .btn-group-col:hover, .btn-sort-col:hover {
             background: #e2e8f0;
             color: #2176AC;
         }
@@ -13923,31 +13985,18 @@
                                 <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                                     <thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;">
                                         <tr>
-                                            <th style="padding: 8px 10px; text-align: left;">Nº Trabajo</th>
-                                            <th style="padding: 8px 10px; text-align: left;">Técnico Rble. <button class="btn-group-col" data-field="rble" title="Agrupar por Técnico Rble.">⊞</button></th>
-                                            <th style="padding: 8px 10px; text-align: left;">T1 <button class="btn-group-col" data-field="t1" title="Agrupar por T1">⊞</button></th>
-                                            <th style="padding: 8px 10px; text-align: left;">Tipo Servicio <button class="btn-group-col" data-field="tipoServicio" title="Agrupar por Tipo Servicio">⊞</button></th>
-                                            <th style="padding: 8px 10px; text-align: left;">Grupo <button class="btn-group-col" data-field="grupo" title="Agrupar por Grupo">⊞</button></th>
-                                            <th style="padding: 8px 10px; text-align: left;">Cliente <button class="btn-group-col" data-field="cliente" title="Agrupar por Cliente">⊞</button></th>
-                                            <th style="padding: 8px 10px; text-align: center;">VB Cliente</th>
-                                            <th style="padding: 8px 10px; text-align: center;">Facturado</th>
-                                            <th style="padding: 8px 10px; text-align: center;">% Uso</th>
+                                            <th style="padding: 8px 10px; text-align: left;">Nº Trabajo <button class="btn-sort-col" id="sort-uso-numTrabajo" data-field="numTrabajo" title="Ordenar">⇅</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">Técnico Rble. <button class="btn-group-col" data-field="rble" title="Agrupar por Técnico Rble.">⊞</button><button class="btn-sort-col" id="sort-uso-rble" data-field="rble" title="Ordenar">⇅</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">T1 <button class="btn-group-col" data-field="t1" title="Agrupar por T1">⊞</button><button class="btn-sort-col" id="sort-uso-t1" data-field="t1" title="Ordenar">⇅</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">Tipo Servicio <button class="btn-group-col" data-field="tipoServicio" title="Agrupar por Tipo Servicio">⊞</button><button class="btn-sort-col" id="sort-uso-tipoServicio" data-field="tipoServicio" title="Ordenar">⇅</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">Grupo <button class="btn-group-col" data-field="grupo" title="Agrupar por Grupo">⊞</button><button class="btn-sort-col" id="sort-uso-grupo" data-field="grupo" title="Ordenar">⇅</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">Cliente <button class="btn-group-col" data-field="cliente" title="Agrupar por Cliente">⊞</button><button class="btn-sort-col" id="sort-uso-cliente" data-field="cliente" title="Ordenar">⇅</button></th>
+                                            <th style="padding: 8px 10px; text-align: center;">VB Cliente <button class="btn-sort-col" id="sort-uso-vb" data-field="vb" title="Ordenar">⇅</button></th>
+                                            <th style="padding: 8px 10px; text-align: center;">Facturado <button class="btn-sort-col" id="sort-uso-facturado" data-field="facturado" title="Ordenar">⇅</button></th>
+                                            <th style="padding: 8px 10px; text-align: center;">% Uso <button class="btn-sort-col" id="sort-uso-pctUso" data-field="pctUso" title="Ordenar">⇅</button></th>
                                         </tr>
                                     </thead>
                                     <tbody id="tabla-uso-body"></tbody>
-                                </table>
-                            </div>
-
-                            <div id="tabla-uso-grupo-wrap" style="display: none; max-height: 420px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
-                                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                                    <thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;">
-                                        <tr>
-                                            <th id="tabla-uso-grupo-th-valor" style="padding: 8px 10px; text-align: left;">Valor</th>
-                                            <th style="padding: 8px 10px; text-align: center;">Nº Trabajos</th>
-                                            <th style="padding: 8px 10px; text-align: center;">Promedio % Uso</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="tabla-uso-grupo-body"></tbody>
                                 </table>
                             </div>
                         </div>
