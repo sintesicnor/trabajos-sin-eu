@@ -630,16 +630,27 @@
             // Strip currency symbols, spaces, and non-numeric chars (except digits, comma, dot, minus)
             str = str.replace(/[€$£\s]/g, '').trim();
             if (!str) return 0;
-            // Punto como decimal (formato inglés) SOLO si va seguido de 1-2
-            // dígitos: un punto seguido de exactamente 3 dígitos es siempre un
-            // separador de miles en formato es-ES (p.ej. "60.000" = 60000,
-            // "1.117" = 1117), nunca un decimal de milésimas. Sin este límite,
-            // "60.000€" se leía como 60 en vez de 60000, encogiendo el
-            // denominador ~1000x e inflando el % de Uso en la misma proporción.
-            if (/^-?\d+\.\d{1,2}$/.test(str) && !str.includes(',')) return parseFloat(str);
+            // Si ya tiene punto como decimal o es formato inglés/puro
+            if (/^-?\d+\.\d+$/.test(str) && !str.includes(',')) return parseFloat(str);
             // Quitar puntos de millar, cambiar coma por punto
             str = str.replace(/\./g, '').replace(',', '.');
             const parsed = parseFloat(str);
+            return isNaN(parsed) ? 0 : parsed;
+        }
+
+        // Parsea un número que ESTA MISMA APP acaba de renderizar con
+        // Intl.NumberFormat('es-ES', ...) (p.ej. formatHours: punto de miles,
+        // coma decimal, máx. 2 decimales) — a diferencia de parseSpanishNum, que
+        // tiene que adivinar el origen de un valor arbitrario (Excel, edición
+        // manual...), aquí el formato es 100% conocido y el punto SIEMPRE es
+        // separador de miles, sin ambigüedad posible. Úsalo solo para releer
+        // celdas del DOM que esta app formateó ella misma (p.ej. total_horas_calc);
+        // no lo uses con datos crudos de Firestore/Excel, para eso usa parseSpanishNum.
+        function parseEsFormattedNumber(str) {
+            if (!str) return 0;
+            const cleaned = String(str).trim().replace(/[€$£\s]/g, '');
+            if (!cleaned) return 0;
+            const parsed = parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
             return isNaN(parsed) ? 0 : parsed;
         }
 
@@ -8276,14 +8287,21 @@
                 let hrsDisp = 0;
                 if (trDom) {
                     const tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
-                    // parseSpanishNum, no parseFloat: la celda usa formato es-ES
-                    // (punto de miles, coma decimal, p.ej. "1.117,3"); parseFloat
-                    // se detiene en la coma y da un valor ~1000 veces menor.
-                    if (tdCalc) hTotalCalc = parseSpanishNum(tdCalc.textContent) || hHist;
+                    // parseEsFormattedNumber, no parseFloat ni parseSpanishNum:
+                    // esta celda la formatea esta misma app (formatHours, es-ES,
+                    // punto de miles, p.ej. "1.117,3"), así que el punto SIEMPRE
+                    // es separador de miles sin ambigüedad — parseFloat se
+                    // detendría en la coma (valor ~1000 veces menor), y
+                    // parseSpanishNum tiene que adivinar el origen del dato, cosa
+                    // que aquí no hace falta.
+                    if (tdCalc) hTotalCalc = parseEsFormattedNumber(tdCalc.textContent) || hHist;
                     const tdPpto = trDom.querySelector('td[data-field="presupuesto_m"]');
                     const tdGast = trDom.querySelector('td[data-field="gastos_n"]');
-                    const domPpto = (tdPpto ? parseSpanishNum(tdPpto.textContent) : 0) || ppto;
-                    const domGast = tdGast ? parseSpanishNum(tdGast.textContent) : gast;
+                    // Igual que tdCalc: estas celdas las formatea formatCurrency
+                    // (es-ES) esta misma app, así que parseEsFormattedNumber no
+                    // tiene que adivinar el origen del dato como parseSpanishNum.
+                    const domPpto = (tdPpto ? parseEsFormattedNumber(tdPpto.textContent) : 0) || ppto;
+                    const domGast = tdGast ? parseEsFormattedNumber(tdGast.textContent) : gast;
                     if (domPpto > 0 && costeHoraActual > 0) hrsDisp = (domPpto - domGast) / costeHoraActual;
                 } else if (ppto > 0 && costeHoraActual > 0) {
                     hrsDisp = (ppto - gast) / costeHoraActual;
@@ -8581,14 +8599,21 @@
                 const gast = parseSpanishNum(prod.gastos_n) || 0;
                 if (trDom) {
                     const tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
-                    // parseSpanishNum, no parseFloat: la celda usa formato es-ES
-                    // (punto de miles, coma decimal, p.ej. "1.117,3"); parseFloat
-                    // se detiene en la coma y da un valor ~1000 veces menor.
-                    if (tdCalc) hTotalCalc = parseSpanishNum(tdCalc.textContent) || hHist;
+                    // parseEsFormattedNumber, no parseFloat ni parseSpanishNum:
+                    // esta celda la formatea esta misma app (formatHours, es-ES,
+                    // punto de miles, p.ej. "1.117,3"), así que el punto SIEMPRE
+                    // es separador de miles sin ambigüedad — parseFloat se
+                    // detendría en la coma (valor ~1000 veces menor), y
+                    // parseSpanishNum tiene que adivinar el origen del dato, cosa
+                    // que aquí no hace falta.
+                    if (tdCalc) hTotalCalc = parseEsFormattedNumber(tdCalc.textContent) || hHist;
                     const tdPpto = trDom.querySelector('td[data-field="presupuesto_m"]');
                     const tdGast = trDom.querySelector('td[data-field="gastos_n"]');
-                    const domPpto = (tdPpto ? parseSpanishNum(tdPpto.textContent) : 0) || ppto;
-                    const domGast = tdGast ? parseSpanishNum(tdGast.textContent) : gast;
+                    // Igual que tdCalc: estas celdas las formatea formatCurrency
+                    // (es-ES) esta misma app, así que parseEsFormattedNumber no
+                    // tiene que adivinar el origen del dato como parseSpanishNum.
+                    const domPpto = (tdPpto ? parseEsFormattedNumber(tdPpto.textContent) : 0) || ppto;
+                    const domGast = tdGast ? parseEsFormattedNumber(tdGast.textContent) : gast;
                     if (domPpto > 0 && costeHoraActual > 0) hrsDisp = (domPpto - domGast) / costeHoraActual;
                 } else if (ppto > 0 && costeHoraActual > 0) {
                     hrsDisp = (ppto - gast) / costeHoraActual;
@@ -8885,7 +8910,11 @@
                 let hTotalCalc = hHist;
                 if (trDom) {
                     const tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
-                    if (tdCalc) hTotalCalc = parseFloat(tdCalc.textContent) || hHist;
+                    // parseEsFormattedNumber: la celda la formatea formatHours
+                    // (es-ES) esta misma app, así que el punto es siempre
+                    // separador de miles — parseFloat se detendría en la coma
+                    // decimal y daría un valor ~1000 veces menor.
+                    if (tdCalc) hTotalCalc = parseEsFormattedNumber(tdCalc.textContent) || hHist;
                 }
                 let pctUso = 0, pctColor = '#e2e8f0', pctTextColor = '#334155';
                 if (hrsDisp > 0) {
