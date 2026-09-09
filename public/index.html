@@ -7578,10 +7578,10 @@
             poblarMiniDropdownSiVacio('dd-uso-srv-panel', 'dd-uso-srv-label', srvItems);
             const grupoItems = [...new Set(datosProduccionMemoria.map(p => (p.grupo || '').trim()).filter(Boolean))]
                 .sort().map(g => ({ value: g, label: g }));
-            poblarMiniDropdownSiVacio('dd-uso-grupo-panel', 'dd-uso-grupo-label', grupoItems);
+            poblarMiniDropdownSiVacio('dd-uso-grupo-panel', 'dd-uso-grupo-label', grupoItems, { searchable: true });
             const clienteItems = [...new Set(datosProduccionMemoria.map(p => (p.cliente || '').trim()).filter(Boolean))]
                 .sort().map(c => ({ value: c, label: c }));
-            poblarMiniDropdownSiVacio('dd-uso-cliente-panel', 'dd-uso-cliente-label', clienteItems);
+            poblarMiniDropdownSiVacio('dd-uso-cliente-panel', 'dd-uso-cliente-label', clienteItems, { searchable: true });
 
             // Agente comercial y Servicio del informe de ofertas — dinámicos desde datosOfertasMemoria
             const agenteOfe = document.getElementById('filt-ofe-agente');
@@ -10004,13 +10004,49 @@
         // ═══ Mini-desplegable con casillas (cerrado por defecto), reutilizable ═══
         // Sustituye a los <select multiple>, que siempre se muestran como una lista
         // fija con scroll en vez de un desplegable que se abre/cierra.
-        function poblarMiniDropdownSiVacio(panelId, labelId, items) {
+        function poblarMiniDropdownSiVacio(panelId, labelId, items, opciones) {
+            const searchable = !!(opciones && opciones.searchable);
             const panel = document.getElementById(panelId);
             const label = document.getElementById(labelId);
             const btn = panel ? document.getElementById(panelId.replace('-panel', '-btn')) : null;
             if (!panel || !label || !btn) return;
 
             if (panel.childElementCount === 0) {
+                // Buscador (solo en desplegables "searchable": listas largas y con
+                // variantes de nombre, p.ej. Cliente/Grupo). A partir de 3 letras
+                // filtra las opciones visibles; "Marcar todos los visibles" permite
+                // seleccionar de golpe todas las variantes que coincidan con la
+                // búsqueda (p.ej. "acme" -> "ACME SA", "Acme S.A.", "Grupo Acme"...).
+                if (searchable) {
+                    const searchInput = document.createElement('input');
+                    searchInput.type = 'text';
+                    searchInput.placeholder = 'Escribe 3+ letras para buscar...';
+                    searchInput.style.cssText = 'display:block;position:sticky;top:0;width:100%;box-sizing:border-box;padding:5px 8px;font-size:12px;border:1px solid #cbd5e1;border-radius:4px;margin-bottom:6px;background:#fff;';
+                    searchInput.addEventListener('click', e => e.stopPropagation());
+                    const selectAllBtn = document.createElement('button');
+                    selectAllBtn.type = 'button';
+                    selectAllBtn.textContent = 'Marcar todos los visibles';
+                    selectAllBtn.style.cssText = 'display:none;position:sticky;top:29px;width:100%;margin-bottom:6px;padding:4px 6px;font-size:12px;background:#eff6ff;color:#2176AC;border:1px solid #bfdbfe;border-radius:4px;cursor:pointer;';
+                    searchInput.addEventListener('input', () => {
+                        const q = normTexto(searchInput.value);
+                        const activa = q.length >= 3;
+                        panel.querySelectorAll('label').forEach(lbl => {
+                            lbl.style.display = (!activa || normTexto(lbl.textContent).includes(q)) ? 'flex' : 'none';
+                        });
+                        selectAllBtn.style.display = activa ? 'block' : 'none';
+                    });
+                    selectAllBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        panel.querySelectorAll('label').forEach(lbl => {
+                            if (lbl.style.display === 'none') return;
+                            const cb = lbl.querySelector('input[type="checkbox"]');
+                            if (cb) cb.checked = true;
+                        });
+                        actualizarMiniDropdownLabel(panelId, labelId);
+                    });
+                    panel.appendChild(searchInput);
+                    panel.appendChild(selectAllBtn);
+                }
                 items.forEach(item => {
                     const lbl = document.createElement('label');
                     lbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:3px 0;white-space:nowrap;';
