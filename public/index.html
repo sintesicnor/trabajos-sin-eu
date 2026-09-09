@@ -7556,6 +7556,17 @@
             const srvItems = listaTiposServicio.map(s => ({ value: s, label: s }));
             poblarMiniDropdownSiVacio('dd-pro-srv-panel', 'dd-pro-srv-label', srvItems);
 
+            // Filtros de la tabla "% Uso por Trabajo" (debajo de las tarjetas KPI)
+            poblarMiniDropdownSiVacio('dd-uso-rble-panel', 'dd-uso-rble-label', tecItems);
+            poblarMiniDropdownSiVacio('dd-uso-t1-panel', 'dd-uso-t1-label', tecItems);
+            poblarMiniDropdownSiVacio('dd-uso-srv-panel', 'dd-uso-srv-label', srvItems);
+            const grupoItems = [...new Set(datosProduccionMemoria.map(p => (p.grupo || '').trim()).filter(Boolean))]
+                .sort().map(g => ({ value: g, label: g }));
+            poblarMiniDropdownSiVacio('dd-uso-grupo-panel', 'dd-uso-grupo-label', grupoItems);
+            const clienteItems = [...new Set(datosProduccionMemoria.map(p => (p.cliente || '').trim()).filter(Boolean))]
+                .sort().map(c => ({ value: c, label: c }));
+            poblarMiniDropdownSiVacio('dd-uso-cliente-panel', 'dd-uso-cliente-label', clienteItems);
+
             // Agente comercial y Servicio del informe de ofertas — dinámicos desde datosOfertasMemoria
             const agenteOfe = document.getElementById('filt-ofe-agente');
             const srvOfe    = document.getElementById('filt-ofe-servicio');
@@ -8134,9 +8145,11 @@
             const elFiltros = document.getElementById('dash-pro-filtros');
             const elKpis = document.getElementById('dash-pro-kpis');
             const elHorasMes = document.getElementById('dash-pro-horas-mes');
+            const elTablaUso = document.getElementById('dash-pro-tabla-uso');
             if (elFiltros) elFiltros.style.display = esRolRestringido ? 'none' : 'flex';
             if (elKpis) elKpis.style.display = esRolRestringido ? 'none' : 'grid';
             if (elHorasMes) elHorasMes.style.display = esRolRestringido ? 'none' : '';
+            if (elTablaUso) elTablaUso.style.display = esRolRestringido ? 'none' : 'block';
 
             const yFil = leerMiniDropdownValues('dd-pro-year-panel'); const mFil = leerMiniDropdownValues('dd-pro-month-panel');
             const rbleFil = leerMiniDropdownValues('dd-pro-rble-panel'); const t1Fil = leerMiniDropdownValues('dd-pro-t1-panel');
@@ -8437,6 +8450,145 @@
                     } } }
                 }
             });
+
+            if (!esRolRestringido) cargarTablaUsoProduccion();
+        }
+
+        // ═══ Tabla "% Uso por Trabajo" (debajo de las tarjetas KPI del informe de
+        // Producción): filtra por Téc. Rble., T1, Tipo Servicio, Grupo, Cliente,
+        // VB Cliente y Facturado (si tiene Fecha Facturación / fecha_ar), y calcula
+        // el promedio de % Uso de los trabajos que cumplen el filtro. ═══
+        function cargarTablaUsoProduccion() {
+            const tbody = document.getElementById('tabla-uso-body');
+            if (!tbody) return;
+
+            const rbleFil = leerMiniDropdownValues('dd-uso-rble-panel');
+            const t1Fil = leerMiniDropdownValues('dd-uso-t1-panel');
+            const srvFil = leerMiniDropdownValues('dd-uso-srv-panel');
+            const grupoFil = leerMiniDropdownValues('dd-uso-grupo-panel');
+            const clienteFil = leerMiniDropdownValues('dd-uso-cliente-panel');
+            const vbFil = (document.getElementById('sel-uso-vb')?.value || '').trim().toLowerCase();
+            const factFil = (document.getElementById('sel-uso-fact')?.value || '').trim().toLowerCase();
+
+            const matchTec = (val, filArr, panelId) => {
+                if (filArr.length === 0) return true;
+                const panel = document.getElementById(panelId);
+                const totalOpts = panel ? panel.querySelectorAll('input[type="checkbox"]').length : 0;
+                if (totalOpts > 0 && filArr.length === totalOpts) return true;
+                if (!val) return false;
+                const check = typeof val === 'string' ? val.trim() : val;
+                const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
+                return obj ? filArr.includes(obj.acronimo) : false;
+            };
+            const getAcr = (val) => {
+                if (!val) return '';
+                const check = typeof val === 'string' ? val.trim() : val;
+                const obj = listaTecnicos.find(t => t.acronimo === check || t.nombre_pila === check || t.nombre === check);
+                return obj ? obj.acronimo : check;
+            };
+
+            const rows = [];
+            let sumPct = 0; let countPct = 0;
+
+            datosProduccionMemoria.forEach(prod => {
+                if (prod.visible === false) return;
+                const numTrabajoVal = parseInt(prod.num_trabajo, 10);
+                if (isNaN(numTrabajoVal) || numTrabajoVal < 3000) return; // solo trabajos productivos, igual que la tabla principal
+
+                if (!matchTec(prod.responsable_g, rbleFil, 'dd-uso-rble-panel')) return;
+                if (!matchTec(prod.ejecutor_t1, t1Fil, 'dd-uso-t1-panel')) return;
+                if (srvFil.length > 0 && !srvFil.includes((prod.tipo_servicio || '').trim())) return;
+                if (grupoFil.length > 0 && !grupoFil.includes((prod.grupo || '').trim())) return;
+                if (clienteFil.length > 0 && !clienteFil.includes((prod.cliente || '').trim())) return;
+
+                const vbCliente = (prod.visto_vb_cliente || '').trim().toLowerCase();
+                if (vbFil === 'si' && vbCliente !== 'si') return;
+                if (vbFil === 'no' && vbCliente === 'si') return;
+
+                const tieneFact = !!(prod.fecha_ar || '').trim();
+                if (factFil === 'si' && !tieneFact) return;
+                if (factFil === 'no' && tieneFact) return;
+
+                // Igual que cargarDashboardProduccion: la tabla DOM refleja ediciones
+                // inline y es la fuente de verdad para horas calculadas.
+                const idT = prod.num_trabajo;
+                const hHist = parseSpanishNum(prod.total_horas_historico) || 0;
+                const trDom = document.querySelector(`#table-body tr[data-id="${idT}"]`);
+                let hTotalCalc = hHist;
+                let hrsDisp = 0;
+                const ppto = parseSpanishNum(prod.presupuesto_m) || 0;
+                const gast = parseSpanishNum(prod.gastos_n) || 0;
+                if (trDom) {
+                    const tdCalc = trDom.querySelector('td[data-field="total_horas_calc"]');
+                    if (tdCalc) hTotalCalc = parseFloat(tdCalc.textContent) || hHist;
+                    const tdPpto = trDom.querySelector('td[data-field="presupuesto_m"]');
+                    const tdGast = trDom.querySelector('td[data-field="gastos_n"]');
+                    const domPpto = (tdPpto ? parseSpanishNum(tdPpto.textContent) : 0) || ppto;
+                    const domGast = tdGast ? parseSpanishNum(tdGast.textContent) : gast;
+                    if (domPpto > 0 && costeHoraActual > 0) hrsDisp = (domPpto - domGast) / costeHoraActual;
+                } else if (ppto > 0 && costeHoraActual > 0) {
+                    hrsDisp = (ppto - gast) / costeHoraActual;
+                }
+
+                let pctUso = null;
+                if (hrsDisp > 0) {
+                    pctUso = (hTotalCalc / hrsDisp) * 100;
+                    sumPct += pctUso;
+                    countPct++;
+                }
+
+                rows.push({
+                    numTrabajo: prod.num_trabajo || '',
+                    rble: getAcr(prod.responsable_g),
+                    t1: getAcr(prod.ejecutor_t1),
+                    tipoServicio: prod.tipo_servicio || '',
+                    grupo: prod.grupo || '',
+                    cliente: prod.cliente || '',
+                    vb: prod.visto_vb_cliente || '',
+                    facturado: tieneFact ? 'Sí' : 'No',
+                    pctUso
+                });
+            });
+
+            const fmtN = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 });
+            const avgPct = countPct > 0 ? sumPct / countPct : 0;
+            const elAvg = document.getElementById('tabla-uso-promedio');
+            if (elAvg) {
+                elAvg.textContent = fmtN.format(Math.round(avgPct)) + ' %';
+                elAvg.style.color = avgPct > 95 ? '#ef4444' : avgPct > 75 ? '#f97316' : avgPct > 50 ? '#eab308' : '#10b981';
+            }
+            const elCount = document.getElementById('tabla-uso-count');
+            if (elCount) elCount.textContent = fmtN.format(rows.length);
+
+            if (rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:16px;color:#94a3b8;">Sin resultados para los filtros seleccionados.</td></tr>';
+                return;
+            }
+
+            rows.sort((a, b) => (b.pctUso ?? -1) - (a.pctUso ?? -1));
+
+            tbody.innerHTML = rows.map(r => {
+                let pctColor = '#e2e8f0'; let pctTextColor = '#334155'; let pctLabel = '—';
+                if (r.pctUso !== null) {
+                    pctLabel = fmtN.format(Math.round(r.pctUso)) + '%';
+                    pctTextColor = '#ffffff';
+                    if (r.pctUso <= 50) pctColor = '#10b981';
+                    else if (r.pctUso <= 75) { pctColor = '#facc15'; pctTextColor = '#1e293b'; }
+                    else if (r.pctUso <= 95) pctColor = '#f97316';
+                    else pctColor = '#ef4444';
+                }
+                return `<tr>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(String(r.numTrabajo))}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.rble)}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.t1)}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.tipoServicio)}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.grupo)}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.cliente)}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${escapeHTML(r.vb)}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${r.facturado}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;font-weight:600;background-color:${pctColor};color:${pctTextColor};">${pctLabel}</td>
+                        </tr>`;
+            }).join('');
         }
 
         function cargarDashboardPartes() {
@@ -10427,6 +10579,18 @@
             const vb = document.getElementById('filt-pro-vb'); if (vb) vb.selectedIndex = 0;
             window._ganttMonthFilter = null;
             cargarDashboard();
+        });
+
+        document.getElementById('btn-update-tabla-uso')?.addEventListener('click', cargarTablaUsoProduccion);
+        document.getElementById('btn-clear-tabla-uso')?.addEventListener('click', () => {
+            [
+                ['dd-uso-rble-panel', 'dd-uso-rble-label'], ['dd-uso-t1-panel', 'dd-uso-t1-label'],
+                ['dd-uso-srv-panel', 'dd-uso-srv-label'], ['dd-uso-grupo-panel', 'dd-uso-grupo-label'],
+                ['dd-uso-cliente-panel', 'dd-uso-cliente-label'],
+            ].forEach(([panelId, labelId]) => limpiarMiniDropdown(panelId, labelId));
+            const selVb = document.getElementById('sel-uso-vb'); if (selVb) selVb.selectedIndex = 0;
+            const selFact = document.getElementById('sel-uso-fact'); if (selFact) selFact.selectedIndex = 0;
+            cargarTablaUsoProduccion();
         });
 
         // ============================================
@@ -13612,6 +13776,68 @@
                             <div class="kpi-card" style="padding: 12px 16px;">
                                 <div class="kpi-title">Fact. Realizada por Servicio</div>
                                 <div id="kpi-pro-fact-srv-real" style="font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
+                            </div>
+                        </div>
+
+                        <div id="dash-pro-tabla-uso" class="chart-box" style="margin-bottom: 24px;">
+                            <h3 class="chart-title">% Uso por Trabajo</h3>
+                            <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: flex-end;">
+                                <div class="filter-group"><label>Téc. Rble.</label><div style="position:relative;">
+                                    <button type="button" id="dd-uso-rble-btn" class="btn-secondary" style="height:36px;min-width:110px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-uso-rble-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                    <div id="dd-uso-rble-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:160px;max-height:260px;overflow-y:auto;"></div>
+                                </div></div>
+                                <div class="filter-group"><label>T1</label><div style="position:relative;">
+                                    <button type="button" id="dd-uso-t1-btn" class="btn-secondary" style="height:36px;min-width:110px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-uso-t1-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                    <div id="dd-uso-t1-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:160px;max-height:260px;overflow-y:auto;"></div>
+                                </div></div>
+                                <div class="filter-group"><label>Tipo Servicio</label><div style="position:relative;">
+                                    <button type="button" id="dd-uso-srv-btn" class="btn-secondary" style="height:36px;min-width:130px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-uso-srv-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                    <div id="dd-uso-srv-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:180px;max-height:260px;overflow-y:auto;"></div>
+                                </div></div>
+                                <div class="filter-group"><label>Grupo</label><div style="position:relative;">
+                                    <button type="button" id="dd-uso-grupo-btn" class="btn-secondary" style="height:36px;min-width:130px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-uso-grupo-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                    <div id="dd-uso-grupo-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:180px;max-height:260px;overflow-y:auto;"></div>
+                                </div></div>
+                                <div class="filter-group"><label>Cliente</label><div style="position:relative;">
+                                    <button type="button" id="dd-uso-cliente-btn" class="btn-secondary" style="height:36px;min-width:140px;background:#fff;color:#334155;border-color:#cbd5e1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;font-size:13px;"><span id="dd-uso-cliente-label">Todos</span><span style="color:#94a3b8;">▾</span></button>
+                                    <div id="dd-uso-cliente-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;z-index:20;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:8px;min-width:200px;max-height:260px;overflow-y:auto;"></div>
+                                </div></div>
+                                <div class="filter-group"><label>VB Cliente</label><select id="sel-uso-vb" class="multi-select"><option value="">Todos</option><option value="si">Si</option><option value="no">No</option></select></div>
+                                <div class="filter-group"><label>Facturado</label><select id="sel-uso-fact" class="multi-select"><option value="">Todos</option><option value="si">Si</option><option value="no">No</option></select></div>
+                                <div style="display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;">
+                                    <button id="btn-update-tabla-uso" class="btn-primary" style="height: 36px;">Aplicar</button>
+                                    <button id="btn-clear-tabla-uso" class="btn-secondary" style="height: 36px; background: white; color: #475569; border-color: #cbd5e1;">Borrar</button>
+                                </div>
+                            </div>
+
+                            <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 12px; padding: 10px 16px; background: #f8fafc; border-radius: 8px;">
+                                <div>
+                                    <div style="font-size: 12px; color: #64748b; font-weight: 600;">Promedio % Uso</div>
+                                    <div id="tabla-uso-promedio" style="font-size: 24px; font-weight: 700; color: #10b981;">0 %</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 12px; color: #64748b; font-weight: 600;">Nº Trabajos</div>
+                                    <div id="tabla-uso-count" style="font-size: 24px; font-weight: 700; color: #334155;">0</div>
+                                </div>
+                            </div>
+
+                            <div style="max-height: 420px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                    <thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;">
+                                        <tr>
+                                            <th style="padding: 8px 10px; text-align: left;">Nº Trabajo</th>
+                                            <th style="padding: 8px 10px; text-align: left;">Técnico Rble.</th>
+                                            <th style="padding: 8px 10px; text-align: left;">T1</th>
+                                            <th style="padding: 8px 10px; text-align: left;">Tipo Servicio</th>
+                                            <th style="padding: 8px 10px; text-align: left;">Grupo</th>
+                                            <th style="padding: 8px 10px; text-align: left;">Cliente</th>
+                                            <th style="padding: 8px 10px; text-align: center;">VB Cliente</th>
+                                            <th style="padding: 8px 10px; text-align: center;">Facturado</th>
+                                            <th style="padding: 8px 10px; text-align: center;">% Uso</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tabla-uso-body"></tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
