@@ -8458,6 +8458,24 @@
         // Producción): filtra por Téc. Rble., T1, Tipo Servicio, Grupo, Cliente,
         // VB Cliente y Facturado (si tiene Fecha Facturación / fecha_ar), y calcula
         // el promedio de % Uso de los trabajos que cumplen el filtro. ═══
+        // Campo por el que se agrupan las filas (botón "⊞" en la cabecera de
+        // columna), o null para ver el detalle fila a fila.
+        let tablaUsoGroupBy = null;
+        const TABLA_USO_GROUP_LABELS = { rble: 'Técnico Rble.', t1: 'T1', tipoServicio: 'Tipo Servicio', grupo: 'Grupo', cliente: 'Cliente' };
+
+        function pctUsoBadge(pct, fmtN) {
+            let color = '#e2e8f0'; let textColor = '#334155'; let label = '—';
+            if (pct !== null) {
+                label = fmtN.format(Math.round(pct)) + '%';
+                textColor = '#ffffff';
+                if (pct <= 50) color = '#10b981';
+                else if (pct <= 75) { color = '#facc15'; textColor = '#1e293b'; }
+                else if (pct <= 95) color = '#f97316';
+                else color = '#ef4444';
+            }
+            return { color, textColor, label };
+        }
+
         function cargarTablaUsoProduccion() {
             const tbody = document.getElementById('tabla-uso-body');
             if (!tbody) return;
@@ -8560,6 +8578,60 @@
             const elCount = document.getElementById('tabla-uso-count');
             if (elCount) elCount.textContent = fmtN.format(rows.length);
 
+            const wrapDetalle = document.getElementById('tabla-uso-detalle-wrap');
+            const wrapGrupo = document.getElementById('tabla-uso-grupo-wrap');
+            const banner = document.getElementById('tabla-uso-group-banner');
+
+            if (tablaUsoGroupBy) {
+                // ── Vista agrupada: una fila por valor distinto del campo elegido ──
+                if (wrapDetalle) wrapDetalle.style.display = 'none';
+                if (wrapGrupo) wrapGrupo.style.display = 'block';
+                if (banner) banner.style.display = 'flex';
+                const groupLabelEl = document.getElementById('tabla-uso-group-label');
+                if (groupLabelEl) groupLabelEl.textContent = TABLA_USO_GROUP_LABELS[tablaUsoGroupBy] || tablaUsoGroupBy;
+                const thValor = document.getElementById('tabla-uso-grupo-th-valor');
+                if (thValor) thValor.textContent = TABLA_USO_GROUP_LABELS[tablaUsoGroupBy] || tablaUsoGroupBy;
+
+                const grupoBody = document.getElementById('tabla-uso-grupo-body');
+                if (!grupoBody) return;
+
+                if (rows.length === 0) {
+                    grupoBody.innerHTML = '<tr><td colspan="3" style="text-align:center;padding:16px;color:#94a3b8;">Sin resultados para los filtros seleccionados.</td></tr>';
+                    return;
+                }
+
+                const grupos = {};
+                rows.forEach(r => {
+                    const key = (r[tablaUsoGroupBy] || '').toString().trim() || '(Sin dato)';
+                    if (!grupos[key]) grupos[key] = { count: 0, sumPct: 0, countPct: 0 };
+                    grupos[key].count++;
+                    if (r.pctUso !== null) { grupos[key].sumPct += r.pctUso; grupos[key].countPct++; }
+                });
+
+                const claves = Object.keys(grupos).sort((a, b) => {
+                    const avgA = grupos[a].countPct > 0 ? grupos[a].sumPct / grupos[a].countPct : -1;
+                    const avgB = grupos[b].countPct > 0 ? grupos[b].sumPct / grupos[b].countPct : -1;
+                    return avgB - avgA;
+                });
+
+                grupoBody.innerHTML = claves.map(key => {
+                    const g = grupos[key];
+                    const avg = g.countPct > 0 ? g.sumPct / g.countPct : null;
+                    const badge = pctUsoBadge(avg, fmtN);
+                    return `<tr>
+                                <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(key)}</td>
+                                <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${fmtN.format(g.count)}</td>
+                                <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;font-weight:600;background-color:${badge.color};color:${badge.textColor};">${badge.label}</td>
+                            </tr>`;
+                }).join('');
+                return;
+            }
+
+            // ── Vista detalle: una fila por trabajo ──
+            if (wrapDetalle) wrapDetalle.style.display = 'block';
+            if (wrapGrupo) wrapGrupo.style.display = 'none';
+            if (banner) banner.style.display = 'none';
+
             if (rows.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:16px;color:#94a3b8;">Sin resultados para los filtros seleccionados.</td></tr>';
                 return;
@@ -8568,15 +8640,7 @@
             rows.sort((a, b) => (b.pctUso ?? -1) - (a.pctUso ?? -1));
 
             tbody.innerHTML = rows.map(r => {
-                let pctColor = '#e2e8f0'; let pctTextColor = '#334155'; let pctLabel = '—';
-                if (r.pctUso !== null) {
-                    pctLabel = fmtN.format(Math.round(r.pctUso)) + '%';
-                    pctTextColor = '#ffffff';
-                    if (r.pctUso <= 50) pctColor = '#10b981';
-                    else if (r.pctUso <= 75) { pctColor = '#facc15'; pctTextColor = '#1e293b'; }
-                    else if (r.pctUso <= 95) pctColor = '#f97316';
-                    else pctColor = '#ef4444';
-                }
+                const badge = pctUsoBadge(r.pctUso, fmtN);
                 return `<tr>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(String(r.numTrabajo))}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.rble)}</td>
@@ -8586,7 +8650,7 @@
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.cliente)}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${escapeHTML(r.vb)}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;">${r.facturado}</td>
-                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;font-weight:600;background-color:${pctColor};color:${pctTextColor};">${pctLabel}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;text-align:center;font-weight:600;background-color:${badge.color};color:${badge.textColor};">${badge.label}</td>
                         </tr>`;
             }).join('');
         }
@@ -10590,6 +10654,18 @@
             ].forEach(([panelId, labelId]) => limpiarMiniDropdown(panelId, labelId));
             const selVb = document.getElementById('sel-uso-vb'); if (selVb) selVb.selectedIndex = 0;
             const selFact = document.getElementById('sel-uso-fact'); if (selFact) selFact.selectedIndex = 0;
+            cargarTablaUsoProduccion();
+        });
+
+        // Botones "⊞" de cabecera: agrupan la tabla "% Uso por Trabajo" por esa columna.
+        document.querySelectorAll('#dash-pro-tabla-uso .btn-group-col').forEach(btn => {
+            btn.addEventListener('click', () => {
+                tablaUsoGroupBy = btn.dataset.field;
+                cargarTablaUsoProduccion();
+            });
+        });
+        document.getElementById('btn-tabla-uso-quitar-grupo')?.addEventListener('click', () => {
+            tablaUsoGroupBy = null;
             cargarTablaUsoProduccion();
         });
 
@@ -12917,6 +12993,23 @@
             overflow-y: auto;
         }
 
+        /* ── Botón "agrupar por esta columna" en la tabla % Uso por Trabajo ── */
+        .btn-group-col {
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            padding: 2px 4px;
+            border-radius: 4px;
+            vertical-align: middle;
+        }
+        .btn-group-col:hover {
+            background: #e2e8f0;
+            color: #2176AC;
+        }
+
         /* ── KPI Cards ── */
         .kpi-card {
             background: var(--surface);
@@ -13821,22 +13914,40 @@
                                 </div>
                             </div>
 
-                            <div style="max-height: 420px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                            <div id="tabla-uso-group-banner" style="display: none; align-items: center; gap: 10px; margin-bottom: 8px; padding: 8px 12px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; font-size: 13px; color: #1e40af;">
+                                Agrupado por <strong id="tabla-uso-group-label"></strong>
+                                <button id="btn-tabla-uso-quitar-grupo" class="btn-secondary" style="height: 26px; padding: 0 10px; font-size: 12px;">✕ Quitar agrupación</button>
+                            </div>
+
+                            <div id="tabla-uso-detalle-wrap" style="max-height: 420px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
                                 <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                                     <thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;">
                                         <tr>
                                             <th style="padding: 8px 10px; text-align: left;">Nº Trabajo</th>
-                                            <th style="padding: 8px 10px; text-align: left;">Técnico Rble.</th>
-                                            <th style="padding: 8px 10px; text-align: left;">T1</th>
-                                            <th style="padding: 8px 10px; text-align: left;">Tipo Servicio</th>
-                                            <th style="padding: 8px 10px; text-align: left;">Grupo</th>
-                                            <th style="padding: 8px 10px; text-align: left;">Cliente</th>
+                                            <th style="padding: 8px 10px; text-align: left;">Técnico Rble. <button class="btn-group-col" data-field="rble" title="Agrupar por Técnico Rble.">⊞</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">T1 <button class="btn-group-col" data-field="t1" title="Agrupar por T1">⊞</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">Tipo Servicio <button class="btn-group-col" data-field="tipoServicio" title="Agrupar por Tipo Servicio">⊞</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">Grupo <button class="btn-group-col" data-field="grupo" title="Agrupar por Grupo">⊞</button></th>
+                                            <th style="padding: 8px 10px; text-align: left;">Cliente <button class="btn-group-col" data-field="cliente" title="Agrupar por Cliente">⊞</button></th>
                                             <th style="padding: 8px 10px; text-align: center;">VB Cliente</th>
                                             <th style="padding: 8px 10px; text-align: center;">Facturado</th>
                                             <th style="padding: 8px 10px; text-align: center;">% Uso</th>
                                         </tr>
                                     </thead>
                                     <tbody id="tabla-uso-body"></tbody>
+                                </table>
+                            </div>
+
+                            <div id="tabla-uso-grupo-wrap" style="display: none; max-height: 420px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 6px;">
+                                <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                    <thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;">
+                                        <tr>
+                                            <th id="tabla-uso-grupo-th-valor" style="padding: 8px 10px; text-align: left;">Valor</th>
+                                            <th style="padding: 8px 10px; text-align: center;">Nº Trabajos</th>
+                                            <th style="padding: 8px 10px; text-align: center;">Promedio % Uso</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tabla-uso-grupo-body"></tbody>
                                 </table>
                             </div>
                         </div>
