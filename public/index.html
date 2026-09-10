@@ -8628,6 +8628,7 @@
 
                 rows.push({
                     numTrabajo: prod.num_trabajo || '',
+                    servicio: prod.servicio || '',
                     rble: getAcr(prod.responsable_g),
                     t1: getAcr(prod.ejecutor_t1),
                     tipoServicio: prod.tipo_servicio || '',
@@ -8675,6 +8676,7 @@
                     const avg = pctVals.length > 0 ? pctVals.reduce((s, v) => s + v, 0) / pctVals.length : null;
                     return {
                         numTrabajo: tablaUsoUniqueJoin(miembros.map(m => m.numTrabajo)),
+                        servicio: tablaUsoUniqueJoin(miembros.map(m => m.servicio)),
                         rble: tablaUsoUniqueJoin(miembros.map(m => m.rble)),
                         t1: tablaUsoUniqueJoin(miembros.map(m => m.t1)),
                         tipoServicio: tablaUsoUniqueJoin(miembros.map(m => m.tipoServicio)),
@@ -8712,7 +8714,7 @@
             tbody.innerHTML = displayRows.map(r => {
                 const badge = pctUsoBadge(r.pctUso);
                 return `<tr>
-                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(String(r.numTrabajo))}</td>
+                            <td style="padding:6px 10px;border-top:1px solid #f1f5f9;cursor:help;" title="${escapeHTML(r.servicio)}">${escapeHTML(String(r.numTrabajo))}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.rble)}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.t1)}</td>
                             <td style="padding:6px 10px;border-top:1px solid #f1f5f9;">${escapeHTML(r.tipoServicio)}</td>
