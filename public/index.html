@@ -613,6 +613,28 @@
             return s;
         }
 
+        // ── Parseo del timestamp "yyyy-MM-dd HH:mm:ss" que escribe sincronizar_partes.ps1 en ultima_sincro ──
+        function parseFechaHoraSincro(raw) {
+            if (!raw) return null;
+            const m = String(raw).trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+            if (!m) return null;
+            return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+        }
+
+        // ── Días laborables (lun-vie) estrictamente posteriores a `desde` y hasta `hasta` inclusive ──
+        function contarDiasLaborablesTranscurridos(desde, hasta) {
+            const cur = new Date(desde.getFullYear(), desde.getMonth(), desde.getDate());
+            const fin = new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate());
+            cur.setDate(cur.getDate() + 1);
+            let dias = 0;
+            while (cur <= fin) {
+                const dow = cur.getDay();
+                if (dow >= 1 && dow <= 5) dias++;
+                cur.setDate(cur.getDate() + 1);
+            }
+            return dias;
+        }
+
         // ── Resolución de técnico por id_tec (número del ERP) ──
         // El campo "trabajador" en partes_horas es un número (ej: "375")
         // que se cruza con el campo "id_tec" de cada técnico en listas_config/tecnicos
@@ -8763,6 +8785,34 @@
 
             const rawData = window._partesHorasData;
 
+            // Aviso de última sincronización ERP -> Firebase (independiente del año filtrado)
+            const sincroEl = document.getElementById('partes-ultima-sincro');
+            if (sincroEl) {
+                let maxSincro = null;
+                rawData.forEach(p => {
+                    const f = parseFechaHoraSincro(p.ultima_sincro);
+                    if (f && (!maxSincro || f > maxSincro)) maxSincro = f;
+                });
+                if (maxSincro) {
+                    const dd = String(maxSincro.getDate()).padStart(2, '0');
+                    const mm = String(maxSincro.getMonth() + 1).padStart(2, '0');
+                    const hh = String(maxSincro.getHours()).padStart(2, '0');
+                    const mi = String(maxSincro.getMinutes()).padStart(2, '0');
+                    const stale = contarDiasLaborablesTranscurridos(maxSincro, new Date()) > 1;
+                    sincroEl.textContent = `${dd}/${mm}/${maxSincro.getFullYear()} ${hh}:${mi}`;
+                    sincroEl.style.color = stale ? '#ef4444' : '#334155';
+                    sincroEl.style.fontWeight = stale ? '700' : '400';
+                    sincroEl.title = stale
+                        ? 'Aviso: los partes de trabajo llevan más de un día laborable sin sincronizarse desde el ERP'
+                        : 'Última sincronización de partes de trabajo desde el ERP';
+                } else {
+                    sincroEl.textContent = 'Sin datos';
+                    sincroEl.style.color = '#94a3b8';
+                    sincroEl.style.fontWeight = '400';
+                    sincroEl.title = '';
+                }
+            }
+
             function resolverTec(trabajadorStr) {
                 return resolverTecPorIdTec(trabajadorStr);
             }
@@ -14167,6 +14217,10 @@
                         <div style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
                             <div class="filter-group"><label>Año</label>
                                 <select id="filt-partes-year" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;min-width:100px;"></select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Sincronización</label>
+                                <span id="partes-ultima-sincro" style="padding:8px 0;font-size:13px;white-space:nowrap;">—</span>
                             </div>
                             <button id="btn-update-dash-partes" class="btn-primary" style="height: 38px;">Aplicar</button>
                         </div>
