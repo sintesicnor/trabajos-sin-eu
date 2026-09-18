@@ -758,9 +758,11 @@ const COL_MAP_PROD = {
     'fecha finalizacion': 'fecha_ap',       // cabecera real: "FECHA FINALIZACIÓN"
     'fecha facturacion': 'fecha_ar',        // cabecera real: "FECHA FACTURACION"
     'n fact': 'num_at',                     // cabecera real: "Nº Fact"
+    'total h 2024 2025': 'total_horas_historico', // cabecera real: "TOTAL H (2024 + 2025)"
 };
 
 const NUM_FIELDS     = new Set(['presupuesto_total', 'gastos_estimados', 'presupuesto_m', 'gastos_n',
+                                 'total_horas_historico',
                                  'ingresos_2026', 'ingresos_2027', 'ingresos_2028', 'ingresos_2029', 'ingresos_2030']);
 const DATE_FIELDS    = new Set(['fecha_oferta', 'fin_licitacion', 'fecha_inicio', 'fecha_fin', 'fecha_ap', 'fecha_ar']);
 const TEC_FIELDS     = new Set(['responsable_g', 'ejecutor_t1', 'apoyo_am', 'apoyo_an']);
