@@ -226,7 +226,7 @@
         const datosOfertasMemoria = [];
         let donutChart = null;
         let barChart = null;
-        let chartsObj = { ofeDonut: null, ofeAgentes: null, ofeAgentesImporte: null, ofeMensual: null, ofeAnual: null, proGantt: null, proMeses: null };
+        let chartsObj = { ofeDonut: null, ofeAgentes: null, ofeAgentesImporte: null, ofeMensual: null, ofeAnual: null, proGantt: null, proMeses: null, usoHorasTec: null };
 
         // Arrays globales listados
         let listaServicios = ['APQ', 'ATEX', 'AUTOPROTECCION', 'CSTMP', 'IMPLANTACION', 'INTERNO', 'LOTO', 'MEDIO AMBIENTE', 'OTROS', 'RD1215', 'RIESGOS', 'S. ELECTRICOS', 'SEVESO'];
@@ -8023,11 +8023,16 @@
             }
             if (ganttContainer) ganttContainer.style.width = ganttContentWidth + 'px';
 
-            // Sincroniza el header sticky con el scroll horizontal (listener único)
+            // Sincroniza header (fechas) y columna Y (Nº + nombre de trabajo)
+            // con el scroll del Gantt: el header sigue el scroll horizontal,
+            // la columna Y el vertical — ambos viven fuera de gantt-scroll-outer
+            // así que permanecen visibles mientras se hace scroll en el otro eje.
             if (ganttScrollOuter && !ganttScrollOuter._ganttSyncBound) {
                 ganttScrollOuter.addEventListener('scroll', () => {
                     const header = document.getElementById('gantt-sticky-header');
                     if (header) header.scrollLeft = ganttScrollOuter.scrollLeft;
+                    const yaxis = document.getElementById('gantt-yaxis');
+                    if (yaxis) yaxis.scrollTop = ganttScrollOuter.scrollTop;
                 });
                 ganttScrollOuter._ganttSyncBound = true;
             }
@@ -8091,13 +8096,13 @@
                             max: maxT || undefined
                         },
                         y: {
-                            ticks: {
-                                callback: function(value, index) {
-                                    const label = this.getLabelForValue(value);
-                                    return label.length > 25 ? label.substring(0, 22) + '...' : label;
-                                },
-                                font: { size: 11 }
-                            }
+                            // Las etiquetas (Nº + nombre) ya no se dibujan aquí: se
+                            // pintan en la columna HTML #gantt-yaxis (ver más abajo),
+                            // que queda fija al hacer scroll horizontal — cosa que un
+                            // eje dibujado dentro del propio canvas no puede hacer.
+                            ticks: { display: false },
+                            grid: { display: false },
+                            border: { display: false },
                         }
                     },
                     plugins: {
@@ -8153,49 +8158,24 @@
                     }
                 }
 
-                // Y-axis label tooltip (full text on hover)
-                const ganttCanvas = chartsObj.proGantt?.canvas;
-                if (ganttCanvas) {
-                    let tip = document.getElementById('_gantt-y-tip');
-                    if (!tip) {
-                        tip = document.createElement('div');
-                        tip.id = '_gantt-y-tip';
-                        tip.style.cssText = 'position:fixed;background:#1e293b;color:#fff;padding:5px 9px;border-radius:5px;font-size:12px;pointer-events:none;z-index:9999;display:none;max-width:360px;white-space:normal;line-height:1.4;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-                        document.body.appendChild(tip);
-                    }
-                    // Remove old listener to avoid duplicates
-                    if (ganttCanvas._yTipHandler) ganttCanvas.removeEventListener('mousemove', ganttCanvas._yTipHandler);
-                    if (ganttCanvas._yTipLeave) ganttCanvas.removeEventListener('mouseleave', ganttCanvas._yTipLeave);
-
-                    ganttCanvas._yTipHandler = (e) => {
-                        const chart = chartsObj.proGantt;
-                        if (!chart) return;
-                        const rect = ganttCanvas.getBoundingClientRect();
-                        const mx = e.clientX - rect.left;
-                        const my = e.clientY - rect.top;
-                        const chartArea = chart.chartArea;
-                        if (mx >= 0 && mx < chartArea.left) {
-                            const yScale = chart.scales.y;
-                            const labels = chart.data.labels;
-                            let best = -1, bestDist = Infinity;
-                            labels.forEach((_, i) => {
-                                const ly = yScale.getPixelForValue(i);
-                                const d = Math.abs(my - ly);
-                                if (d < bestDist) { bestDist = d; best = i; }
-                            });
-                            if (best >= 0 && bestDist < 18 && labels[best]) {
-                                tip.textContent = labels[best];
-                                tip.style.display = 'block';
-                                tip.style.left = (e.clientX + 14) + 'px';
-                                tip.style.top = (e.clientY - 8) + 'px';
-                                return;
-                            }
-                        }
-                        tip.style.display = 'none';
-                    };
-                    ganttCanvas._yTipLeave = () => tip.style.display = 'none';
-                    ganttCanvas.addEventListener('mousemove', ganttCanvas._yTipHandler);
-                    ganttCanvas.addEventListener('mouseleave', ganttCanvas._yTipLeave);
+                // Columna Y (Nº + nombre de trabajo), fija durante el scroll
+                // horizontal: una fila por etiqueta, centrada en el pixel exacto
+                // de su barra (yScale.getPixelForValue), no en un alto de fila
+                // asumido — así coincide siempre con Chart.js aunque cambie el
+                // padding interno del canvas. El texto completo va en title=
+                // (tooltip nativo del navegador) para las etiquetas truncadas.
+                const ganttYAxis = document.getElementById('gantt-yaxis');
+                if (ganttChart && ganttYAxis) {
+                    const yScale = ganttChart.scales.y;
+                    const totalH = ganttContainer ? parseInt(ganttContainer.style.height, 10) : 0;
+                    let htmlY = `<div style="position:relative;height:${totalH}px;">`;
+                    fl.forEach((label, i) => {
+                        const y = yScale.getPixelForValue(i);
+                        htmlY += `<div style="position:absolute;left:0;right:0;top:${y}px;transform:translateY(-50%);padding:0 10px;font-size:11px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHTML(label)}">${escapeHTML(label)}</div>`;
+                    });
+                    htmlY += '</div>';
+                    ganttYAxis.innerHTML = htmlY;
+                    ganttYAxis.scrollTop = ganttScrollOuter ? ganttScrollOuter.scrollTop : 0;
                 }
             }, 200);
         }
@@ -8583,6 +8563,67 @@
             });
         }
 
+        // Gráfica "Horas Restantes por Técnico" (encima de la tabla "% Uso por
+        // Trabajo"): barras horizontales ordenadas de mayor a menor — con
+        // hasta ~17 técnicos, evita el amontonamiento/rotación de etiquetas
+        // que darían barras verticales, y una sola serie no necesita leyenda
+        // (el título de la tarjeta ya la nombra).
+        function renderChartHorasRestantesTec(horasPorTec) {
+            const canvas = document.getElementById('chart-uso-horas-tec');
+            if (!canvas) return;
+            const wrapper = canvas.parentElement;
+
+            const entries = Object.entries(horasPorTec).sort((a, b) => b[1] - a[1]);
+
+            if (chartsObj.usoHorasTec) { chartsObj.usoHorasTec.destroy(); chartsObj.usoHorasTec = null; }
+
+            let msg = document.getElementById('chart-uso-horas-tec-empty');
+            if (entries.length === 0) {
+                canvas.style.display = 'none';
+                if (wrapper) wrapper.style.height = '80px';
+                if (!msg) {
+                    msg = document.createElement('div');
+                    msg.id = 'chart-uso-horas-tec-empty';
+                    msg.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:13px;';
+                    msg.textContent = 'Sin horas restantes para los filtros seleccionados.';
+                    wrapper.appendChild(msg);
+                }
+                msg.style.display = 'flex';
+                return;
+            }
+            canvas.style.display = '';
+            if (msg) msg.style.display = 'none';
+            if (wrapper) wrapper.style.height = Math.max(180, entries.length * 30 + 40) + 'px';
+
+            chartsObj.usoHorasTec = new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels: entries.map(e => e[0]),
+                    datasets: [{
+                        label: 'Horas Restantes',
+                        data: entries.map(e => Math.round(e[1] * 10) / 10),
+                        backgroundColor: '#F38E00',
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { callback: v => _formatearHorasEs(v) } },
+                        y: { grid: { display: false } },
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: {
+                            label: (context) => `Horas Restantes: ${_formatearHorasEs(context.parsed.x)}h`,
+                        } },
+                    },
+                }
+            });
+        }
+
         function cargarTablaUsoProduccion() {
             const tbody = document.getElementById('tabla-uso-body');
             if (!tbody) return;
@@ -8614,6 +8655,11 @@
 
             const rows = [];
             let sumPct = 0; let countPct = 0;
+            // Horas restantes por técnico: mismo criterio que tecHorasPdte en
+            // cargarDashboardProduccion (reparto entre Ejecutor T1/Apoyo AM/Apoyo
+            // AN, no el Responsable), pero sobre las filas que cumplen los
+            // filtros de ESTA tabla en vez de los del Gantt de más arriba.
+            const horasRestantesTec = {};
 
             datosProduccionMemoria.forEach(prod => {
                 if (prod.visible === false) return;
@@ -8674,6 +8720,18 @@
                     countPct++;
                 }
 
+                const pdteFila = hrsDisp - hTotalCalc;
+                if (pdteFila > 0) {
+                    const ejecutores = [prod.ejecutor_t1, prod.apoyo_am, prod.apoyo_an].filter(Boolean);
+                    if (ejecutores.length > 0) {
+                        const reps = pdteFila / ejecutores.length;
+                        ejecutores.forEach(e => {
+                            const acr = getAcr(e);
+                            if (acr) horasRestantesTec[acr] = (horasRestantesTec[acr] || 0) + reps;
+                        });
+                    }
+                }
+
                 rows.push({
                     numTrabajo: prod.num_trabajo || '',
                     servicio: prod.servicio || '',
@@ -8697,6 +8755,8 @@
             }
             const elCount = document.getElementById('tabla-uso-count');
             if (elCount) elCount.textContent = fmtN.format(rows.length);
+
+            renderChartHorasRestantesTec(horasRestantesTec);
 
             const banner = document.getElementById('tabla-uso-group-banner');
 
@@ -14022,9 +14082,14 @@
                         <div style="display: flex; flex-direction: column; height: calc(100vh - 200px); gap: 8px; margin-bottom: 24px;">
 
                             <div class="chart-box" style="flex: 1; min-height: 150px; overflow: hidden; display: flex; flex-direction: column; padding: 8px;">
-                                <div id="gantt-wrapper" style="flex: 1; border: 1px solid #f1f5f9; border-radius: 4px; position: relative; overflow: hidden;">
-                                    <div id="gantt-sticky-header" style="position: sticky; top: 0; z-index: 3; background: #fff; width: 100%; height: 32px; border-bottom: 1px solid #e2e8f0; overflow: hidden;"></div>
-                                    <div id="gantt-scroll-outer" style="overflow: auto; height: calc(100% - 32px); width: 100%;">
+                                <div id="gantt-wrapper" style="flex: 1; border: 1px solid #f1f5f9; border-radius: 4px; overflow: hidden; display: grid; grid-template-columns: 200px 1fr; grid-template-rows: 32px 1fr; min-height: 0;">
+                                    <div style="grid-column: 1; grid-row: 1; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; background: #fff;"></div>
+                                    <div id="gantt-sticky-header" style="grid-column: 2; grid-row: 1; background: #fff; border-bottom: 1px solid #e2e8f0; overflow: hidden;"></div>
+                                    <!-- Columna de etiquetas (Nº + nombre de trabajo) fija durante el scroll
+                                         horizontal: su scrollTop se sincroniza con gantt-scroll-outer (ver
+                                         _renderProGantt) igual que gantt-sticky-header sincroniza scrollLeft. -->
+                                    <div id="gantt-yaxis" style="grid-column: 1; grid-row: 2; overflow: hidden; border-right: 1px solid #e2e8f0; background: #fff; position: relative; min-height: 0;"></div>
+                                    <div id="gantt-scroll-outer" style="grid-column: 2; grid-row: 2; overflow: auto; min-height: 0;">
                                         <div id="gantt-scroll-container" style="min-width: 100%; position: relative;">
                                             <canvas id="chart-pro-gantt"></canvas>
                                         </div>
@@ -14075,6 +14140,11 @@
                                 <div class="kpi-title">Fact. Realizada por Servicio</div>
                                 <div id="kpi-pro-fact-srv-real" style="font-size: 12px; color: #334155; display: grid; grid-template-columns: 1fr; gap: 2px;"></div>
                             </div>
+                        </div>
+
+                        <div id="dash-pro-chart-horas-tec" class="chart-box" style="margin-bottom: 24px; padding: 8px 12px;">
+                            <h3 class="chart-title">Horas Restantes por Técnico</h3>
+                            <div style="width: 100%; height: 260px; position: relative;"><canvas id="chart-uso-horas-tec"></canvas></div>
                         </div>
 
                         <div id="dash-pro-tabla-uso" class="chart-box" style="margin-bottom: 24px;">
