@@ -5,6 +5,7 @@ const logger = require("firebase-functions/logger");
 const admin  = require("firebase-admin");
 const { FieldValue } = require("firebase-admin/firestore");
 const axios  = require("axios");
+const ExcelJS = require("exceljs");
 const { AnthropicVertex } = require("@anthropic-ai/vertex-sdk");
 const { GoogleGenAI } = require("@google/genai");
 const { getStorage } = require("firebase-admin/storage");
@@ -1123,5 +1124,231 @@ exports.scheduledSyncFromSharePoint = onSchedule({
         logger.info(`✅ Sync automática completada: ${result.ofertas} ofertas, ${result.produccion} producciones`);
     } catch (err) {
         logger.error("❌ Sync automática falló:", err.message, err.response?.data);
+    }
+});
+
+// ─── EXPORTACIÓN DIARIA: % USO → ARCHIVO EXCEL INDEPENDIENTE ──────────────────
+// Sustituye al borrador anterior (escritura celda a celda dentro del propio
+// Excel de producción). En vez de tocar PO04-REG03-2026.xlsm — el mismo que
+// se corrompió en el incidente del 2026-08-13 — cada noche se genera un
+// archivo NUEVO e independiente (SP_FILE_PCT_USO), en la misma biblioteca de
+// SharePoint, con solo dos columnas: Nº Trabajo y % Uso Web. El Excel de
+// producción no se abre en ningún momento en modo escritura.
+//
+// Cada ejecución RECONSTRUYE el archivo entero desde cero (sin PATCH
+// incremental): se genera un .xlsx nuevo en memoria con ExcelJS a partir de
+// Firestore y se sube como reemplazo completo vía Graph (PUT .../content,
+// que crea el archivo si no existe o lo reemplaza si ya existe). Así no hay
+// estado que pueda desincronizarse entre ejecuciones — cada noche es una
+// foto limpia.
+//
+// Para ver el % Uso junto al resto de columnas del Excel de producción,
+// cualquiera puede añadir una fórmula (XLOOKUP/BUSCARV) en ese libro
+// apuntando a este archivo — la automatización nunca escribe en el libro de
+// producción, así que ese paso es manual y a discreción de quien lo use.
+const SP_FILE_PCT_USO = "porcentajeuso.xlsx";
+
+// Replica en Node lo que hace parseSpanishNum() en public/index.html, para
+// que el cálculo del servidor coincida exactamente con el que ve el usuario
+// en la tabla "% Uso por Trabajo".
+function parseSpanishNumServer(val) {
+    if (val === undefined || val === null || val === '') return 0;
+    if (typeof val === 'number') return val;
+    let str = String(val).trim().replace(/[€$£\s]/g, '');
+    if (!str) return 0;
+    if (/^-?\d+\.\d+$/.test(str) && !str.includes(',')) return parseFloat(str);
+    str = str.replace(/\./g, '').replace(',', '.');
+    const parsed = parseFloat(str);
+    return isNaN(parsed) ? 0 : parsed;
+}
+
+// Replica la agregación de horas de cargarProduccion() en public/index.html
+// (mismos 3 fallbacks para extraer el Nº Trabajo de un parte de horas), pero
+// solo necesita el total por trabajo — no el desglose por técnico.
+function agregarHorasPorTrabajo(partesHoras) {
+    const horasAgregadas = {};
+    partesHoras.forEach(dataP => {
+        const horas = parseFloat(dataP.horas) || 0;
+        if (horas === 0) return;
+
+        let idTrabajo = null;
+        if (dataP.observaciones_crudas) {
+            const match = String(dataP.observaciones_crudas).trim().match(/^(\d{3,6})(?:\D|$)/);
+            if (match) idTrabajo = match[1];
+        }
+        if (!idTrabajo && dataP.observaciones) {
+            const match = String(dataP.observaciones).trim().match(/^(\d{3,6})(?:\D|$)/);
+            if (match) idTrabajo = match[1];
+        }
+        if (!idTrabajo && dataP.num_trabajo_vinculado) {
+            idTrabajo = String(dataP.num_trabajo_vinculado).trim();
+        }
+        if (!idTrabajo) return;
+
+        horasAgregadas[idTrabajo] = (horasAgregadas[idTrabajo] || 0) + horas;
+    });
+    return horasAgregadas;
+}
+
+// Calcula, para cada trabajo "productivo" (Nº Trabajo >= 3000, igual que la
+// tabla "% Uso por Trabajo" de la web), el mismo % Uso que ve el usuario ahí:
+// (horas históricas + horas de partes_horas) / horas disponibles. Devuelve
+// TODOS los trabajos productivos, ordenados por Nº Trabajo — con pctUso a
+// null cuando no hay horas disponibles (no se omite la fila: el archivo
+// exportado siempre lista todos los trabajos, con la celda en blanco cuando
+// no hay dato, igual que la web muestra "-").
+async function calcularFilasPctUso() {
+    const [prodSnap, partesSnap, settingsSnap] = await Promise.all([
+        db.collection('produccion').get(),
+        db.collection('partes_horas').get(),
+        db.doc('settings/global').get(),
+    ]);
+
+    const costeHora = parseFloat(settingsSnap.data()?.coste_hora) || 0;
+
+    const partesHoras = [];
+    partesSnap.forEach(d => partesHoras.push(d.data()));
+    const horasAgregadas = agregarHorasPorTrabajo(partesHoras);
+
+    const filas = [];
+    prodSnap.forEach(doc => {
+        const data = doc.data();
+        const numTrabajoStr = String(data.num_trabajo || '').trim();
+        const numTrabajoVal = parseInt(numTrabajoStr, 10);
+        if (!numTrabajoStr || isNaN(numTrabajoVal) || numTrabajoVal < 3000) return;
+
+        const hHist = parseSpanishNumServer(data.total_horas_historico);
+        const hNuevas = horasAgregadas[numTrabajoStr] || 0;
+        const hTotalCalc = hHist + hNuevas;
+
+        const presupuesto = parseSpanishNumServer(data.presupuesto_m);
+        const gastos = parseSpanishNumServer(data.gastos_n);
+        const hrsDisp = (presupuesto > 0 && costeHora > 0) ? (presupuesto - gastos) / costeHora : 0;
+
+        filas.push({
+            numTrabajo: numTrabajoVal,
+            // 1 decimal, igual que formatPct() en la web
+            pctUso: hrsDisp > 0 ? Math.round((hTotalCalc / hrsDisp) * 1000) / 10 : null,
+        });
+    });
+    filas.sort((a, b) => a.numTrabajo - b.numTrabajo);
+    return filas;
+}
+
+// Genera el .xlsx en memoria (dos columnas, sin fórmulas ni macros). El
+// número ya está en escala 0-100 (igual que en la web), así que el formato
+// de columna solo añade el símbolo "%" como texto — NO se usa el formato de
+// porcentaje nativo de Excel, que multiplicaría el valor por 100 otra vez.
+async function generarBufferExcelPctUso(filas) {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Gestor Departamento (exportación automática)";
+    wb.created = new Date();
+    const sheet = wb.addWorksheet("% Uso");
+    sheet.columns = [
+        { header: "Nº TRABAJO", key: "numTrabajo", width: 14 },
+        { header: "% USO WEB",  key: "pctUso",     width: 14 },
+    ];
+    sheet.getRow(1).font = { bold: true };
+    filas.forEach(f => sheet.addRow(f));
+    sheet.getColumn("pctUso").numFmt = '0.0"%"';
+    return wb.xlsx.writeBuffer();
+}
+
+// Sube el buffer como reemplazo completo del archivo (lo crea si no existe).
+async function subirExcelPctUsoASharePoint(token, siteId, driveId, buffer) {
+    const path = encodeURIComponent(SP_FILE_PCT_USO);
+    await axios.put(
+        `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root:/${path}:/content`,
+        buffer,
+        {
+            headers: {
+                Authorization: "Bearer " + token,
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            },
+            maxBodyLength: Infinity,
+        }
+    );
+}
+
+// Interruptor de emergencia propio de esta exportación (mismo patrón que
+// pull_pausado): metadata/sync_estado {export_pct_uso_pausado}.
+async function exportPctUsoPausado() {
+    const snap = await db.doc('metadata/sync_estado').get();
+    return !!snap.data()?.export_pct_uso_pausado;
+}
+
+async function runExportPctUsoExcel() {
+    if (await exportPctUsoPausado()) {
+        logger.warn('⏸️ Exportación % Uso → Excel pausada manualmente (metadata/sync_estado.export_pct_uso_pausado=true).');
+        return { pausado: true };
+    }
+
+    const filas  = await calcularFilasPctUso();
+    const buffer = await generarBufferExcelPctUso(filas);
+
+    const token = await getMsToken();
+    const { siteId, driveId } = await getSpIds(token);
+    await subirExcelPctUsoASharePoint(token, siteId, driveId, buffer);
+
+    const conValor = filas.filter(f => f.pctUso !== null).length;
+    logger.info(`✅ runExportPctUsoExcel: ${filas.length} trabajos exportados (${conValor} con % Uso calculado) → ${SP_FILE_PCT_USO}`);
+    return { trabajos: filas.length, conValor };
+}
+
+// ─── Preview: SOLO calcula, no sube nada (ni siquiera toca SharePoint) ───────
+// Pensado para validar los números antes de fiarse de la exportación real.
+exports.previewExportPctUsoExcel = onCall({
+    timeoutSeconds: 120,
+    memory:         "256MiB",
+}, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Debes estar autenticado.");
+
+    const filas = await calcularFilasPctUso();
+    const conValor = filas.filter(f => f.pctUso !== null).length;
+
+    logger.info(`🔍 previewExportPctUsoExcel (no sube nada): ${filas.length} trabajos, ${conValor} con % Uso calculado.`);
+
+    return {
+        archivoDestino:     SP_FILE_PCT_USO,
+        totalTrabajos:      filas.length,
+        conValorCalculado:  conValor,
+        sinValorCalculado:  filas.length - conValor,
+        muestra:            filas.slice(0, 30),
+    };
+});
+
+// ─── Disparo manual: genera y SUBE el archivo real (para probar bajo demanda,
+// sin esperar a las 3:00) ──────────────────────────────────────────────────
+exports.exportPctUsoExcel = onCall({
+    secrets:        SP_SECRETS,
+    timeoutSeconds: 120,
+    memory:         "256MiB",
+}, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Debes estar autenticado.");
+    try {
+        const result = await runExportPctUsoExcel();
+        logger.info(`✅ exportPctUsoExcel (manual): ${JSON.stringify(result)}`);
+        return result;
+    } catch (err) {
+        const detail = err.response?.data ? JSON.stringify(err.response.data).slice(0, 400) : '';
+        logger.error("❌ exportPctUsoExcel:", err.message, detail);
+        throw new HttpsError("internal", `Error exportando % Uso: ${err.message}`);
+    }
+});
+
+// ─── Tarea programada: todas las noches a las 3:00 (hora Madrid) ────────────
+exports.scheduledExportPctUsoExcel = onSchedule({
+    schedule:       "0 3 * * *",
+    timeZone:       "Europe/Madrid",
+    secrets:        SP_SECRETS,
+    timeoutSeconds: 120,
+    memory:         "256MiB",
+}, async () => {
+    logger.info("⏰ Iniciando exportación automática % Uso → Excel...");
+    try {
+        const result = await runExportPctUsoExcel();
+        logger.info(`✅ Exportación automática % Uso completada: ${JSON.stringify(result)}`);
+    } catch (err) {
+        logger.error("❌ Exportación automática % Uso falló:", err.message, err.response?.data);
     }
 });
