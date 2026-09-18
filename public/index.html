@@ -355,6 +355,29 @@
         };
 
         // Muestra todos los docs de produccion (o los que no tienen num_trabajo)
+        // Prueba manual de previewExportPctUsoExcel (solo lectura, no sube nada
+        // a SharePoint): calcula el % Uso desde Firestore y muestra un resumen
+        // + una muestra de filas para revisar los números antes de activar la
+        // exportación real.
+        window._debugPreviewPctUso = async function() {
+            const preview = httpsCallable(functions, 'previewExportPctUsoExcel');
+            const { data } = await preview();
+            console.log(`Archivo destino: ${data.archivoDestino}`);
+            console.log(`Total trabajos: ${data.totalTrabajos} | con % Uso calculado: ${data.conValorCalculado} | sin valor: ${data.sinValorCalculado}`);
+            console.table(data.muestra);
+            return data;
+        };
+
+        // Dispara la exportación REAL (genera y SUBE porcentajeuso.xlsx a
+        // SharePoint, reemplazando el archivo si ya existe). A diferencia de
+        // _debugPreviewPctUso, esta sí escribe en SharePoint.
+        window._debugExportPctUso = async function() {
+            const exportar = httpsCallable(functions, 'exportPctUsoExcel');
+            const { data } = await exportar();
+            console.log('Resultado exportación:', data);
+            return data;
+        };
+
         window._debugProduccion = async function(soloSinNumero = false) {
             const snap = await getDocs(collection(db, 'produccion'));
             console.log(`Total docs en produccion: ${snap.size}`);
@@ -4336,7 +4359,7 @@
                         else if (['T1', 'Agente Comercial', 'Técnico Rble.', 'Ejecutor (T1)', 'Apoyo (AM)', 'Apoyo (AN)'].some(t => originalText.includes(t))) {
                             options = listaTecnicos.filter(t => t.prod !== false).map(t => t.nombre_pila || t.acronimo);
                         } else if (originalText === 'Tipo Suministro') options = ['ARCO', 'LOTO'];
-                        else if (originalText.includes('VB Cliente')) options = ['SI', 'NO', '__empty__'];
+                        else if (originalText.includes('VB Cliente')) options = ['SI', 'NO', 'INTERNO', '__empty__'];
                         else if (originalText.includes('Tipo Exp.')) options = listaTiposExpediente;
                         else if (originalText.includes('Tipo Servicio')) options = listaTiposServicio;
                         else if (['Pertenece a Licitación', 'Es Licitación'].some(t => originalText.includes(t))) options = ['SI', 'NO'];
@@ -8246,9 +8269,10 @@
                 }
 
                 const vbCliente = (prod.visto_vb_cliente || '').trim().toLowerCase();
-                // Filtro VB Cliente
-                if (vbFil === 'si' && vbCliente !== 'si') return;
-                if (vbFil === 'no' && vbCliente === 'si') return;
+                // Filtro VB Cliente: INTERNO se equipara a SI (trabajos terminados)
+                const vbClienteFiltro = vbCliente === 'interno' ? 'si' : vbCliente;
+                if (vbFil === 'si' && vbClienteFiltro !== 'si') return;
+                if (vbFil === 'no' && vbClienteFiltro === 'si') return;
 
                 // Mes seleccionado en la gráfica "Horas Asignadas" (clic sobre una
                 // barra): además de filtrar el Gantt (ver _renderProGantt), las
@@ -8603,8 +8627,10 @@
                 if (clienteFil.length > 0 && !clienteFil.includes((prod.cliente || '').trim())) return;
 
                 const vbCliente = (prod.visto_vb_cliente || '').trim().toLowerCase();
-                if (vbFil === 'si' && vbCliente !== 'si') return;
-                if (vbFil === 'no' && vbCliente === 'si') return;
+                // Filtro VB Cliente: INTERNO se equipara a SI (trabajos terminados)
+                const vbClienteFiltro = vbCliente === 'interno' ? 'si' : vbCliente;
+                if (vbFil === 'si' && vbClienteFiltro !== 'si') return;
+                if (vbFil === 'no' && vbClienteFiltro === 'si') return;
 
                 const tieneFact = !!(prod.fecha_ar || '').trim();
                 if (factFil === 'si' && !tieneFact) return;
